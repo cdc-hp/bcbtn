@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   validate:
-    if: ${{ github.event.issue.title == '[DEV] Validate tracked source v0.4.0' }}
+    if: ${{ github.event.issue.title == '[DEV] Final Windows validation v0.4.0' }}
     runs-on: windows-latest
     steps:
       - name: Checkout feature branch
