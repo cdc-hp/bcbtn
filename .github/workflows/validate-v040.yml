@@ -1,16 +1,15 @@
 name: Validate v0.4.0 on Windows
 
 on:
-  issues:
-    types: [opened]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
-  issues: write
 
 jobs:
   validate:
-    if: ${{ github.event.issue.title == '[DEV] Final Windows validation v0.4.0' }}
+    if: ${{ github.head_ref == 'validate-v040-trigger' }}
     runs-on: windows-latest
     steps:
       - name: Checkout feature branch
@@ -65,12 +64,3 @@ jobs:
           path: |
             setup_output/GiamSatDichBenh-Setup-v0.4.0.exe
             dist/GiamSatDichBenh/**
-      - name: Report validation result
-        if: always()
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $status = "${{ job.status }}"
-          $body = "Windows validation v0.4.0: **$status**`n`nRun: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          gh issue comment "${{ github.event.issue.number }}" --body $body
