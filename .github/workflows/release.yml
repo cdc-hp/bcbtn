@@ -4,11 +4,12 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
   issues:
     types: [opened]
-  schedule:
-    - cron: "*/5 * * * *"
 
 permissions:
   contents: write
@@ -19,13 +20,14 @@ concurrency:
 
 jobs:
   build-windows:
-    if: ${{ github.event_name != 'issues' || github.event.issue.title == '[RELEASE] Build v0.3.0' }}
+    if: ${{ (github.event_name != 'issues' || github.event.issue.title == '[RELEASE] Build v0.3.0') && (github.event_name != 'pull_request' || github.head_ref == 'release-trigger-v0.3.0') }}
     runs-on: windows-latest
 
     steps:
-      - name: Checkout source
+      - name: Checkout source from main
         uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
 
       - name: Set up Python
@@ -134,7 +136,7 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a $tag $env:GITHUB_SHA -m "Release $tag"
+          git tag -a $tag HEAD -m "Release $tag"
           git push origin $tag
 
           gh release create $tag `
