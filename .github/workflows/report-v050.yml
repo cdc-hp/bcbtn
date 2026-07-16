@@ -1,0 +1,33 @@
+name: Report GSBTN v0.5.0 verification
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  actions: read
+  issues: write
+  contents: read
+
+jobs:
+  report:
+    if: ${{ github.event.issue.number == 16 && contains(github.event.comment.body, '[REPORT V050]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report latest Windows verification run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/verify-v050.yml/runs?per_page=5")
+          python - <<'PY' "$runs" > report.md
+          import json, sys
+          data = json.loads(sys.argv[1])
+          items = data.get('workflow_runs', [])
+          print('[V050 RUN REPORT]')
+          if not items:
+              print('Không tìm thấy workflow run.')
+          for item in items:
+              print(f"- run={item.get('id')} status={item.get('status')} conclusion={item.get('conclusion')} event={item.get('event')} sha={item.get('head_sha')}")
+          PY
+          gh issue comment 16 --repo "$GITHUB_REPOSITORY" --body-file report.md
