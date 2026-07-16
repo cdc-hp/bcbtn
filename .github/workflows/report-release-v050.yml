@@ -1,0 +1,30 @@
+name: Report GSBTN v0.5.0 release
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  actions: read
+  issues: write
+  contents: read
+
+jobs:
+  report:
+    if: ${{ github.event.issue.number == 16 && contains(github.event.comment.body, '[REPORT RELEASE V050]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report latest release workflow runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/runs?per_page=5")
+          python - <<'PY' "$runs" > report.md
+          import json, sys
+          data = json.loads(sys.argv[1])
+          print('[V050 RELEASE REPORT]')
+          for item in data.get('workflow_runs', []):
+              print(f"- run={item.get('id')} status={item.get('status')} conclusion={item.get('conclusion')} event={item.get('event')} sha={item.get('head_sha')}")
+          PY
+          gh issue comment 16 --repo "$GITHUB_REPOSITORY" --body-file report.md
