@@ -1,0 +1,44 @@
+name: Diagnose Windows tests
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  diagnose:
+    if: ${{ github.head_ref == 'release-trigger-v0.3.0' }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        shell: pwsh
+        run: pip install -r requirements.txt
+      - name: Run tests and post full result
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $output = & python -m pytest -q --tb=short 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          $body = @"
+          ## Windows pytest diagnostic
+
+          Exit code: `$code`
+
+          ```text
+          $output
+          ```
+          "@
+          $body | Set-Content pytest-comment.md -Encoding utf8
+          gh issue comment 2 --body-file pytest-comment.md
+          if ($code -ne 0) { exit $code }
