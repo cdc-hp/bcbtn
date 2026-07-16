@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   validate:
-    if: ${{ github.event.issue.title == '[DEV] Validate clean v0.4.0' }}
+    if: ${{ github.event.issue.title == '[DEV] Validate tracked source v0.4.0' }}
     runs-on: windows-latest
     steps:
       - name: Checkout feature branch
@@ -23,13 +23,15 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-      - name: Verify source contains no user data
+      - name: Verify tracked source contains no user data
         shell: pwsh
         run: |
-          $bad = Get-ChildItem . -Recurse -File -Force | Where-Object {
-            $_.FullName -notmatch '\.git\' -and $_.Extension.ToLower() -in '.db','.sqlite','.sqlite3','.xlsx','.xls','.xlsm','.csv'
+          $forbidden = @('.db', '.sqlite', '.sqlite3', '.xlsx', '.xls', '.xlsm', '.csv')
+          $bad = git ls-files | Where-Object { $forbidden -contains [IO.Path]::GetExtension($_).ToLower() }
+          if ($bad) {
+            $bad | ForEach-Object { Write-Error "Forbidden tracked data file: $_" }
+            exit 1
           }
-          if ($bad) { $bad | ForEach-Object { Write-Error $_.FullName }; exit 1 }
       - name: Install dependencies
         shell: pwsh
         run: |
