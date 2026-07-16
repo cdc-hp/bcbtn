@@ -91,9 +91,9 @@ jobs:
           print('Verified patch SHA-256:', digest)
       - name: Apply patch
         run: |
-          git apply --check v050.patch
-          git apply v050.patch
-          rm -f v050.patch comments.json .v050-diagnostic.txt
+          git apply --check --ignore-space-change --ignore-whitespace v050.patch
+          git apply --ignore-space-change --ignore-whitespace v050.patch
+          rm -f v050.patch comments.json .v050-diagnostic.txt .v050-ping.txt .v050-apply-stage.txt
       - name: Compile sources
         run: python -m py_compile app.py core.py deployment_config.py lan_server.py remote_core.py lan_discovery.py backup_manager.py duplicate_config.py
       - name: Verify no user data
