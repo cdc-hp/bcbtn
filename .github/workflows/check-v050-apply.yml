@@ -1,0 +1,89 @@
+name: Check GSBTN v0.5.0 apply
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: read
+
+jobs:
+  check:
+    if: ${{ github.event.issue.number == 16 && contains(github.event.comment.body, '[CHECK VERIFIED V050]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/lan-duplicates-backup
+          fetch-depth: 0
+      - name: Read comments
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api "repos/$GITHUB_REPOSITORY/issues/16/comments?per_page=100" > comments.json
+      - name: Reconstruct patch
+        shell: python
+        run: |
+          import hashlib, json, re
+          from pathlib import Path
+          comments = json.loads(Path('comments.json').read_text(encoding='utf-8'))
+          parts = {}
+          def append(n, text):
+              old = parts.get(n, '')
+              if old and not old.endswith('\n') and text:
+                  old += '\n'
+              parts[n] = old + text
+          for comment in comments:
+              lines = str(comment.get('body') or '').splitlines(keepends=True)
+              if not lines:
+                  continue
+              marker, content = lines[0].strip(), ''.join(lines[1:])
+              m = re.fullmatch(r'GSBTN_V050_DIFF (\d+)/0?9', marker)
+              if m and int(m.group(1)) not in parts:
+                  parts[int(m.group(1))] = content; continue
+              m = re.fullmatch(r'GSBTN_V050_DIFF_CONT (\d+)/0?9', marker)
+              if m:
+                  append(int(m.group(1)), content); continue
+              m = re.fullmatch(r'GSBTN_V050_DIFF_REPLACE (\d+)/0?9', marker)
+              if m:
+                  n = int(m.group(1))
+                  if n == 9:
+                      fixed, stripping = [], False
+                      for line in content.splitlines(keepends=True):
+                          if line.startswith('+--- /dev/null'):
+                              stripping = True
+                          if stripping and line.startswith('+'):
+                              line = line[1:]
+                          fixed.append(line)
+                      content = ''.join(fixed)
+                  parts[n] = content; continue
+              m = re.fullmatch(r'GSBTN_V050_DIFF_CONT_PLUS1 (\d+)/0?9', marker)
+              if m:
+                  fixed = ''.join(line[1:] if line.startswith('+') else line for line in content.splitlines(keepends=True))
+                  append(int(m.group(1)), fixed)
+          patch = ''
+          for n in range(1, 10):
+              if patch and not patch.endswith('\n'):
+                  patch += '\n'
+              patch += parts.get(n, '')
+          Path('v050.patch').write_text(patch, encoding='utf-8', newline='\n')
+          Path('.v050-apply-stage.txt').write_text(
+              'sha256=' + hashlib.sha256(Path('v050.patch').read_bytes()).hexdigest() + '\n', encoding='utf-8'
+          )
+      - name: Check patch and save result
+        shell: bash
+        run: |
+          set +e
+          git apply --check --verbose v050.patch > apply-output.txt 2>&1
+          code=$?
+          {
+            cat .v050-apply-stage.txt
+            echo "exit_code=$code"
+            cat apply-output.txt
+          } > .v050-apply-stage.tmp
+          mv .v050-apply-stage.tmp .v050-apply-stage.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .v050-apply-stage.txt
+          git commit -m "Ghi kết quả kiểm tra git apply v0.5.0"
+          git push origin HEAD:agent/lan-duplicates-backup
