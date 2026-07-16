@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "0.4.0"
+  #define MyAppVersion "0.5.0"
 #endif
 
 #define MyAppName "Giám sát dịch bệnh"
@@ -81,8 +81,10 @@ begin
     'Cổng và mật khẩu kết nối LAN',
     'Mật khẩu để trống nghĩa là máy trạm không cần mật khẩu. Khi Windows hỏi tường lửa, chỉ cho phép mạng Riêng tư.'
   );
+  ServerPage.Add('Tên máy chủ hiển thị:', False);
+  ServerPage.Values[0] := GetComputerNameString;
   ServerPage.Add('Cổng LAN:', False);
-  ServerPage.Values[0] := '8765';
+  ServerPage.Values[1] := '8765';
   ServerPage.Add('Mật khẩu máy trạm (không bắt buộc):', True);
 
   WorkstationPage := CreateInputQueryPage(
@@ -112,7 +114,7 @@ begin
   Result := True;
   if (CurPageID = ServerPage.ID) and (ModePage.SelectedValueIndex = 2) then
   begin
-    PortValue := StrToIntDef(ServerPage.Values[0], 0);
+    PortValue := StrToIntDef(ServerPage.Values[1], 0);
     if (PortValue < 1) or (PortValue > 65535) then
     begin
       MsgBox('Cổng LAN phải là số từ 1 đến 65535.', mbError, MB_OK);
@@ -132,7 +134,7 @@ end;
 
 procedure WriteDeploymentConfig;
 var
-  ConfigDir, ConfigPath, Mode, Port, ServerUrl, Password, Json: String;
+  ConfigDir, ConfigPath, Mode, Port, ServerUrl, Password, ServerName, Json: String;
 begin
   ConfigDir := ExpandConstant('{localappdata}\CDC_HaiPhong\GiamSatDichBenh');
   ConfigPath := ConfigDir + '\deployment.json';
@@ -142,6 +144,7 @@ begin
   Port := '8765';
   ServerUrl := 'http://127.0.0.1:8765';
   Password := '';
+  ServerName := GetComputerNameString;
 
   if ModePage.SelectedValueIndex = 1 then
   begin
@@ -152,8 +155,9 @@ begin
   else if ModePage.SelectedValueIndex = 2 then
   begin
     Mode := 'server';
-    Port := ServerPage.Values[0];
-    Password := ServerPage.Values[1];
+    ServerName := ServerPage.Values[0];
+    Port := ServerPage.Values[1];
+    Password := ServerPage.Values[2];
     ServerUrl := 'http://127.0.0.1:' + Port;
   end;
 
@@ -163,13 +167,35 @@ begin
     '  "server_port": ' + Port + ',' + #13#10 +
     '  "server_url": "' + EscapeJson(ServerUrl) + '",' + #13#10 +
     '  "password": "' + EscapeJson(Password) + '",' + #13#10 +
-    '  "auto_start_server": true' + #13#10 +
+    '  "auto_start_server": true,' + #13#10 +
+    '  "server_name": "' + EscapeJson(ServerName) + '",' + #13#10 +
+    '  "discovery_enabled": true,' + #13#10 +
+    '  "auto_reconnect": true,' + #13#10 +
+    '  "reconnect_attempts": 3,' + #13#10 +
+    '  "reconnect_delay_seconds": 1.0' + #13#10 +
     '}';
   SaveStringToFile(ConfigPath, Json, False);
+end;
+
+procedure ConfigureServerFirewall;
+var
+  ResultCode: Integer;
+  Params, Port: String;
+begin
+  if ModePage.SelectedValueIndex <> 2 then Exit;
+  Port := ServerPage.Values[1];
+  Params := '/C netsh advfirewall firewall delete rule name="GSBTN Server TCP ' + Port + '" >nul 2>&1' +
+    ' & netsh advfirewall firewall add rule name="GSBTN Server TCP ' + Port + '" dir=in action=allow protocol=TCP localport=' + Port + ' profile=private' +
+    ' & netsh advfirewall firewall delete rule name="GSBTN Discovery UDP 8766" >nul 2>&1' +
+    ' & netsh advfirewall firewall add rule name="GSBTN Discovery UDP 8766" dir=in action=allow protocol=UDP localport=8766 profile=private';
+  ShellExec('runas', ExpandConstant('{cmd}'), Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
+  begin
     WriteDeploymentConfig;
+    ConfigureServerFirewall;
+  end;
 end;

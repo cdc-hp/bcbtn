@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import base64
 import json
+import threading
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 from urllib.error import HTTPError, URLError
@@ -9,6 +12,7 @@ from urllib.request import Request, urlopen
 
 import core as local_core
 from deployment_config import load_config
+from lan_discovery import discover_servers as _discover_servers
 
 APP_NAME = local_core.APP_NAME
 VERSION = local_core.VERSION
@@ -25,6 +29,29 @@ UPDATE_CACHE_DIR = local_core.UPDATE_CACHE_DIR
 BASE_DIR = local_core.BASE_DIR
 DB_PATH = "Máy chủ LAN"
 
+_STATUS_LOCK = threading.RLock()
+_STATUS: dict[str, Any] = {
+    "connected": False,
+    "last_ok": "",
+    "last_error": "Chưa kiểm tra kết nối.",
+    "server_url": "",
+    "attempts": 0,
+}
+
+
+def connection_status() -> dict[str, Any]:
+    with _STATUS_LOCK:
+        return dict(_STATUS)
+
+
+def _set_status(**values: Any) -> None:
+    with _STATUS_LOCK:
+        _STATUS.update(values)
+
+
+def discover_servers(timeout: float = 1.5) -> list[dict[str, Any]]:
+    return _discover_servers(timeout=timeout)
+
 
 def _request(path: str, payload: dict[str, Any] | None = None, timeout: int = 120) -> Any:
     config = load_config()
@@ -36,21 +63,38 @@ def _request(path: str, payload: dict[str, Any] | None = None, timeout: int = 12
         headers["Content-Type"] = "application/json; charset=utf-8"
     if config.password:
         headers["X-GSBTN-Password"] = config.password
-    request = Request(url, data=data, headers=headers, method="POST" if payload is not None else "GET")
-    try:
-        with urlopen(request, timeout=timeout) as response:
-            body = json.loads(response.read().decode("utf-8"))
-    except HTTPError as exc:
+    attempts = config.reconnect_attempts if config.auto_reconnect else 1
+    last_exc: Exception | None = None
+    for attempt in range(1, max(1, attempts) + 1):
+        request = Request(url, data=data, headers=headers, method="POST" if payload is not None else "GET")
         try:
-            detail = json.loads(exc.read().decode("utf-8")).get("error")
-        except Exception:
-            detail = str(exc)
-        raise ConnectionError(detail or f"Máy chủ trả lỗi HTTP {exc.code}.") from exc
-    except (URLError, TimeoutError, OSError) as exc:
-        raise ConnectionError(f"Không kết nối được máy chủ {url}: {exc}") from exc
-    if not body.get("ok"):
-        raise RuntimeError(body.get("error") or "Máy chủ trả về lỗi không xác định.")
-    return body.get("result", body)
+            with urlopen(request, timeout=timeout) as response:
+                body = json.loads(response.read().decode("utf-8"))
+            if not body.get("ok"):
+                raise RuntimeError(body.get("error") or "Máy chủ trả về lỗi không xác định.")
+            _set_status(
+                connected=True,
+                last_ok=datetime.now().isoformat(sep=" ", timespec="seconds"),
+                last_error="",
+                server_url=config.server_url,
+                attempts=attempt,
+            )
+            return body.get("result", body)
+        except HTTPError as exc:
+            try:
+                detail = json.loads(exc.read().decode("utf-8")).get("error")
+            except Exception:
+                detail = str(exc)
+            last_exc = ConnectionError(detail or f"Máy chủ trả lỗi HTTP {exc.code}.")
+            if exc.code in {400, 401, 403, 404}:
+                break
+        except (URLError, TimeoutError, OSError, ValueError, RuntimeError) as exc:
+            last_exc = ConnectionError(f"Không kết nối được máy chủ {url}: {exc}")
+        if attempt < attempts:
+            time.sleep(config.reconnect_delay_seconds * attempt)
+    message = str(last_exc or "Không kết nối được máy chủ.")
+    _set_status(connected=False, last_error=message, server_url=config.server_url, attempts=attempts)
+    raise ConnectionError(message) from last_exc
 
 
 def _rpc(function: str, *args: Any, **kwargs: Any) -> Any:
@@ -58,13 +102,14 @@ def _rpc(function: str, *args: Any, **kwargs: Any) -> Any:
 
 
 def health() -> dict[str, Any]:
-    return _request("/health")
+    return _request("/health", timeout=5)
 
 
-def init_db(*args: Any, **kwargs: Any) -> None:
-    health()
+def server_status() -> dict[str, Any]:
+    return _request("/status", timeout=8)
 
 
+def init_db(*args: Any, **kwargs: Any) -> None: health()
 def dashboard_stats(*args: Any, **kwargs: Any): return _rpc("dashboard_stats")
 def disease_summary(*args: Any, **kwargs: Any): kwargs.pop("db_path", None); return _rpc("disease_summary", **kwargs)
 def monthly_outbreak_summary(*args: Any, **kwargs: Any): kwargs.pop("db_path", None); return _rpc("monthly_outbreak_summary", **kwargs)
@@ -92,6 +137,8 @@ def execute_select(sql: str, *args: Any, **kwargs: Any):
 
 def import_excel(path: Path | str, *args: Any, **kwargs: Any):
     path = Path(path)
+    if path.stat().st_size > 100 * 1024 * 1024:
+        raise ValueError("File Excel vượt quá giới hạn 100 MB.")
     result = _request("/import", {
         "file_name": path.name,
         "content_base64": base64.b64encode(path.read_bytes()).decode("ascii"),
@@ -100,8 +147,12 @@ def import_excel(path: Path | str, *args: Any, **kwargs: Any):
 
 
 def create_backup(*args: Any, **kwargs: Any): return Path(str(_rpc("create_backup")))
+def list_backups(*args: Any, **kwargs: Any): return _rpc("list_backups")
 def find_duplicate_groups(entity_type: str, *args: Any, **kwargs: Any): kwargs.pop("db_path", None); return _rpc("find_duplicate_groups", entity_type, **kwargs)
 def remove_duplicate_records(entity_type: str, keep_id: int, remove_ids: list[int], *args: Any, **kwargs: Any): return _rpc("remove_duplicate_records", entity_type, keep_id, remove_ids)
+def merge_duplicate_records(entity_type: str, keep_id: int, remove_ids: list[int], merged_values: dict[str, Any], *args: Any, **kwargs: Any): return _rpc("merge_duplicate_records", entity_type, keep_id, remove_ids, merged_values)
+def list_duplicate_actions(*args: Any, **kwargs: Any): return _rpc("list_duplicate_actions", kwargs.get("limit", 200))
+def restore_duplicate_action(action_id: int, *args: Any, **kwargs: Any): return _rpc("restore_duplicate_action", action_id)
 
 
 def export_rows(path: Path | str, columns: Sequence[str], rows: Iterable[Sequence[Any]]) -> None:
