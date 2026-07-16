@@ -1,4 +1,4 @@
-name: Diagnose Windows tests
+name: Diagnose Windows build
 
 on:
   pull_request:
@@ -23,15 +23,23 @@ jobs:
       - name: Install dependencies
         shell: pwsh
         run: pip install -r requirements.txt
-      - name: Run tests and post full result
+      - name: Run tests
+        shell: pwsh
+        run: python -m pytest -q --tb=short
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+      - name: Run build and post full result
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $output = & python -m pytest -q --tb=short 2>&1 | Out-String
+          & cmd.exe /d /c "build.bat > build-output.txt 2>&1"
           $code = $LASTEXITCODE
+          $output = Get-Content build-output.txt -Raw
+          if ($output.Length -gt 50000) { $output = $output.Substring($output.Length - 50000) }
           $body = @"
-          ## Windows pytest diagnostic
+          ## Windows build diagnostic
 
           Exit code: `$code`
 
@@ -39,6 +47,6 @@ jobs:
           $output
           ```
           "@
-          $body | Set-Content pytest-comment.md -Encoding utf8
-          gh issue comment 2 --body-file pytest-comment.md
+          $body | Set-Content build-comment.md -Encoding utf8
+          gh issue comment 2 --body-file build-comment.md
           if ($code -ne 0) { exit $code }
