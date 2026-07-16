@@ -10,6 +10,7 @@ import re
 import shutil
 import sqlite3
 import sys
+import threading
 import unicodedata
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -18,8 +19,11 @@ from typing import Any, Iterable, Sequence
 
 from openpyxl import Workbook, load_workbook
 
+import backup_manager
+from duplicate_config import load_rules
+
 APP_NAME = "Giám sát dịch bệnh"
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 
 
 def _base_dir() -> Path:
@@ -48,6 +52,7 @@ DATA_DIR = USER_DATA_DIR / "data"
 BACKUP_DIR = USER_DATA_DIR / "backups"
 UPDATE_CACHE_DIR = USER_DATA_DIR / "update_cache"
 DB_PATH = DATA_DIR / "giam_sat_dich_benh.db"
+_DB_INIT_LOCK = threading.RLock()
 
 for directory in (DATA_DIR, BACKUP_DIR, UPDATE_CACHE_DIR):
     directory.mkdir(parents=True, exist_ok=True)
@@ -168,11 +173,11 @@ def _connect(db_path: Path | str = DB_PATH):
     """
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, timeout=15)
     conn.row_factory = sqlite3.Row
     try:
         conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA busy_timeout = 10000")
         conn.execute("PRAGMA synchronous = NORMAL")
         yield conn
         conn.commit()
@@ -183,143 +188,168 @@ def _connect(db_path: Path | str = DB_PATH):
         conn.close()
 
 
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    existing = {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
 def init_db(db_path: Path | str = DB_PATH) -> None:
-    with _connect(db_path) as conn:
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS cases (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                source_stt INTEGER,
-                case_code TEXT,
-                full_name TEXT,
-                birth_date_raw TEXT,
-                birth_year INTEGER,
-                occupation TEXT,
-                workplace TEXT,
-                workplace_province TEXT,
-                workplace_commune TEXT,
-                workplace_village TEXT,
-                ethnicity TEXT,
-                gender TEXT,
-                national_id TEXT,
-                phone TEXT,
-                current_address TEXT,
-                province TEXT,
-                commune TEXT,
-                village TEXT,
-                longitude REAL,
-                latitude REAL,
-                main_diagnosis TEXT,
-                severity TEXT,
-                comorbidity_diagnosis TEXT,
-                vaccination_status TEXT,
-                vaccination_doses TEXT,
-                diagnosis_classification TEXT,
-                sample_collected TEXT,
-                sample_date TEXT,
-                lab_unit TEXT,
-                test_type TEXT,
-                test_result TEXT,
-                notes TEXT,
-                current_status TEXT,
-                epidemiological_history TEXT,
-                onset_date TEXT,
-                admission_date TEXT,
-                discharge_or_death_date TEXT,
-                complications TEXT,
-                reporter_name TEXT,
-                reporter_phone TEXT,
-                reporter_email TEXT,
-                reporting_unit TEXT,
-                reporting_province TEXT,
-                treatment_facility TEXT,
-                record_status TEXT,
-                report_datetime TEXT,
-                latest_diagnosis_change TEXT,
-                latest_status_change TEXT,
-                modified_datetime TEXT,
-                source_file TEXT NOT NULL,
-                source_sheet TEXT,
-                source_row INTEGER,
-                row_hash TEXT NOT NULL UNIQUE,
-                imported_at TEXT NOT NULL,
-                raw_json TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS outbreaks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                source_stt INTEGER,
-                disease TEXT,
-                location TEXT,
-                admin_area TEXT,
-                first_onset_date TEXT,
-                end_date TEXT,
-                status TEXT,
-                case_count INTEGER DEFAULT 0,
-                death_count INTEGER DEFAULT 0,
-                sample_count INTEGER DEFAULT 0,
-                positive_count INTEGER DEFAULT 0,
-                report_datetime TEXT,
-                reporting_unit TEXT,
-                reporting_province TEXT,
-                first_report_received_date TEXT,
-                last_onset_date TEXT,
-                source_file TEXT NOT NULL,
-                source_sheet TEXT,
-                source_row INTEGER,
-                row_hash TEXT NOT NULL UNIQUE,
-                imported_at TEXT NOT NULL,
-                raw_json TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS import_batches (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_name TEXT NOT NULL,
-                file_path TEXT,
-                entity_type TEXT NOT NULL,
-                sheet_name TEXT,
-                rows_read INTEGER DEFAULT 0,
-                inserted INTEGER DEFAULT 0,
-                duplicates INTEGER DEFAULT 0,
-                skipped INTEGER DEFAULT 0,
-                issue_count INTEGER DEFAULT 0,
-                imported_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS data_quality_issues (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                entity_type TEXT NOT NULL,
-                entity_id INTEGER,
-                source_file TEXT,
-                source_row INTEGER,
-                severity TEXT NOT NULL,
-                issue_type TEXT NOT NULL,
-                description TEXT,
-                created_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS duplicate_actions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                entity_type TEXT NOT NULL,
-                keep_id INTEGER NOT NULL,
-                removed_ids_json TEXT NOT NULL,
-                backup_file TEXT,
-                created_at TEXT NOT NULL
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_cases_name ON cases(full_name);
-            CREATE INDEX IF NOT EXISTS idx_cases_code ON cases(case_code);
-            CREATE INDEX IF NOT EXISTS idx_cases_diag ON cases(main_diagnosis);
-            CREATE INDEX IF NOT EXISTS idx_cases_onset ON cases(onset_date);
-            CREATE INDEX IF NOT EXISTS idx_cases_commune ON cases(commune);
-            CREATE INDEX IF NOT EXISTS idx_outbreaks_disease ON outbreaks(disease);
-            CREATE INDEX IF NOT EXISTS idx_outbreaks_status ON outbreaks(status);
-            CREATE INDEX IF NOT EXISTS idx_outbreaks_onset ON outbreaks(first_onset_date);
-            CREATE INDEX IF NOT EXISTS idx_outbreaks_admin ON outbreaks(admin_area);
-            CREATE INDEX IF NOT EXISTS idx_quality_type ON data_quality_issues(entity_type, severity);
-            """
-        )
-
+    with _DB_INIT_LOCK:
+        with _connect(db_path) as conn:
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS cases (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source_stt INTEGER,
+                    case_code TEXT,
+                    full_name TEXT,
+                    birth_date_raw TEXT,
+                    birth_year INTEGER,
+                    occupation TEXT,
+                    workplace TEXT,
+                    workplace_province TEXT,
+                    workplace_commune TEXT,
+                    workplace_village TEXT,
+                    ethnicity TEXT,
+                    gender TEXT,
+                    national_id TEXT,
+                    phone TEXT,
+                    current_address TEXT,
+                    province TEXT,
+                    commune TEXT,
+                    village TEXT,
+                    longitude REAL,
+                    latitude REAL,
+                    main_diagnosis TEXT,
+                    severity TEXT,
+                    comorbidity_diagnosis TEXT,
+                    vaccination_status TEXT,
+                    vaccination_doses TEXT,
+                    diagnosis_classification TEXT,
+                    sample_collected TEXT,
+                    sample_date TEXT,
+                    lab_unit TEXT,
+                    test_type TEXT,
+                    test_result TEXT,
+                    notes TEXT,
+                    current_status TEXT,
+                    epidemiological_history TEXT,
+                    onset_date TEXT,
+                    admission_date TEXT,
+                    discharge_or_death_date TEXT,
+                    complications TEXT,
+                    reporter_name TEXT,
+                    reporter_phone TEXT,
+                    reporter_email TEXT,
+                    reporting_unit TEXT,
+                    reporting_province TEXT,
+                    treatment_facility TEXT,
+                    record_status TEXT,
+                    report_datetime TEXT,
+                    latest_diagnosis_change TEXT,
+                    latest_status_change TEXT,
+                    modified_datetime TEXT,
+                    source_file TEXT NOT NULL,
+                    source_sheet TEXT,
+                    source_row INTEGER,
+                    row_hash TEXT NOT NULL UNIQUE,
+                    imported_at TEXT NOT NULL,
+                    raw_json TEXT
+                );
+    
+                CREATE TABLE IF NOT EXISTS outbreaks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source_stt INTEGER,
+                    disease TEXT,
+                    location TEXT,
+                    admin_area TEXT,
+                    first_onset_date TEXT,
+                    end_date TEXT,
+                    status TEXT,
+                    case_count INTEGER DEFAULT 0,
+                    death_count INTEGER DEFAULT 0,
+                    sample_count INTEGER DEFAULT 0,
+                    positive_count INTEGER DEFAULT 0,
+                    report_datetime TEXT,
+                    reporting_unit TEXT,
+                    reporting_province TEXT,
+                    first_report_received_date TEXT,
+                    last_onset_date TEXT,
+                    source_file TEXT NOT NULL,
+                    source_sheet TEXT,
+                    source_row INTEGER,
+                    row_hash TEXT NOT NULL UNIQUE,
+                    imported_at TEXT NOT NULL,
+                    raw_json TEXT
+                );
+    
+                CREATE TABLE IF NOT EXISTS import_batches (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    file_name TEXT NOT NULL,
+                    file_path TEXT,
+                    entity_type TEXT NOT NULL,
+                    sheet_name TEXT,
+                    rows_read INTEGER DEFAULT 0,
+                    inserted INTEGER DEFAULT 0,
+                    duplicates INTEGER DEFAULT 0,
+                    skipped INTEGER DEFAULT 0,
+                    issue_count INTEGER DEFAULT 0,
+                    imported_at TEXT NOT NULL
+                );
+    
+                CREATE TABLE IF NOT EXISTS data_quality_issues (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    entity_type TEXT NOT NULL,
+                    entity_id INTEGER,
+                    source_file TEXT,
+                    source_row INTEGER,
+                    severity TEXT NOT NULL,
+                    issue_type TEXT NOT NULL,
+                    description TEXT,
+                    created_at TEXT NOT NULL
+                );
+    
+                CREATE TABLE IF NOT EXISTS duplicate_actions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    entity_type TEXT NOT NULL,
+                    keep_id INTEGER NOT NULL,
+                    removed_ids_json TEXT NOT NULL,
+                    backup_file TEXT,
+                    created_at TEXT NOT NULL,
+                    action_type TEXT DEFAULT 'merge',
+                    merged_values_json TEXT,
+                    restored_at TEXT
+                );
+    
+                CREATE TABLE IF NOT EXISTS duplicate_trash (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    action_id INTEGER NOT NULL,
+                    entity_type TEXT NOT NULL,
+                    original_id INTEGER NOT NULL,
+                    record_json TEXT NOT NULL,
+                    deleted_at TEXT NOT NULL,
+                    restored_at TEXT,
+                    restored_id INTEGER
+                );
+    
+                CREATE INDEX IF NOT EXISTS idx_duplicate_trash_action ON duplicate_trash(action_id, restored_at);
+                CREATE INDEX IF NOT EXISTS idx_cases_name ON cases(full_name);
+                CREATE INDEX IF NOT EXISTS idx_cases_code ON cases(case_code);
+                CREATE INDEX IF NOT EXISTS idx_cases_diag ON cases(main_diagnosis);
+                CREATE INDEX IF NOT EXISTS idx_cases_onset ON cases(onset_date);
+                CREATE INDEX IF NOT EXISTS idx_cases_commune ON cases(commune);
+                CREATE INDEX IF NOT EXISTS idx_outbreaks_disease ON outbreaks(disease);
+                CREATE INDEX IF NOT EXISTS idx_outbreaks_status ON outbreaks(status);
+                CREATE INDEX IF NOT EXISTS idx_outbreaks_onset ON outbreaks(first_onset_date);
+                CREATE INDEX IF NOT EXISTS idx_outbreaks_admin ON outbreaks(admin_area);
+                CREATE INDEX IF NOT EXISTS idx_quality_type ON data_quality_issues(entity_type, severity);
+                """
+            )
+            _ensure_column(conn, "duplicate_actions", "action_type", "TEXT DEFAULT 'merge'")
+            _ensure_column(conn, "duplicate_actions", "merged_values_json", "TEXT")
+            _ensure_column(conn, "duplicate_actions", "restored_at", "TEXT")
 
 def strip_text(value: Any) -> str:
     if value is None:
@@ -929,7 +959,15 @@ def _date_distance_days(left: Any, right: Any) -> int | None:
     return abs((a.date() - b.date()).days)
 
 
-def _case_pair_score(a: dict[str, Any], b: dict[str, Any]) -> tuple[int, list[str]]:
+def _weight(weights: dict[str, Any], key: str, default: int) -> int:
+    try:
+        return max(0, min(100, int(weights.get(key, default))))
+    except (TypeError, ValueError):
+        return default
+
+
+def _case_pair_score(a: dict[str, Any], b: dict[str, Any], weights: dict[str, Any] | None = None) -> tuple[int, list[str]]:
+    weights = weights or {}
     score = 0
     reasons: list[str] = []
     code_a, code_b = _match_text(a.get("case_code")), _match_text(b.get("case_code"))
@@ -942,83 +980,63 @@ def _case_pair_score(a: dict[str, Any], b: dict[str, Any]) -> tuple[int, list[st
     if len(id_a) >= 9 and id_a == id_b:
         return 100, ["Trùng CCCD/CMND"]
     if name_a and name_a == name_b:
-        score += 35
-        reasons.append("Trùng họ tên")
+        score += _weight(weights, "name", 35); reasons.append("Trùng họ tên")
     elif name_a and name_b:
         ratio = SequenceMatcher(None, name_a, name_b).ratio()
         if ratio >= 0.92:
-            score += 28
-            reasons.append(f"Họ tên gần giống {ratio:.0%}")
-
+            score += round(_weight(weights, "name", 35) * 0.8); reasons.append(f"Họ tên gần giống {ratio:.0%}")
     if len(phone_a) >= 7 and phone_a == phone_b:
-        score += 35
-        reasons.append("Trùng số điện thoại")
+        score += _weight(weights, "phone", 35); reasons.append("Trùng số điện thoại")
     if a.get("birth_year") and a.get("birth_year") == b.get("birth_year"):
-        score += 15
-        reasons.append("Trùng năm sinh")
+        score += _weight(weights, "birth_year", 15); reasons.append("Trùng năm sinh")
     if _match_text(a.get("gender")) and _match_text(a.get("gender")) == _match_text(b.get("gender")):
-        score += 5
-        reasons.append("Trùng giới tính")
+        score += _weight(weights, "gender", 5); reasons.append("Trùng giới tính")
     if _match_text(a.get("commune")) and _match_text(a.get("commune")) == _match_text(b.get("commune")):
-        score += 8
-        reasons.append("Trùng xã/phường")
+        score += _weight(weights, "area", 8); reasons.append("Trùng xã/phường")
     if _match_text(a.get("main_diagnosis")) and _match_text(a.get("main_diagnosis")) == _match_text(b.get("main_diagnosis")):
-        score += 7
-        reasons.append("Trùng chẩn đoán")
+        score += _weight(weights, "disease", 7); reasons.append("Trùng chẩn đoán")
     days = _date_distance_days(a.get("onset_date"), b.get("onset_date"))
     if days == 0:
-        score += 15
-        reasons.append("Trùng ngày khởi phát")
+        score += _weight(weights, "onset_exact", 15); reasons.append("Trùng ngày khởi phát")
     elif days is not None and days <= 3:
-        score += 10
-        reasons.append(f"Khởi phát lệch {days} ngày")
+        score += _weight(weights, "onset_near", 10); reasons.append(f"Khởi phát lệch {days} ngày")
     elif days is not None and days <= 14:
-        score += 4
-        reasons.append(f"Khởi phát trong {days} ngày")
+        score += round(_weight(weights, "onset_near", 10) * 0.4); reasons.append(f"Khởi phát trong {days} ngày")
     addr_a, addr_b = _match_text(a.get("current_address")), _match_text(b.get("current_address"))
     if addr_a and addr_b and SequenceMatcher(None, addr_a, addr_b).ratio() >= 0.85:
-        score += 5
-        reasons.append("Địa chỉ gần giống")
+        score += _weight(weights, "address", 5); reasons.append("Địa chỉ gần giống")
     return min(score, 99), reasons
 
 
-def _outbreak_pair_score(a: dict[str, Any], b: dict[str, Any]) -> tuple[int, list[str]]:
+def _outbreak_pair_score(a: dict[str, Any], b: dict[str, Any], weights: dict[str, Any] | None = None) -> tuple[int, list[str]]:
+    weights = weights or {}
     score = 0
     reasons: list[str] = []
     disease_a, disease_b = _disease_match_text(a.get("disease")), _disease_match_text(b.get("disease"))
     location_a, location_b = _match_text(a.get("location")), _match_text(b.get("location"))
     if disease_a and disease_a == disease_b:
-        score += 30
-        reasons.append("Trùng tên bệnh")
+        score += _weight(weights, "disease", 30); reasons.append("Trùng tên bệnh")
     else:
         return 0, []
     if location_a and location_a == location_b:
-        score += 45
-        reasons.append("Trùng địa điểm ổ dịch")
+        score += _weight(weights, "location_exact", 45); reasons.append("Trùng địa điểm ổ dịch")
     elif location_a and location_b:
         ratio = SequenceMatcher(None, location_a, location_b).ratio()
         if ratio >= 0.88:
-            score += 35
-            reasons.append(f"Địa điểm gần giống {ratio:.0%}")
+            score += _weight(weights, "location_near", 35); reasons.append(f"Địa điểm gần giống {ratio:.0%}")
         elif ratio >= 0.75:
-            score += 20
-            reasons.append(f"Địa điểm tương tự {ratio:.0%}")
+            score += round(_weight(weights, "location_near", 35) * 0.57); reasons.append(f"Địa điểm tương tự {ratio:.0%}")
     if _match_text(a.get("admin_area")) and _match_text(a.get("admin_area")) == _match_text(b.get("admin_area")):
-        score += 10
-        reasons.append("Trùng địa bàn")
+        score += _weight(weights, "area", 10); reasons.append("Trùng địa bàn")
     days = _date_distance_days(a.get("first_onset_date"), b.get("first_onset_date"))
     if days == 0:
-        score += 20
-        reasons.append("Trùng ngày khởi phát ca đầu")
+        score += _weight(weights, "onset_exact", 20); reasons.append("Trùng ngày khởi phát ca đầu")
     elif days is not None and days <= 7:
-        score += 15
-        reasons.append(f"Khởi phát ca đầu lệch {days} ngày")
+        score += _weight(weights, "onset_near", 15); reasons.append(f"Khởi phát ca đầu lệch {days} ngày")
     elif days is not None and days <= 14:
-        score += 8
-        reasons.append(f"Khởi phát ca đầu trong {days} ngày")
+        score += round(_weight(weights, "onset_near", 15) * 0.53); reasons.append(f"Khởi phát ca đầu trong {days} ngày")
     if _match_text(a.get("reporting_unit")) and _match_text(a.get("reporting_unit")) == _match_text(b.get("reporting_unit")):
-        score += 5
-        reasons.append("Trùng đơn vị báo cáo")
+        score += _weight(weights, "reporting_unit", 5); reasons.append("Trùng đơn vị báo cáo")
     return min(score, 99), reasons
 
 
@@ -1027,11 +1045,19 @@ def find_duplicate_groups(
     *,
     min_score: int = 65,
     max_records: int = 20000,
+    rules: dict[str, Any] | None = None,
     db_path: Path | str = DB_PATH,
 ) -> list[dict[str, Any]]:
     """Phát hiện nhóm trùng nghiệp vụ; không tự động xóa hoặc gộp."""
     table, _ = _safe_table(entity_type)
-    min_score = max(50, min(100, int(min_score)))
+    configured = load_rules()
+    min_score = max(40, min(100, int(min_score if min_score is not None else configured.min_score)))
+    if rules:
+        weights = dict(rules.get("weights") or rules)
+        definite_score = max(min_score, min(100, int(rules.get("definite_score", configured.definite_score))))
+    else:
+        weights = configured.weights_for(entity_type)
+        definite_score = configured.definite_score
     if entity_type == "case":
         fields = [
             "id", "case_code", "full_name", "birth_date_raw", "birth_year", "gender",
@@ -1086,7 +1112,7 @@ def find_duplicate_groups(
     edges: list[tuple[int, int, int, list[str]]] = []
     scorer = _case_pair_score if entity_type == "case" else _outbreak_pair_score
     for left, right in candidate_pairs:
-        score, reasons = scorer(rows[left], rows[right])
+        score, reasons = scorer(rows[left], rows[right], weights)
         if score >= min_score:
             edges.append((left, right, score, reasons))
     if not edges:
@@ -1126,7 +1152,7 @@ def find_duplicate_groups(
         result.append({
             "group_id": group_no,
             "entity_type": entity_type,
-            "confidence": "Trùng chắc chắn" if best_score >= 85 else "Nghi trùng",
+            "confidence": "Trùng chắc chắn" if best_score >= definite_score else "Nghi trùng",
             "score": best_score,
             "record_count": len(records),
             "record_ids": [int(r["id"]) for r in records],
@@ -1137,42 +1163,170 @@ def find_duplicate_groups(
     return sorted(result, key=lambda g: (-int(g["score"]), int(g["group_id"])))
 
 
+def _mergeable_fields(entity_type: str) -> set[str]:
+    fields = {db for _, db in (CASE_FIELDS if entity_type == "case" else OUTBREAK_FIELDS)}
+    fields.discard("source_stt")
+    return fields
+
+
+def merge_duplicate_records(
+    entity_type: str,
+    keep_id: int,
+    remove_ids: Sequence[int],
+    merged_values: dict[str, Any] | None = None,
+    db_path: Path | str = DB_PATH,
+) -> dict[str, Any]:
+    table, _ = _safe_table(entity_type)
+    init_db(db_path)
+    keep_id = int(keep_id)
+    ids = sorted({int(v) for v in remove_ids if int(v) != keep_id})
+    if not ids:
+        raise ValueError("Chưa chọn bản ghi trùng để đưa vào thùng rác.")
+    all_ids = [keep_id, *ids]
+    placeholders = ",".join("?" for _ in all_ids)
+    with _connect(db_path) as conn:
+        records = [dict(row) for row in conn.execute(
+            f"SELECT * FROM {table} WHERE id IN ({placeholders}) ORDER BY id", all_ids
+        ).fetchall()]
+    by_id = {int(row["id"]): row for row in records}
+    if keep_id not in by_id:
+        raise ValueError("Bản ghi cần giữ không tồn tại.")
+    missing = [record_id for record_id in ids if record_id not in by_id]
+    if missing:
+        raise ValueError(f"Bản ghi cần xử lý không tồn tại: {missing}")
+
+    allowed = _mergeable_fields(entity_type)
+    requested = {k: v for k, v in (merged_values or {}).items() if k in allowed}
+    normalized = _normalize_payload(entity_type, requested) if requested else {}
+    normalized = {k: v for k, v in normalized.items() if k in allowed or k in {"birth_year", "admin_area"}}
+    backup = create_backup(db_path)
+    now = datetime.now().isoformat(sep=" ", timespec="seconds")
+    with _connect(db_path) as conn:
+        cur = conn.execute(
+            """INSERT INTO duplicate_actions
+               (entity_type, keep_id, removed_ids_json, backup_file, created_at, action_type, merged_values_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (entity_type, keep_id, json.dumps(ids), str(backup), now, "merge" if normalized else "remove",
+             json.dumps(normalized, ensure_ascii=False, default=str)),
+        )
+        action_id = int(cur.lastrowid)
+        for record_id in ids:
+            conn.execute(
+                """INSERT INTO duplicate_trash
+                   (action_id, entity_type, original_id, record_json, deleted_at) VALUES (?, ?, ?, ?, ?)""",
+                (action_id, entity_type, record_id, json.dumps(by_id[record_id], ensure_ascii=False, default=str), now),
+            )
+        remove_placeholders = ",".join("?" for _ in ids)
+        conn.execute(f"DELETE FROM {table} WHERE id IN ({remove_placeholders})", ids)
+        conn.execute(
+            f"DELETE FROM data_quality_issues WHERE entity_type=? AND entity_id IN ({remove_placeholders})",
+            [entity_type, *ids],
+        )
+        if normalized:
+            keep = dict(by_id[keep_id])
+            keep.update(normalized)
+            keep["modified_datetime"] = now if entity_type == "case" else keep.get("modified_datetime")
+            hash_payload = {key: keep.get(key) for key in allowed}
+            new_hash = _row_hash(entity_type, hash_payload)
+            conflict = conn.execute(f"SELECT id FROM {table} WHERE row_hash=? AND id<>?", (new_hash, keep_id)).fetchone()
+            if conflict:
+                new_hash = hashlib.sha256(f"{new_hash}:merge:{action_id}".encode()).hexdigest()
+            update_values = dict(normalized)
+            update_values["row_hash"] = new_hash
+            if entity_type == "case":
+                update_values["modified_datetime"] = now
+            conn.execute(
+                f"UPDATE {table} SET {','.join(f'{key}=?' for key in update_values)} WHERE id=?",
+                [*update_values.values(), keep_id],
+            )
+            keep.update(update_values)
+            conn.execute("DELETE FROM data_quality_issues WHERE entity_type=? AND entity_id=?", (entity_type, keep_id))
+            for severity, issue_type, description in _quality_checks(entity_type, keep):
+                conn.execute(
+                    """INSERT INTO data_quality_issues
+                       (entity_type, entity_id, source_file, source_row, severity, issue_type, description, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (entity_type, keep_id, keep.get("source_file", "Hợp nhất"), keep.get("source_row", 0),
+                     severity, issue_type, description, now),
+                )
+    return {
+        "action_id": action_id, "kept_id": keep_id, "removed_ids": ids,
+        "removed_count": len(ids), "merged_values": normalized, "backup_file": str(backup),
+    }
+
+
 def remove_duplicate_records(
     entity_type: str,
     keep_id: int,
     remove_ids: Sequence[int],
     db_path: Path | str = DB_PATH,
 ) -> dict[str, Any]:
-    table, _ = _safe_table(entity_type)
-    keep_id = int(keep_id)
-    ids = sorted({int(v) for v in remove_ids if int(v) != keep_id})
-    if not ids:
-        raise ValueError("Chưa chọn bản ghi trùng để xóa.")
+    return merge_duplicate_records(entity_type, keep_id, remove_ids, {}, db_path)
+
+
+def list_duplicate_actions(limit: int = 200, db_path: Path | str = DB_PATH) -> list[dict[str, Any]]:
+    init_db(db_path)
     with _connect(db_path) as conn:
-        existing = {int(r[0]) for r in conn.execute(
-            f"SELECT id FROM {table} WHERE id IN ({','.join('?' for _ in [keep_id, *ids])})",
-            [keep_id, *ids],
-        ).fetchall()}
-    if keep_id not in existing:
-        raise ValueError("Bản ghi cần giữ không tồn tại.")
-    missing = [record_id for record_id in ids if record_id not in existing]
-    if missing:
-        raise ValueError(f"Bản ghi cần xóa không tồn tại: {missing}")
+        rows = conn.execute(
+            """SELECT a.*,
+                      SUM(CASE WHEN t.id IS NOT NULL AND t.restored_at IS NULL THEN 1 ELSE 0 END) AS pending_count,
+                      COUNT(t.id) AS trash_count
+               FROM duplicate_actions a
+               LEFT JOIN duplicate_trash t ON t.action_id=a.id
+               GROUP BY a.id ORDER BY a.id DESC LIMIT ?""", (max(1, int(limit)),)
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def restore_duplicate_action(action_id: int, db_path: Path | str = DB_PATH) -> dict[str, Any]:
+    init_db(db_path)
+    action_id = int(action_id)
+    with _connect(db_path) as conn:
+        action = conn.execute("SELECT * FROM duplicate_actions WHERE id=?", (action_id,)).fetchone()
+        trash = conn.execute(
+            "SELECT * FROM duplicate_trash WHERE action_id=? AND restored_at IS NULL ORDER BY id", (action_id,)
+        ).fetchall()
+    if not action:
+        raise ValueError("Không tìm thấy thao tác lọc trùng.")
+    if not trash:
+        raise ValueError("Nhóm này không còn bản ghi trong thùng rác để khôi phục.")
+    entity_type = str(action["entity_type"]); table, _ = _safe_table(entity_type)
     backup = create_backup(db_path)
+    now = datetime.now().isoformat(sep=" ", timespec="seconds")
+    restored: list[int] = []
     with _connect(db_path) as conn:
-        placeholders = ",".join("?" for _ in ids)
-        conn.execute(f"DELETE FROM {table} WHERE id IN ({placeholders})", ids)
-        conn.execute(
-            f"DELETE FROM data_quality_issues WHERE entity_type=? AND entity_id IN ({placeholders})",
-            [entity_type, *ids],
-        )
-        conn.execute(
-            """INSERT INTO duplicate_actions
-               (entity_type, keep_id, removed_ids_json, backup_file, created_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (entity_type, keep_id, json.dumps(ids), str(backup), datetime.now().isoformat(sep=" ", timespec="seconds")),
-        )
-    return {"kept_id": keep_id, "removed_ids": ids, "removed_count": len(ids), "backup_file": str(backup)}
+        columns = {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        for item in trash:
+            record = json.loads(item["record_json"])
+            original_id = int(item["original_id"])
+            requested_id = original_id if not conn.execute(f"SELECT 1 FROM {table} WHERE id=?", (original_id,)).fetchone() else None
+            values = {key: value for key, value in record.items() if key in columns and key != "id"}
+            row_hash = str(values.get("row_hash") or "")
+            if row_hash and conn.execute(f"SELECT 1 FROM {table} WHERE row_hash=?", (row_hash,)).fetchone():
+                values["row_hash"] = hashlib.sha256(f"{row_hash}:restore:{action_id}:{original_id}:{now}".encode()).hexdigest()
+            if requested_id is not None:
+                values = {"id": requested_id, **values}
+            cols = list(values)
+            cur = conn.execute(
+                f"INSERT INTO {table} ({','.join(cols)}) VALUES ({','.join('?' for _ in cols)})",
+                [values[col] for col in cols],
+            )
+            restored_id = int(requested_id if requested_id is not None else cur.lastrowid)
+            restored.append(restored_id)
+            for severity, issue_type, description in _quality_checks(entity_type, values):
+                conn.execute(
+                    """INSERT INTO data_quality_issues
+                       (entity_type, entity_id, source_file, source_row, severity, issue_type, description, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (entity_type, restored_id, values.get("source_file", "Khôi phục"), values.get("source_row", 0),
+                     severity, issue_type, description, now),
+                )
+            conn.execute(
+                "UPDATE duplicate_trash SET restored_at=?, restored_id=? WHERE id=?",
+                (now, restored_id, int(item["id"])),
+            )
+        conn.execute("UPDATE duplicate_actions SET restored_at=? WHERE id=?", (now, action_id))
+    return {"action_id": action_id, "restored_ids": restored, "restored_count": len(restored), "backup_file": str(backup)}
 
 
 def list_quality_issues(
@@ -1307,23 +1461,28 @@ def export_filtered_records(
     return total
 
 
+def _backup_policy_for_core():
+    policy = backup_manager.load_policy()
+    if not policy.destination:
+        policy.destination = str(BACKUP_DIR)
+    return policy
+
+
 def create_backup(db_path: Path | str = DB_PATH) -> Path:
-    db_path = Path(db_path)
     init_db(db_path)
-    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    target = BACKUP_DIR / f"giam_sat_dich_benh_{stamp}.db"
-    source = sqlite3.connect(db_path)
-    destination = sqlite3.connect(target)
-    try:
-        source.backup(destination)
-    finally:
-        destination.close()
-        source.close()
-    backups = sorted(BACKUP_DIR.glob("giam_sat_dich_benh_*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
-    for old in backups[10:]:
-        old.unlink(missing_ok=True)
-    return target
+    return backup_manager.create_backup(db_path, kind="manual", policy=_backup_policy_for_core())
+
+
+def list_backups() -> list[dict[str, Any]]:
+    return backup_manager.list_backups(_backup_policy_for_core())
+
+
+def verify_backup(path: Path | str) -> dict[str, Any]:
+    return backup_manager.verify_backup(path)
+
+
+def restore_backup(path: Path | str, db_path: Path | str = DB_PATH) -> dict[str, Any]:
+    return backup_manager.restore_backup(path, db_path)
 
 
 def open_folder(path: Path) -> None:

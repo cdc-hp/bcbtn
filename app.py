@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -31,6 +33,8 @@ from PyQt6.QtWidgets import (
     QSplitter,
     QStackedWidget,
     QTableView,
+    QTableWidget,
+    QTableWidgetItem,
     QTabWidget,
     QTextEdit,
     QToolBar,
@@ -45,9 +49,11 @@ except ImportError:
     CHARTS_AVAILABLE = False
 
 import core as local_core
+import backup_manager
 import update_manager
 from deployment_config import DeploymentConfig, load_config, mode_label, save_config
-from lan_server import LanServerController
+from duplicate_config import DuplicateRules, load_rules, save_rules
+from lan_server import LanServerController, configure_windows_firewall, port_available
 
 DEPLOYMENT_CONFIG = load_config()
 if DEPLOYMENT_CONFIG.is_workstation:
@@ -693,364 +699,388 @@ class ImportTab(QWidget):
 
 
 
+class DuplicateRulesDialog(QDialog):
+    CASE_LABELS = {
+        "name": "Họ tên", "phone": "Điện thoại", "birth_year": "Năm sinh", "gender": "Giới tính",
+        "area": "Xã/phường", "disease": "Chẩn đoán", "onset_exact": "Khởi phát trùng ngày",
+        "onset_near": "Khởi phát gần nhau", "address": "Địa chỉ gần giống",
+    }
+    OUTBREAK_LABELS = {
+        "disease": "Tên bệnh", "location_exact": "Địa điểm trùng", "location_near": "Địa điểm gần giống",
+        "area": "Địa bàn", "onset_exact": "Khởi phát trùng ngày", "onset_near": "Khởi phát gần nhau",
+        "reporting_unit": "Đơn vị báo cáo",
+    }
+
+    def __init__(self, rules: DuplicateRules, parent=None):
+        super().__init__(parent)
+        self.rules = rules
+        self.setWindowTitle("Cấu hình trọng số lọc trùng")
+        self.resize(620, 650)
+        root = QVBoxLayout(self)
+        general = QGroupBox("Ngưỡng phân loại")
+        form = QFormLayout(general)
+        self.min_score = QSpinBox(); self.min_score.setRange(40, 100); self.min_score.setValue(rules.min_score)
+        self.definite = QSpinBox(); self.definite.setRange(50, 100); self.definite.setValue(rules.definite_score)
+        form.addRow("Điểm tối thiểu để đưa vào danh sách:", self.min_score)
+        form.addRow("Điểm xác định trùng chắc chắn:", self.definite)
+        root.addWidget(general)
+        self.case_inputs = self._weight_box(root, "Trọng số ca bệnh", rules.case_weights, self.CASE_LABELS)
+        self.outbreak_inputs = self._weight_box(root, "Trọng số ổ dịch", rules.outbreak_weights, self.OUTBREAK_LABELS)
+        note = QLabel("Trùng mã ca hoặc CCCD/CMND vẫn luôn được tính 100 điểm. Tổng điểm cuối được giới hạn ở 100.")
+        note.setWordWrap(True); root.addWidget(note)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
+
+    def _weight_box(self, root, title, values, labels):
+        box = QGroupBox(title); form = QFormLayout(box); inputs = {}
+        for key, label in labels.items():
+            spin = QSpinBox(); spin.setRange(0, 100); spin.setValue(int(values.get(key, 0))); spin.setSuffix(" điểm")
+            form.addRow(label + ":", spin); inputs[key] = spin
+        root.addWidget(box); return inputs
+
+    def accept(self):
+        if self.definite.value() < self.min_score.value():
+            QMessageBox.warning(self, "Ngưỡng chưa hợp lệ", "Điểm trùng chắc chắn phải lớn hơn hoặc bằng điểm tối thiểu.")
+            return
+        self.rules.min_score = self.min_score.value(); self.rules.definite_score = self.definite.value()
+        self.rules.case_weights = {k: w.value() for k, w in self.case_inputs.items()}
+        self.rules.outbreak_weights = {k: w.value() for k, w in self.outbreak_inputs.items()}
+        save_rules(self.rules)
+        super().accept()
+
+
 class DuplicateReviewDialog(QDialog):
+    CASE_MERGE_FIELDS = [
+        "case_code", "full_name", "birth_date_raw", "gender", "national_id", "phone", "current_address",
+        "commune", "main_diagnosis", "onset_date", "report_datetime", "reporting_unit", "current_status", "record_status",
+    ]
+    OUTBREAK_MERGE_FIELDS = [
+        "disease", "location", "first_onset_date", "last_onset_date", "end_date", "status", "case_count",
+        "death_count", "sample_count", "positive_count", "report_datetime", "reporting_unit",
+    ]
+
     def __init__(self, group: dict[str, Any], parent=None):
         super().__init__(parent)
         self.group = group
-        self.setWindowTitle(f"Duyệt nhóm trùng #{group['group_id']}")
-        self.resize(1050, 600)
+        self.setWindowTitle(f"Duyệt và hợp nhất nhóm trùng #{group['group_id']}")
+        self.resize(1180, 760)
         root = QVBoxLayout(self)
         note = QLabel(
-            f"<b>{group['confidence']} — điểm {group['score']}/100</b><br>"
-            f"Lý do: {group['reasons']}<br><br>"
-            "Chọn một bản ghi để giữ. Các bản ghi còn lại chỉ bị xóa sau khi xác nhận; "
+            f"<b>{group['confidence']} — điểm {group['score']}/100</b><br>Lý do: {group['reasons']}<br><br>"
+            "Chọn bản ghi chính và giá trị cuối cho từng trường. Bản còn lại được đưa vào Thùng rác, không xóa vĩnh viễn; "
             "CSDL được sao lưu trước thao tác."
         )
-        note.setWordWrap(True)
-        root.addWidget(note)
+        note.setWordWrap(True); root.addWidget(note)
         self.keep_combo = QComboBox()
         for record in group["records"]:
-            if group["entity_type"] == "case":
-                caption = f"ID {record['id']} — {record.get('full_name') or ''} — {record.get('case_code') or 'không mã'}"
-            else:
-                caption = f"ID {record['id']} — {record.get('disease') or ''} — {record.get('location') or ''}"
-            source = f"{record.get('source_file') or ''}:{record.get('source_row') or ''}"
-            self.keep_combo.addItem(f"{caption} — nguồn {source}", int(record["id"]))
-        form = QFormLayout()
-        form.addRow("Bản ghi giữ lại:", self.keep_combo)
-        root.addLayout(form)
-        self.table = QTableView()
-        self.table.setAlternatingRowColors(True)
-        if group["entity_type"] == "case":
-            columns = [
-                ("id", "ID"), ("case_code", "Mã ca"), ("full_name", "Họ tên"),
-                ("birth_date_raw", "Ngày sinh"), ("gender", "Giới"), ("phone", "Điện thoại"),
-                ("commune", "Xã/phường"), ("main_diagnosis", "Chẩn đoán"),
-                ("onset_date", "Khởi phát"), ("source_file", "File nguồn"), ("source_row", "Dòng"),
-            ]
-        else:
-            columns = [
-                ("id", "ID"), ("disease", "Bệnh"), ("location", "Địa điểm"),
-                ("admin_area", "Địa bàn"), ("first_onset_date", "Khởi phát đầu"),
-                ("status", "Trạng thái"), ("case_count", "Ca mắc"),
-                ("reporting_unit", "Đơn vị báo cáo"), ("source_file", "File nguồn"), ("source_row", "Dòng"),
-            ]
+            caption = (f"ID {record['id']} — {record.get('full_name') or ''} — {record.get('case_code') or 'không mã'}"
+                       if group["entity_type"] == "case" else
+                       f"ID {record['id']} — {record.get('disease') or ''} — {record.get('location') or ''}")
+            self.keep_combo.addItem(caption, int(record["id"]))
+        form = QFormLayout(); form.addRow("Bản ghi chính:", self.keep_combo); root.addLayout(form)
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        self.table = QTableView(); self.table.setAlternatingRowColors(True)
+        columns = ([
+            ("id", "ID"), ("case_code", "Mã ca"), ("full_name", "Họ tên"), ("birth_date_raw", "Ngày sinh"),
+            ("gender", "Giới"), ("phone", "Điện thoại"), ("commune", "Xã/phường"),
+            ("main_diagnosis", "Chẩn đoán"), ("onset_date", "Khởi phát"), ("source_file", "File nguồn"),
+        ] if group["entity_type"] == "case" else [
+            ("id", "ID"), ("disease", "Bệnh"), ("location", "Địa điểm"), ("admin_area", "Địa bàn"),
+            ("first_onset_date", "Khởi phát đầu"), ("status", "Trạng thái"), ("case_count", "Ca mắc"),
+            ("reporting_unit", "Đơn vị báo cáo"), ("source_file", "File nguồn"),
+        ])
         self.table.setModel(DictTableModel(group["records"], columns))
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        root.addWidget(self.table, 1)
+        splitter.addWidget(self.table)
+        merge_box = QGroupBox("Chọn giá trị cho bản ghi sau hợp nhất")
+        merge_layout = QVBoxLayout(merge_box)
+        fields = self.CASE_MERGE_FIELDS if group["entity_type"] == "case" else self.OUTBREAK_MERGE_FIELDS
+        labels = core.CASE_LABELS if group["entity_type"] == "case" else core.OUTBREAK_LABELS
+        self.merge_table = QTableWidget(len(fields), 2)
+        self.merge_table.setHorizontalHeaderLabels(["Trường dữ liệu", "Giá trị giữ lại"])
+        self.merge_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.merge_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.merge_combos: dict[str, QComboBox] = {}
+        keep_record = group["records"][0]
+        for row, field in enumerate(fields):
+            combo = QComboBox(); values = []
+            for record in group["records"]:
+                value = record.get(field)
+                text = "" if value is None else str(value)
+                if text not in values: values.append(text)
+            label_text = labels.get(field, field)
+            non_empty_values = {value for value in values if value}
+            if len(non_empty_values) > 1: label_text = "⚠ " + label_text
+            label_item = QTableWidgetItem(label_text); label_item.setFlags(label_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.merge_table.setItem(row, 0, label_item)
+            for value in values: combo.addItem(value, value)
+            default = "" if keep_record.get(field) is None else str(keep_record.get(field))
+            index = combo.findData(default); combo.setCurrentIndex(index if index >= 0 else 0)
+            self.merge_table.setCellWidget(row, 1, combo); self.merge_combos[field] = combo
+        self.keep_combo.currentIndexChanged.connect(self.apply_keep_defaults)
+        merge_layout.addWidget(self.merge_table); splitter.addWidget(merge_box); splitter.setSizes([300, 360])
+        root.addWidget(splitter, 1)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
-        buttons.button(QDialogButtonBox.StandardButton.Save).setText("Giữ bản đã chọn và xóa bản còn lại")
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        root.addWidget(buttons)
+        buttons.button(QDialogButtonBox.StandardButton.Save).setText("Hợp nhất và đưa bản còn lại vào Thùng rác")
+        buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
+
+    def apply_keep_defaults(self):
+        keep_id = int(self.keep_combo.currentData())
+        record = next((item for item in self.group["records"] if int(item["id"]) == keep_id), None)
+        if not record: return
+        for field, combo in self.merge_combos.items():
+            value = "" if record.get(field) is None else str(record.get(field))
+            index = combo.findData(value)
+            if index >= 0: combo.setCurrentIndex(index)
 
     @property
-    def keep_id(self) -> int:
-        return int(self.keep_combo.currentData())
+    def keep_id(self) -> int: return int(self.keep_combo.currentData())
+
+    @property
+    def merged_values(self) -> dict[str, Any]:
+        return {field: combo.currentData() for field, combo in self.merge_combos.items()}
+
+
+class DuplicateHistoryDialog(QDialog):
+    def __init__(self, after_restore=None, parent=None):
+        super().__init__(parent); self.after_restore = after_restore
+        self.setWindowTitle("Lịch sử hợp nhất và Thùng rác"); self.resize(950, 540)
+        root = QVBoxLayout(self)
+        info = QLabel("Mỗi thao tác đều có bản sao lưu. Khôi phục sẽ đưa các bản ghi trong Thùng rác trở lại CSDL.")
+        info.setWordWrap(True); root.addWidget(info)
+        self.model = DictTableModel(columns=[
+            ("id", "Mã thao tác"), ("entity_label", "Đối tượng"), ("keep_id", "ID giữ lại"),
+            ("action_label", "Xử lý"), ("trash_count", "Đã đưa vào rác"), ("pending_count", "Có thể khôi phục"),
+            ("created_at", "Thời điểm"), ("restored_at", "Đã khôi phục"),
+        ])
+        self.table = QTableView(); self.table.setModel(self.model); self.table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableView.SelectionMode.SingleSelection); self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        root.addWidget(self.table, 1)
+        row = QHBoxLayout(); refresh = QPushButton("Làm mới"); refresh.clicked.connect(self.refresh)
+        restore = QPushButton("Khôi phục nhóm đã chọn"); restore.clicked.connect(self.restore_selected)
+        row.addWidget(refresh); row.addWidget(restore); row.addStretch(); root.addLayout(row)
+        close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close); close.rejected.connect(self.reject); root.addWidget(close)
+        self.refresh()
+
+    def refresh(self):
+        rows = core.list_duplicate_actions()
+        for item in rows:
+            item["entity_label"] = "Ca bệnh" if item.get("entity_type") == "case" else "Ổ dịch"
+            item["action_label"] = "Hợp nhất" if item.get("action_type") == "merge" else "Loại trùng"
+        self.model.set_data(rows)
+
+    def restore_selected(self):
+        indexes = self.table.selectionModel().selectedRows()
+        if not indexes:
+            QMessageBox.information(self, "Chưa chọn", "Hãy chọn một thao tác cần khôi phục."); return
+        item = self.model.record_at(indexes[0].row())
+        if not item or int(item.get("pending_count") or 0) <= 0:
+            QMessageBox.information(self, "Không thể khôi phục", "Nhóm này không còn bản ghi trong Thùng rác."); return
+        if QMessageBox.question(self, "Xác nhận khôi phục", "Khôi phục các bản ghi đã loại? CSDL hiện tại sẽ được sao lưu trước.") != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            result = core.restore_duplicate_action(int(item["id"]))
+            QMessageBox.information(self, "Đã khôi phục", f"Đã khôi phục {result['restored_count']} bản ghi.\nSao lưu an toàn: {result['backup_file']}")
+            self.refresh()
+            if self.after_restore: self.after_restore()
+        except Exception as exc:
+            QMessageBox.critical(self, "Không thể khôi phục", str(exc))
 
 
 class DuplicateTab(QWidget):
     def __init__(self, after_change=None):
-        super().__init__()
-        self.after_change = after_change
-        self.groups: list[dict[str, Any]] = []
-        root = QVBoxLayout(self)
-        title_row = QHBoxLayout()
-        title = QLabel("Lọc trùng dữ liệu")
-        title.setObjectName("sectionTitle")
-        self.entity = QComboBox()
-        self.entity.addItem("Ca bệnh", "case")
-        self.entity.addItem("Ổ dịch", "outbreak")
-        self.min_score = QSpinBox()
-        self.min_score.setRange(50, 100)
-        self.min_score.setValue(65)
-        self.min_score.setSuffix(" điểm")
-        scan = QPushButton("Quét dữ liệu")
-        scan.clicked.connect(self.refresh)
-        review = QPushButton("Duyệt nhóm đã chọn")
-        review.clicked.connect(self.review_selected)
-        export = QPushButton("Xuất kết quả")
-        export.setObjectName("secondary")
-        export.clicked.connect(self.export)
-        title_row.addWidget(title)
-        title_row.addStretch()
-        title_row.addWidget(QLabel("Đối tượng:"))
-        title_row.addWidget(self.entity)
-        title_row.addWidget(QLabel("Ngưỡng:"))
-        title_row.addWidget(self.min_score)
-        title_row.addWidget(scan)
-        title_row.addWidget(review)
-        title_row.addWidget(export)
+        super().__init__(); self.after_change = after_change; self.groups = []; self.rules = load_rules()
+        root = QVBoxLayout(self); title_row = QHBoxLayout(); title = QLabel("Lọc trùng dữ liệu"); title.setObjectName("sectionTitle")
+        self.entity = QComboBox(); self.entity.addItem("Ca bệnh", "case"); self.entity.addItem("Ổ dịch", "outbreak")
+        self.min_score = QSpinBox(); self.min_score.setRange(40, 100); self.min_score.setValue(self.rules.min_score); self.min_score.setSuffix(" điểm")
+        scan = QPushButton("Quét dữ liệu"); scan.clicked.connect(self.refresh)
+        review = QPushButton("Duyệt & hợp nhất"); review.clicked.connect(self.review_selected)
+        rules_btn = QPushButton("Trọng số..."); rules_btn.setObjectName("secondary"); rules_btn.clicked.connect(self.configure_rules)
+        history = QPushButton("Thùng rác / lịch sử"); history.setObjectName("secondary"); history.clicked.connect(self.open_history)
+        export = QPushButton("Xuất kết quả"); export.setObjectName("secondary"); export.clicked.connect(self.export)
+        title_row.addWidget(title); title_row.addStretch(); title_row.addWidget(QLabel("Đối tượng:")); title_row.addWidget(self.entity)
+        title_row.addWidget(QLabel("Ngưỡng:")); title_row.addWidget(self.min_score)
+        for widget in (scan, review, rules_btn, history, export): title_row.addWidget(widget)
         root.addLayout(title_row)
-        info = QLabel(
-            "Trùng tuyệt đối khi khớp mã ca hoặc CCCD/CMND. Các trường hợp còn lại được chấm điểm "
-            "theo họ tên, năm sinh, điện thoại, địa bàn, chẩn đoán và ngày khởi phát. "
-            "Ứng dụng không tự động xóa hay gộp."
-        )
-        info.setWordWrap(True)
-        root.addWidget(info)
-        self.summary = QLabel("Chưa quét dữ liệu.")
-        root.addWidget(self.summary)
-        self.table = QTableView()
-        self.table.setAlternatingRowColors(True)
-        self.table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QTableView.SelectionMode.SingleSelection)
-        self.table.doubleClicked.connect(self.review_selected)
-        self.model = DictTableModel(columns=[
-            ("group_id", "Nhóm"), ("confidence", "Mức"), ("score", "Điểm"),
-            ("record_count", "Số bản ghi"), ("summary", "Tóm tắt"), ("reasons", "Lý do"),
-        ])
-        self.table.setModel(self.model)
-        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        info = QLabel("Phát hiện trùng theo trọng số có thể cấu hình. Khi xử lý, người dùng chọn giá trị tốt nhất từng trường; bản còn lại vào Thùng rác và có thể khôi phục.")
+        info.setWordWrap(True); root.addWidget(info)
+        self.summary = QLabel("Chưa quét dữ liệu."); root.addWidget(self.summary)
+        self.table = QTableView(); self.table.setAlternatingRowColors(True); self.table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableView.SelectionMode.SingleSelection); self.table.doubleClicked.connect(self.review_selected)
+        self.model = DictTableModel(columns=[("group_id", "Nhóm"), ("confidence", "Mức"), ("score", "Điểm"), ("record_count", "Số bản ghi"), ("summary", "Tóm tắt"), ("reasons", "Lý do")])
+        self.table.setModel(self.model); self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch); self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
         root.addWidget(self.table, 1)
 
-    def clear_results(self):
-        self.groups = []
-        self.model.set_data([])
-        self.summary.setText("Dữ liệu đã thay đổi. Bấm Quét dữ liệu để cập nhật kết quả lọc trùng.")
+    def configure_rules(self):
+        dialog = DuplicateRulesDialog(self.rules, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.rules = load_rules(); self.min_score.setValue(self.rules.min_score); self.clear_results()
+
+    def open_history(self): DuplicateHistoryDialog(self.after_change, self).exec()
+    def clear_results(self): self.groups = []; self.model.set_data([]); self.summary.setText("Dữ liệu hoặc quy tắc đã thay đổi. Bấm Quét dữ liệu để cập nhật.")
 
     def refresh(self):
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            self.groups = core.find_duplicate_groups(
-                self.entity.currentData(), min_score=self.min_score.value()
-            )
+            weights = self.rules.weights_for(self.entity.currentData())
+            self.groups = core.find_duplicate_groups(self.entity.currentData(), min_score=self.min_score.value(), rules={"weights": weights, "definite_score": self.rules.definite_score})
             rows = []
             for group in self.groups:
-                row = {k: v for k, v in group.items() if k != "records"}
-                row["severity"] = "error" if group["score"] >= 85 else "warning"
-                rows.append(row)
-            self.model.set_data(rows)
-            total_records = sum(int(group["record_count"]) for group in self.groups)
-            self.summary.setText(
-                f"Phát hiện {len(self.groups):,} nhóm với {total_records:,} bản ghi cần duyệt."
-                if self.groups else "Không phát hiện bản ghi trùng theo ngưỡng hiện tại."
-            )
-        except Exception as exc:
-            QMessageBox.critical(self, "Không thể lọc trùng", str(exc))
-        finally:
-            QApplication.restoreOverrideCursor()
+                row = {k: v for k, v in group.items() if k != "records"}; row["severity"] = "error" if group["score"] >= self.rules.definite_score else "warning"; rows.append(row)
+            self.model.set_data(rows); total = sum(int(g["record_count"]) for g in self.groups)
+            self.summary.setText(f"Phát hiện {len(self.groups):,} nhóm với {total:,} bản ghi cần duyệt." if self.groups else "Không phát hiện bản ghi trùng theo ngưỡng hiện tại.")
+        except Exception as exc: QMessageBox.critical(self, "Không thể lọc trùng", str(exc))
+        finally: QApplication.restoreOverrideCursor()
 
-    def selected_group(self) -> dict[str, Any] | None:
+    def selected_group(self):
         indexes = self.table.selectionModel().selectedRows()
-        if not indexes:
-            QMessageBox.information(self, "Chưa chọn", "Hãy chọn một nhóm trùng trong danh sách.")
-            return None
-        row = indexes[0].row()
-        return self.groups[row] if 0 <= row < len(self.groups) else None
+        if not indexes: QMessageBox.information(self, "Chưa chọn", "Hãy chọn một nhóm trùng trong danh sách."); return None
+        row = indexes[0].row(); return self.groups[row] if 0 <= row < len(self.groups) else None
 
     def review_selected(self):
         group = self.selected_group()
-        if not group:
-            return
+        if not group: return
         dialog = DuplicateReviewDialog(group, self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-        keep_id = dialog.keep_id
-        remove_ids = [int(record_id) for record_id in group["record_ids"] if int(record_id) != keep_id]
-        answer = QMessageBox.question(
-            self,
-            "Xác nhận xử lý trùng",
-            f"Giữ bản ghi ID {keep_id} và xóa {len(remove_ids)} bản ghi còn lại?\n"
-            "CSDL sẽ được sao lưu trước khi xóa.",
-        )
-        if answer != QMessageBox.StandardButton.Yes:
-            return
+        if dialog.exec() != QDialog.DialogCode.Accepted: return
+        keep_id = dialog.keep_id; remove_ids = [int(i) for i in group["record_ids"] if int(i) != keep_id]
+        if QMessageBox.question(self, "Xác nhận hợp nhất", f"Giữ ID {keep_id}, hợp nhất giá trị đã chọn và đưa {len(remove_ids)} bản ghi vào Thùng rác?") != QMessageBox.StandardButton.Yes: return
         try:
-            result = core.remove_duplicate_records(group["entity_type"], keep_id, remove_ids)
-            QMessageBox.information(
-                self,
-                "Đã xử lý",
-                f"Đã giữ ID {result['kept_id']} và xóa {result['removed_count']} bản ghi.\n"
-                f"Bản sao lưu: {result['backup_file']}",
-            )
-            if self.after_change:
-                self.after_change()
+            result = core.merge_duplicate_records(group["entity_type"], keep_id, remove_ids, dialog.merged_values)
+            QMessageBox.information(self, "Đã hợp nhất", f"Đã giữ ID {result['kept_id']} và đưa {result['removed_count']} bản ghi vào Thùng rác.\nBản sao lưu: {result['backup_file']}")
+            if self.after_change: self.after_change()
             self.refresh()
-        except Exception as exc:
-            QMessageBox.critical(self, "Không thể xử lý trùng", str(exc))
+        except Exception as exc: QMessageBox.critical(self, "Không thể hợp nhất", str(exc))
 
     def export(self):
-        if not self.groups:
-            QMessageBox.information(self, "Không có dữ liệu", "Hãy quét dữ liệu trước khi xuất.")
-            return
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Xuất kết quả lọc trùng", "ket_qua_loc_trung.xlsx", "Excel (*.xlsx);;CSV (*.csv)"
-        )
-        if not path:
-            return
+        if not self.groups: QMessageBox.information(self, "Không có dữ liệu", "Hãy quét dữ liệu trước khi xuất."); return
+        path, _ = QFileDialog.getSaveFileName(self, "Xuất kết quả lọc trùng", "ket_qua_loc_trung.xlsx", "Excel (*.xlsx);;CSV (*.csv)")
+        if not path: return
         columns = ["Nhóm", "Mức", "Điểm", "Số bản ghi", "Danh sách ID", "Tóm tắt", "Lý do"]
-        rows = [[
-            g["group_id"], g["confidence"], g["score"], g["record_count"],
-            ", ".join(map(str, g["record_ids"])), g["summary"], g["reasons"],
-        ] for g in self.groups]
-        core.export_rows(path, columns, rows)
-        QMessageBox.information(self, "Đã xuất", path)
+        rows = [[g["group_id"], g["confidence"], g["score"], g["record_count"], ", ".join(map(str, g["record_ids"])), g["summary"], g["reasons"]] for g in self.groups]
+        core.export_rows(path, columns, rows); QMessageBox.information(self, "Đã xuất", path)
 
 
 class WorkstationConnectionDialog(QDialog):
     def __init__(self, config: DeploymentConfig, parent=None):
-        super().__init__(parent)
-        self.config = config
-        self.setWindowTitle("Kết nối máy chủ LAN")
-        self.resize(560, 220)
-        root = QVBoxLayout(self)
-        form = QFormLayout()
-        self.url = QLineEdit(config.server_url)
-        self.url.setPlaceholderText("http://192.168.1.10:8765")
-        self.password = QLineEdit(config.password)
-        self.password.setEchoMode(QLineEdit.EchoMode.Password)
-        self.password.setPlaceholderText("Để trống nếu máy chủ không đặt mật khẩu")
-        form.addRow("Địa chỉ máy chủ:", self.url)
-        form.addRow("Mật khẩu:", self.password)
-        root.addLayout(form)
-        self.status = QLabel("Nhập IP/cổng của máy chủ trong cùng mạng LAN.")
-        self.status.setWordWrap(True)
-        root.addWidget(self.status)
-        row = QHBoxLayout()
-        test = QPushButton("Kiểm tra kết nối")
-        test.clicked.connect(self.test_connection)
-        row.addWidget(test)
-        row.addStretch()
-        root.addLayout(row)
+        super().__init__(parent); self.config = config
+        self.setWindowTitle("Kết nối máy chủ LAN"); self.resize(620, 300)
+        root = QVBoxLayout(self); form = QFormLayout()
+        self.url = QLineEdit(config.server_url); self.url.setPlaceholderText("http://192.168.1.10:8765")
+        self.password = QLineEdit(config.password); self.password.setEchoMode(QLineEdit.EchoMode.Password); self.password.setPlaceholderText("Để trống nếu máy chủ không đặt mật khẩu")
+        self.auto_reconnect = QCheckBox("Tự kết nối lại khi mạng chập chờn"); self.auto_reconnect.setChecked(config.auto_reconnect)
+        form.addRow("Địa chỉ máy chủ:", self.url); form.addRow("Mật khẩu:", self.password); form.addRow("", self.auto_reconnect); root.addLayout(form)
+        self.status = QLabel("Có thể nhập IP hoặc dùng nút Tìm máy chủ tự động."); self.status.setWordWrap(True); root.addWidget(self.status)
+        row = QHBoxLayout(); discover = QPushButton("Tìm máy chủ tự động"); discover.clicked.connect(self.discover)
+        test = QPushButton("Kiểm tra kết nối"); test.clicked.connect(self.test_connection)
+        row.addWidget(discover); row.addWidget(test); row.addStretch(); root.addLayout(row)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        root.addWidget(buttons)
+        buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
 
     def _save_values(self):
         url = self.url.text().strip().rstrip("/")
-        if not (url.startswith("http://") or url.startswith("https://")):
-            raise ValueError("Địa chỉ máy chủ phải bắt đầu bằng http:// hoặc https://")
-        self.config.server_url = url
-        self.config.password = self.password.text()
-        save_config(self.config)
+        if not (url.startswith("http://") or url.startswith("https://")): raise ValueError("Địa chỉ máy chủ phải bắt đầu bằng http:// hoặc https://")
+        self.config.server_url = url; self.config.password = self.password.text(); self.config.auto_reconnect = self.auto_reconnect.isChecked(); save_config(self.config)
+
+    def discover(self):
+        self.status.setText("Đang dò máy chủ trong mạng LAN..."); QApplication.processEvents()
+        try:
+            import remote_core
+            servers = remote_core.discover_servers(timeout=2.0)
+            if not servers: self.status.setText("Không tìm thấy máy chủ. Kiểm tra cùng mạng LAN và Windows Firewall."); return
+            captions = [f"{s.get('server_name') or s.get('source_ip')} — {s.get('url')} — {'có mật khẩu' if s.get('password_required') else 'không mật khẩu'}" for s in servers]
+            chosen = 0
+            if len(servers) > 1:
+                text, ok = QInputDialog.getItem(self, "Chọn máy chủ", "Máy chủ tìm thấy:", captions, 0, False)
+                if not ok: return
+                chosen = captions.index(text)
+            server = servers[chosen]; self.url.setText(str(server["url"])); self.status.setText(f"Đã chọn {captions[chosen]}")
+        except Exception as exc: self.status.setText(f"Không thể dò máy chủ: {exc}")
 
     def test_connection(self):
         try:
-            self._save_values()
-            import remote_core
-            info = remote_core.health()
-            self.status.setText(f"Kết nối thành công: {info.get('app')} {info.get('version')} — cổng {info.get('port')}")
-        except Exception as exc:
-            self.status.setText(f"Kết nối thất bại: {exc}")
+            self._save_values(); import remote_core; info = remote_core.health()
+            self.status.setText(f"Kết nối thành công: {info.get('server_name') or info.get('app')} {info.get('version')} — cổng {info.get('port')}")
+        except Exception as exc: self.status.setText(f"Kết nối thất bại: {exc}")
 
     def accept(self):
-        try:
-            self._save_values()
-        except Exception as exc:
-            QMessageBox.warning(self, "Cấu hình chưa hợp lệ", str(exc))
-            return
+        try: self._save_values()
+        except Exception as exc: QMessageBox.warning(self, "Cấu hình chưa hợp lệ", str(exc)); return
         super().accept()
 
 
 class ServerTab(QWidget):
     def __init__(self, controller: LanServerController, config: DeploymentConfig):
-        super().__init__()
-        self.controller = controller
-        self.config = config
-        root = QVBoxLayout(self)
-        title = QLabel("Máy chủ chia sẻ dữ liệu trong mạng LAN")
-        title.setObjectName("sectionTitle")
-        root.addWidget(title)
-        note = QLabel(
-            "Máy chủ sử dụng CSDL SQLite tại máy này và chia sẻ dữ liệu qua API HTTP trong mạng LAN. "
-            "Máy trạm không mở trực tiếp file .db. Khi Windows hỏi quyền tường lửa, chỉ cho phép mạng Riêng tư."
-        )
-        note.setWordWrap(True)
-        root.addWidget(note)
-        box = QGroupBox("Cấu hình server")
-        form = QFormLayout(box)
-        self.port = QSpinBox()
-        self.port.setRange(1, 65535)
-        self.port.setValue(config.server_port)
-        self.password = QLineEdit(config.password)
-        self.password.setEchoMode(QLineEdit.EchoMode.Password)
-        self.password.setPlaceholderText("Để trống = không yêu cầu mật khẩu")
-        self.auto_start = QCheckBox("Tự khởi động server khi mở ứng dụng")
-        self.auto_start.setChecked(config.auto_start_server)
-        form.addRow("Cổng LAN:", self.port)
-        form.addRow("Mật khẩu máy trạm:", self.password)
-        form.addRow("", self.auto_start)
-        root.addWidget(box)
-        self.status = QLabel()
-        self.status.setWordWrap(True)
-        root.addWidget(self.status)
-        row = QHBoxLayout()
-        save = QPushButton("Lưu cấu hình")
-        save.clicked.connect(self.save_settings)
-        self.start_button = QPushButton("Khởi động server")
-        self.start_button.clicked.connect(self.start_server)
-        self.stop_button = QPushButton("Dừng server")
-        self.stop_button.setObjectName("danger")
-        self.stop_button.clicked.connect(self.stop_server)
-        row.addWidget(save)
-        row.addWidget(self.start_button)
-        row.addWidget(self.stop_button)
-        row.addStretch()
-        root.addLayout(row)
-        detail = QTextEdit()
-        detail.setReadOnly(True)
-        detail.setMaximumHeight(170)
-        detail.setHtml(
-            f"<b>CSDL máy chủ:</b> {local_core.DB_PATH}<br>"
-            f"<b>Thư mục dữ liệu:</b> {local_core.DATA_DIR}<br><br>"
-            "Máy chủ tự tạo CSDL khi chưa có. Mật khẩu để trống nghĩa là mọi máy trong LAN biết địa chỉ đều có thể kết nối."
-        )
-        root.addWidget(detail)
-        root.addStretch()
-        self.refresh()
+        super().__init__(); self.controller = controller; self.config = config
+        root = QVBoxLayout(self); title = QLabel("Máy chủ chia sẻ dữ liệu trong mạng LAN"); title.setObjectName("sectionTitle"); root.addWidget(title)
+        note = QLabel("Máy trạm truy cập qua API, không mở trực tiếp file .db. Server tự dò trong LAN, theo dõi máy trạm và tạm khóa ghi trong lúc sao lưu.")
+        note.setWordWrap(True); root.addWidget(note)
+        box = QGroupBox("Cấu hình server"); form = QFormLayout(box)
+        self.server_name = QLineEdit(config.server_name); self.server_name.setPlaceholderText("Tên hiển thị khi máy trạm tự dò")
+        self.port = QSpinBox(); self.port.setRange(1, 65535); self.port.setValue(config.server_port)
+        self.password = QLineEdit(config.password); self.password.setEchoMode(QLineEdit.EchoMode.Password); self.password.setPlaceholderText("Để trống = không yêu cầu mật khẩu")
+        self.auto_start = QCheckBox("Tự khởi động server khi mở ứng dụng"); self.auto_start.setChecked(config.auto_start_server)
+        self.discovery = QCheckBox("Cho phép máy trạm tự tìm server trong LAN"); self.discovery.setChecked(config.discovery_enabled)
+        form.addRow("Tên máy chủ:", self.server_name); form.addRow("Cổng LAN:", self.port); form.addRow("Mật khẩu máy trạm:", self.password); form.addRow("", self.auto_start); form.addRow("", self.discovery)
+        root.addWidget(box); self.status = QLabel(); self.status.setWordWrap(True); root.addWidget(self.status)
+        row = QHBoxLayout(); save = QPushButton("Lưu cấu hình"); save.clicked.connect(self.save_settings)
+        self.start_button = QPushButton("Khởi động server"); self.start_button.clicked.connect(self.start_server)
+        self.stop_button = QPushButton("Dừng server"); self.stop_button.setObjectName("danger"); self.stop_button.clicked.connect(self.stop_server)
+        firewall = QPushButton("Cấu hình Windows Firewall"); firewall.setObjectName("secondary"); firewall.clicked.connect(self.configure_firewall)
+        for widget in (save, self.start_button, self.stop_button, firewall): row.addWidget(widget)
+        row.addStretch(); root.addLayout(row)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        client_box = QGroupBox("Máy trạm đã kết nối"); cl = QVBoxLayout(client_box)
+        self.client_model = DictTableModel(columns=[("ip", "IP"), ("last_seen", "Truy cập cuối"), ("requests", "Số yêu cầu"), ("last_path", "Endpoint cuối")])
+        self.client_table = QTableView(); self.client_table.setModel(self.client_model); self.client_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents); cl.addWidget(self.client_table)
+        log_box = QGroupBox("Nhật ký truy cập gần đây"); ll = QVBoxLayout(log_box)
+        self.log_model = DictTableModel(columns=[("time", "Thời điểm"), ("ip", "IP"), ("method", "Phương thức"), ("path", "Đường dẫn"), ("status", "Kết quả")])
+        self.log_table = QTableView(); self.log_table.setModel(self.log_model); self.log_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents); ll.addWidget(self.log_table)
+        splitter.addWidget(client_box); splitter.addWidget(log_box); splitter.setSizes([520, 650]); root.addWidget(splitter, 1)
+        detail = QLabel(f"CSDL máy chủ: {local_core.DB_PATH}\nThư mục dữ liệu: {local_core.DATA_DIR}"); detail.setWordWrap(True); root.addWidget(detail)
+        self.timer = QTimer(self); self.timer.timeout.connect(self.refresh); self.timer.start(3000); self.refresh()
+
+    def _apply_fields(self):
+        self.config.server_name = self.server_name.text().strip(); self.config.server_port = self.port.value(); self.config.password = self.password.text()
+        self.config.auto_start_server = self.auto_start.isChecked(); self.config.discovery_enabled = self.discovery.isChecked(); save_config(self.config); self.controller.config = self.config
 
     def save_settings(self):
         was_running = self.controller.running
-        if was_running:
-            self.controller.stop()
-        self.config.server_port = self.port.value()
-        self.config.password = self.password.text()
-        self.config.auto_start_server = self.auto_start.isChecked()
-        save_config(self.config)
-        self.controller.config = self.config
-        if was_running:
-            self.start_server()
-        else:
-            self.refresh()
+        if was_running: self.controller.stop()
+        self._apply_fields()
+        if was_running: self.start_server()
+        else: self.refresh()
 
     def start_server(self):
         try:
-            self.save_settings_without_restart()
-            address = self.controller.start()
-            self.status.setText(f"Server đang hoạt động tại <b>{address}</b>. Máy trạm dùng địa chỉ này để kết nối.")
-        except Exception as exc:
-            self.status.setText(f"Không khởi động được server: {exc}")
+            self._apply_fields()
+            if not port_available(self.config.server_host, self.config.server_port): raise OSError(f"Cổng {self.config.server_port} đang được sử dụng.")
+            address = self.controller.start(); self.status.setText(f"Server đang hoạt động tại <b>{address}</b>.")
+        except Exception as exc: self.status.setText(f"Không khởi động được server: {exc}")
         self.refresh_buttons()
 
-    def save_settings_without_restart(self):
-        self.config.server_port = self.port.value()
-        self.config.password = self.password.text()
-        self.config.auto_start_server = self.auto_start.isChecked()
-        save_config(self.config)
-        self.controller.config = self.config
-
-    def stop_server(self):
-        self.controller.stop()
-        self.refresh()
-
+    def stop_server(self): self.controller.stop(); self.refresh()
     def auto_start_server(self):
-        if self.config.auto_start_server and not self.controller.running:
-            self.start_server()
+        if self.config.auto_start_server and not self.controller.running: self.start_server()
+    def refresh_buttons(self): self.start_button.setEnabled(not self.controller.running); self.stop_button.setEnabled(self.controller.running)
 
-    def refresh_buttons(self):
-        self.start_button.setEnabled(not self.controller.running)
-        self.stop_button.setEnabled(self.controller.running)
+    def configure_firewall(self):
+        answer = QMessageBox.question(self, "Windows Firewall", "Tạo quy tắc cho TCP server và UDP tự dò trên mạng Riêng tư? Có thể cần mở ứng dụng bằng quyền quản trị.")
+        if answer != QMessageBox.StandardButton.Yes: return
+        result = configure_windows_firewall(self.port.value())
+        (QMessageBox.information if result.get("ok") else QMessageBox.warning)(self, "Windows Firewall", str(result.get("message")))
 
     def refresh(self):
-        if self.controller.running:
-            auth = "có mật khẩu" if self.config.password else "không mật khẩu"
-            self.status.setText(f"Server đang hoạt động tại <b>{self.controller.address}</b> — {auth}.")
-        else:
-            self.status.setText("Server đang dừng.")
-        self.refresh_buttons()
+        status = self.controller.status()
+        if status["running"]:
+            auth = "có mật khẩu" if status["password_required"] else "không mật khẩu"
+            readonly = " — ĐANG SAO LƯU, CHỈ ĐỌC" if status.get("backup_in_progress") else ""
+            discover = "tự dò LAN bật" if status.get("discovery_running") else "tự dò LAN tắt"
+            self.status.setText(f"Server tại <b>{status['address']}</b> — {auth} — {discover} — {status['client_count']} máy trạm{readonly}.")
+        else: self.status.setText("Server đang dừng." + (f" Lỗi gần nhất: {status.get('last_error')}" if status.get('last_error') else ""))
+        self.client_model.set_data(status.get("clients", []))
+        logs = []
+        for item in status.get("logs", []): item = dict(item); item["status"] = "Thành công" if item.get("ok") else "Lỗi"; logs.append(item)
+        self.log_model.set_data(logs); self.refresh_buttons()
 
 
 class QualityTab(QWidget):
@@ -1182,138 +1212,141 @@ class SqlTab(QWidget):
 
 
 class SettingsTab(QWidget):
-    def __init__(self, config: DeploymentConfig):
-        super().__init__()
-        self.config = config
-        root = QVBoxLayout(self)
-        title = QLabel("Dữ liệu, sao lưu và cập nhật")
-        title.setObjectName("sectionTitle")
-        root.addWidget(title)
-        info = QTextEdit()
-        info.setReadOnly(True)
-        info.setMaximumHeight(210)
-        deployment_detail = (
-            f"Máy chủ: {config.server_url}" if config.is_workstation
-            else f"CSDL: {local_core.DB_PATH}"
-        )
-        info.setHtml(
-            f"<b>Phiên bản:</b> {core.VERSION}<br>"
-            f"<b>Chế độ:</b> {mode_label(config.mode)}<br>"
-            f"<b>{deployment_detail}</b><br>"
-            f"<b>Thư mục cấu hình cục bộ:</b> {local_core.USER_DATA_DIR}<br><br>"
-            "CSDL nghiệp vụ không nằm trong bộ cài. Cài đè hoặc cập nhật không ghi đè thư mục dữ liệu người dùng."
-        )
+    def __init__(self, config: DeploymentConfig, after_restore=None, server_controller=None):
+        super().__init__(); self.config = config; self.after_restore = after_restore; self.server_controller = server_controller; self.policy = backup_manager.load_policy()
+        root = QVBoxLayout(self); title = QLabel("Dữ liệu, sao lưu, phục hồi và cập nhật"); title.setObjectName("sectionTitle"); root.addWidget(title)
+        info = QTextEdit(); info.setReadOnly(True); info.setMaximumHeight(145)
+        deployment_detail = f"Máy chủ: {config.server_url}" if config.is_workstation else f"CSDL: {local_core.DB_PATH}"
+        info.setHtml(f"<b>Phiên bản:</b> {core.VERSION}<br><b>Chế độ:</b> {mode_label(config.mode)}<br><b>{deployment_detail}</b><br><b>Thư mục cấu hình:</b> {local_core.USER_DATA_DIR}<br>CSDL nghiệp vụ không nằm trong bộ cài.")
         root.addWidget(info)
+        if not config.is_workstation:
+            policy_box = QGroupBox("Sao lưu tự động và lưu giữ"); form = QFormLayout(policy_box)
+            self.backup_enabled = QCheckBox("Bật sao lưu tự động"); self.backup_enabled.setChecked(self.policy.enabled)
+            self.interval = QSpinBox(); self.interval.setRange(1, 720); self.interval.setValue(self.policy.interval_hours); self.interval.setSuffix(" giờ")
+            self.keep_daily = QSpinBox(); self.keep_daily.setRange(0, 365); self.keep_daily.setValue(self.policy.keep_daily)
+            self.keep_weekly = QSpinBox(); self.keep_weekly.setRange(0, 260); self.keep_weekly.setValue(self.policy.keep_weekly)
+            self.keep_monthly = QSpinBox(); self.keep_monthly.setRange(0, 120); self.keep_monthly.setValue(self.policy.keep_monthly)
+            dest_row = QHBoxLayout(); self.destination = QLineEdit(self.policy.destination); self.destination.setPlaceholderText("Để trống = thư mục sao lưu mặc định")
+            browse = QPushButton("Chọn..."); browse.setObjectName("secondary"); browse.clicked.connect(self.choose_destination); dest_row.addWidget(self.destination); dest_row.addWidget(browse)
+            form.addRow("", self.backup_enabled); form.addRow("Chu kỳ:", self.interval); form.addRow("Giữ bản theo ngày:", self.keep_daily); form.addRow("Giữ bản theo tuần:", self.keep_weekly); form.addRow("Giữ bản theo tháng:", self.keep_monthly); form.addRow("Thư mục NAS/OneDrive/Drive:", dest_row)
+            policy_actions = QHBoxLayout(); save_policy_btn = QPushButton("Lưu chính sách"); save_policy_btn.clicked.connect(self.save_backup_policy)
+            auto_now = QPushButton("Chạy sao lưu tự động ngay"); auto_now.setObjectName("secondary"); auto_now.clicked.connect(lambda: self.backup(kind="auto"))
+            policy_actions.addWidget(save_policy_btn); policy_actions.addWidget(auto_now); policy_actions.addStretch(); form.addRow("", policy_actions)
+            self.backup_health = QLabel(); self.backup_health.setWordWrap(True); form.addRow("Trạng thái:", self.backup_health)
+            root.addWidget(policy_box)
+            backup_box = QGroupBox("Danh sách bản sao lưu"); bl = QVBoxLayout(backup_box)
+            self.backup_model = DictTableModel(columns=[("name", "Tên file"), ("kind_label", "Loại"), ("created_at", "Thời điểm"), ("size_label", "Dung lượng")])
+            self.backup_table = QTableView(); self.backup_table.setModel(self.backup_model); self.backup_table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows); self.backup_table.setSelectionMode(QTableView.SelectionMode.SingleSelection); self.backup_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch); bl.addWidget(self.backup_table)
+            br = QHBoxLayout(); manual = QPushButton("Sao lưu ngay"); manual.clicked.connect(self.backup); verify = QPushButton("Kiểm tra toàn vẹn"); verify.setObjectName("secondary"); verify.clicked.connect(self.verify_selected_backup)
+            restore = QPushButton("Phục hồi bản đã chọn"); restore.setObjectName("danger"); restore.clicked.connect(self.restore_selected_backup); refresh = QPushButton("Làm mới"); refresh.setObjectName("secondary"); refresh.clicked.connect(self.refresh_backups)
+            for w in (manual, verify, restore, refresh): br.addWidget(w)
+            br.addStretch(); bl.addLayout(br); root.addWidget(backup_box, 1)
+        else:
+            box = QGroupBox("Sao lưu trên máy chủ"); layout = QHBoxLayout(box); manual = QPushButton("Yêu cầu máy chủ sao lưu ngay"); manual.clicked.connect(self.backup); layout.addWidget(manual); layout.addStretch(); root.addWidget(box)
+        update_box = QGroupBox("Cập nhật ứng dụng"); update_layout = QVBoxLayout(update_box)
+        self.update_status = QLabel("Bấm kiểm tra để đọc phiên bản mới."); self.update_status.setWordWrap(True); update_layout.addWidget(self.update_status)
+        self.update_button = QPushButton("Kiểm tra cập nhật"); self.update_button.clicked.connect(lambda: self.check_update(silent=False)); ur = QHBoxLayout(); ur.addWidget(self.update_button); ur.addStretch(); update_layout.addLayout(ur); root.addWidget(update_box)
+        if not config.is_workstation: self.refresh_backups()
 
-        update_box = QGroupBox("Cập nhật trực tiếp từ Google Drive")
-        update_layout = QVBoxLayout(update_box)
-        self.update_status = QLabel(
-            "Bấm kiểm tra để đọc phiên bản mới từ update_manifest.json trên Google Drive."
-        )
-        self.update_status.setWordWrap(True)
-        update_layout.addWidget(self.update_status)
-        update_row = QHBoxLayout()
-        self.update_button = QPushButton("Kiểm tra cập nhật")
-        self.update_button.clicked.connect(lambda: self.check_update(silent=False))
-        update_row.addWidget(self.update_button)
-        update_row.addStretch()
-        update_layout.addLayout(update_row)
-        root.addWidget(update_box)
+    def choose_destination(self):
+        path = QFileDialog.getExistingDirectory(self, "Chọn thư mục sao lưu", self.destination.text() or str(local_core.BACKUP_DIR))
+        if path: self.destination.setText(path)
 
-        buttons = QHBoxLayout()
-        backup = QPushButton("Sao lưu CSDL ngay")
-        backup.clicked.connect(self.backup)
-        open_data = QPushButton("Mở thư mục dữ liệu" if not config.is_workstation else "Mở thư mục cấu hình")
-        open_data.setObjectName("secondary")
-        open_data.clicked.connect(lambda: local_core.open_folder(local_core.DATA_DIR if not config.is_workstation else local_core.USER_DATA_DIR))
-        open_backup = QPushButton("Mở thư mục sao lưu")
-        open_backup.setObjectName("secondary")
-        open_backup.clicked.connect(lambda: local_core.open_folder(local_core.BACKUP_DIR))
-        open_backup.setVisible(not config.is_workstation)
-        buttons.addWidget(backup)
-        buttons.addWidget(open_data)
-        buttons.addWidget(open_backup)
-        buttons.addStretch()
-        root.addLayout(buttons)
-        root.addStretch()
+    def save_backup_policy(self):
+        self.policy.enabled = self.backup_enabled.isChecked(); self.policy.interval_hours = self.interval.value(); self.policy.keep_daily = self.keep_daily.value(); self.policy.keep_weekly = self.keep_weekly.value(); self.policy.keep_monthly = self.keep_monthly.value(); self.policy.destination = self.destination.text().strip()
+        try: backup_manager.save_policy(self.policy); backup_manager.prune_backups(self.policy); self.refresh_backups(); QMessageBox.information(self, "Đã lưu", "Đã lưu chính sách sao lưu.")
+        except Exception as exc: QMessageBox.critical(self, "Không thể lưu", str(exc))
 
-    def backup(self):
+    def backup(self, checked=False, kind="manual"):
+        server = self.server_controller.httpd if self.server_controller and self.server_controller.httpd else None
         try:
-            path = core.create_backup()
+            if server: server.backup_in_progress = True
+            if self.config.is_workstation: path = core.create_backup()
+            else: path = backup_manager.create_backup(local_core.DB_PATH, kind=kind, policy=self.policy)
             QMessageBox.information(self, "Đã sao lưu", str(path))
+            if not self.config.is_workstation: self.refresh_backups()
+        except Exception as exc: QMessageBox.critical(self, "Không thể sao lưu", str(exc))
+        finally:
+            if server: server.backup_in_progress = False
+
+    def refresh_backups(self):
+        if self.config.is_workstation: return
+        try:
+            rows = backup_manager.list_backups(self.policy)
+            health = backup_manager.backup_health(self.policy)
+            self.backup_health.setText(health["message"])
+            self.backup_health.setStyleSheet("color: #b42318; font-weight: 700;" if health["overdue"] else "color: #18794e; font-weight: 700;")
         except Exception as exc:
-            QMessageBox.critical(self, "Không thể sao lưu", str(exc))
+            rows = []
+            self.backup_health.setText(f"Không truy cập được thư mục sao lưu: {exc}")
+            self.backup_health.setStyleSheet("color: #b42318; font-weight: 700;")
+        labels = {"manual": "Thủ công", "auto": "Tự động", "before": "Trước thao tác", "before_restore": "Trước phục hồi"}
+        for row in rows:
+            row["kind_label"] = labels.get(row.get("kind"), row.get("kind")); row["size_label"] = f"{int(row.get('size', 0))/1024/1024:.2f} MB"
+        self.backup_model.set_data(rows)
+
+    def selected_backup(self):
+        indexes = self.backup_table.selectionModel().selectedRows()
+        if not indexes: QMessageBox.information(self, "Chưa chọn", "Hãy chọn một bản sao lưu."); return None
+        return self.backup_model.record_at(indexes[0].row())
+
+    def verify_selected_backup(self):
+        item = self.selected_backup()
+        if not item: return
+        result = backup_manager.verify_backup(item["path"])
+        (QMessageBox.information if result.get("ok") else QMessageBox.critical)(self, "Kiểm tra bản sao lưu", f"{result.get('message')}\nSố bảng: {result.get('tables', 0)}")
+
+    def restore_selected_backup(self):
+        item = self.selected_backup()
+        if not item: return
+        if QMessageBox.question(self, "Xác nhận phục hồi", "Phục hồi CSDL từ bản đã chọn? CSDL hiện tại sẽ được sao lưu an toàn trước khi thay thế.") != QMessageBox.StandardButton.Yes: return
+        was_running = bool(self.server_controller and self.server_controller.running)
+        try:
+            if was_running: self.server_controller.stop()
+            result = backup_manager.restore_backup(item["path"], local_core.DB_PATH, self.policy)
+            local_core.init_db()
+            if was_running: self.server_controller.start()
+            QMessageBox.information(self, "Phục hồi thành công", f"Đã phục hồi từ {result['restored_from']}\nBản an toàn: {result['safety_backup']}")
+            self.refresh_backups()
+            if self.after_restore: self.after_restore()
+        except Exception as exc:
+            if was_running and self.server_controller and not self.server_controller.running:
+                try: self.server_controller.start()
+                except Exception: pass
+            QMessageBox.critical(self, "Không thể phục hồi", str(exc))
+
+    def refresh(self):
+        if not self.config.is_workstation: self.refresh_backups()
 
     def check_update(self, silent: bool = False):
-        self.update_button.setEnabled(False)
-        self.update_status.setText("Đang kiểm tra phiên bản trên Google Drive...")
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        try:
-            info = update_manager.fetch_manifest()
+        self.update_button.setEnabled(False); self.update_status.setText("Đang kiểm tra phiên bản trên Google Drive..."); QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try: info = update_manager.fetch_manifest()
         except Exception as exc:
             self.update_status.setText(f"Không kiểm tra được cập nhật: {exc}")
-            if not silent:
-                QMessageBox.warning(self, "Không kiểm tra được cập nhật", str(exc))
+            if not silent: QMessageBox.warning(self, "Không kiểm tra được cập nhật", str(exc))
             return
-        finally:
-            QApplication.restoreOverrideCursor()
-            self.update_button.setEnabled(True)
-
+        finally: QApplication.restoreOverrideCursor(); self.update_button.setEnabled(True)
         if not update_manager.is_newer_version(info.version, core.VERSION):
             self.update_status.setText(f"Đang dùng phiên bản mới nhất: {core.VERSION}.")
-            if not silent:
-                QMessageBox.information(self, "Không có bản mới", f"Phiên bản hiện tại: {core.VERSION}")
+            if not silent: QMessageBox.information(self, "Không có bản mới", f"Phiên bản hiện tại: {core.VERSION}")
             return
-
         self.update_status.setText(f"Có phiên bản {info.version}: {info.notes or 'Không có ghi chú.'}")
-        answer = QMessageBox.question(
-            self,
-            "Có bản cập nhật mới",
-            f"Phiên bản hiện tại: {core.VERSION}\n"
-            f"Phiên bản mới: {info.version}\n\n"
-            f"{info.notes or 'Không có ghi chú phát hành.'}\n\n"
-            "Ứng dụng sẽ sao lưu CSDL, tải gói cập nhật, tự đóng rồi mở lại. Tiếp tục?",
-        )
-        if answer != QMessageBox.StandardButton.Yes:
-            return
-
+        answer = QMessageBox.question(self, "Có bản cập nhật mới", f"Phiên bản hiện tại: {core.VERSION}\nPhiên bản mới: {info.version}\n\n{info.notes or 'Không có ghi chú phát hành.'}\n\nỨng dụng sẽ sao lưu CSDL, tải gói cập nhật, tự đóng rồi mở lại. Tiếp tục?")
+        if answer != QMessageBox.StandardButton.Yes: return
         try:
-            backup_path = core.create_backup()
-            cache_dir = core.UPDATE_CACHE_DIR
-            zip_path = cache_dir / info.file_name
-            progress = QProgressDialog("Đang tải bản cập nhật từ Google Drive...", "Hủy", 0, 100, self)
-            progress.setWindowTitle("Cập nhật ứng dụng")
-            progress.setWindowModality(Qt.WindowModality.WindowModal)
-            progress.setMinimumDuration(0)
-
-            def on_progress(downloaded: int, total: int | None):
-                if progress.wasCanceled():
-                    raise update_manager.UpdateError("Đã hủy tải bản cập nhật.")
-                if total:
-                    progress.setMaximum(100)
-                    progress.setValue(min(99, int(downloaded * 100 / total)))
-                else:
-                    progress.setMaximum(0)
+            backup_path = core.create_backup(); cache_dir = core.UPDATE_CACHE_DIR; zip_path = cache_dir / info.file_name
+            progress = QProgressDialog("Đang tải bản cập nhật từ Google Drive...", "Hủy", 0, 100, self); progress.setWindowTitle("Cập nhật ứng dụng"); progress.setWindowModality(Qt.WindowModality.WindowModal); progress.setMinimumDuration(0)
+            def on_progress(downloaded, total):
+                if progress.wasCanceled(): raise update_manager.UpdateError("Đã hủy tải bản cập nhật.")
+                if total: progress.setMaximum(100); progress.setValue(min(99, int(downloaded * 100 / total)))
+                else: progress.setMaximum(0)
                 QApplication.processEvents()
-
-            update_manager.download_drive_file(info.release_file_id, zip_path, on_progress, timeout=180)
-            progress.setLabelText("Đang kiểm tra tính toàn vẹn của gói cập nhật...")
-            progress.setMaximum(0)
-            QApplication.processEvents()
-            update_manager.verify_download(zip_path, info.sha256)
-            progress.close()
-            self.update_status.setText(
-                f"Đã tải phiên bản {info.version}. CSDL đã sao lưu tại {backup_path.name}."
-            )
-            update_manager.launch_update_and_exit(zip_path, core.BASE_DIR, info.package_root)
-            QApplication.quit()
+            update_manager.download_drive_file(info.release_file_id, zip_path, on_progress, timeout=180); progress.setLabelText("Đang kiểm tra tính toàn vẹn của gói cập nhật..."); progress.setMaximum(0); QApplication.processEvents(); update_manager.verify_download(zip_path, info.sha256); progress.close()
+            self.update_status.setText(f"Đã tải phiên bản {info.version}. CSDL đã sao lưu tại {backup_path.name}."); update_manager.launch_update_and_exit(zip_path, core.BASE_DIR, info.package_root); QApplication.quit()
         except Exception as exc:
-            try:
-                progress.close()
-            except Exception:
-                pass
-            self.update_status.setText(f"Cập nhật chưa hoàn tất: {exc}")
-            QMessageBox.critical(self, "Không thể cập nhật", str(exc))
+            try: progress.close()
+            except Exception: pass
+            self.update_status.setText(f"Cập nhật chưa hoàn tất: {exc}"); QMessageBox.critical(self, "Không thể cập nhật", str(exc))
 
 
 class MainWindow(QMainWindow):
@@ -1335,7 +1368,7 @@ class MainWindow(QMainWindow):
         self.quality = QualityTab()
         self.import_tab = ImportTab(self.refresh_all)
         self.sql = SqlTab()
-        self.settings = SettingsTab(config)
+        self.settings = SettingsTab(config, self.refresh_all, self.server_controller)
         self.server_tab = ServerTab(self.server_controller, config) if self.server_controller else None
         self.tabs.addTab(self.dashboard, "Tổng quan")
         self.tabs.addTab(self.cases, "Ca bệnh")
@@ -1350,10 +1383,19 @@ class MainWindow(QMainWindow):
         self.tabs.currentChanged.connect(self.on_tab_changed)
         self.setCentralWidget(self.tabs)
         self._build_menu()
+        self.connection_label = QLabel()
+        self.statusBar().addPermanentWidget(self.connection_label)
         self.statusBar().showMessage(f"Chế độ: {mode_label(config.mode)} — Dữ liệu: {core.DB_PATH}")
         QTimer.singleShot(1800, lambda: self.settings.check_update(silent=True))
         if self.server_tab:
             QTimer.singleShot(500, self.server_tab.auto_start_server)
+        if self.config.is_workstation:
+            self.connection_timer = QTimer(self); self.connection_timer.timeout.connect(self.update_connection_status); self.connection_timer.start(5000)
+            QTimer.singleShot(200, self.update_connection_status)
+        else:
+            self.connection_label.setText("CSDL cục bộ")
+            self.backup_timer = QTimer(self); self.backup_timer.timeout.connect(self.run_auto_backup); self.backup_timer.start(10 * 60 * 1000)
+            QTimer.singleShot(2500, self.run_auto_backup)
 
     def _build_menu(self):
         file_menu = self.menuBar().addMenu("&Tệp")
@@ -1397,6 +1439,36 @@ class MainWindow(QMainWindow):
         about_action = QAction("Thông tin ứng dụng", self)
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
+
+    def update_connection_status(self):
+        if not self.config.is_workstation: return
+        try:
+            import remote_core
+            info = remote_core.health()
+            readonly = " — chỉ đọc khi server sao lưu" if info.get("read_only") else ""
+            self.connection_label.setText(f"● Đã kết nối {info.get('server_name') or info.get('lan_ip')}:{info.get('port')}{readonly}")
+            self.connection_label.setStyleSheet("color: #18794e; font-weight: 700;")
+        except Exception:
+            self.connection_label.setText("● Mất kết nối — đang tự thử lại")
+            self.connection_label.setStyleSheet("color: #b42318; font-weight: 700;")
+
+    def run_auto_backup(self):
+        if self.config.is_workstation: return
+        server = self.server_controller.httpd if self.server_controller and self.server_controller.httpd else None
+        try:
+            if server: server.backup_in_progress = True
+            path = backup_manager.auto_backup_if_due(local_core.DB_PATH)
+            if path:
+                self.statusBar().showMessage(f"Đã sao lưu tự động: {path.name}", 10000)
+                self.settings.refresh_backups()
+            else:
+                health = backup_manager.backup_health()
+                if health.get("overdue"):
+                    self.statusBar().showMessage(f"Cảnh báo sao lưu: {health.get('message')}", 15000)
+        except Exception as exc:
+            self.statusBar().showMessage(f"Sao lưu tự động lỗi: {exc}", 15000)
+        finally:
+            if server: server.backup_in_progress = False
 
     def configure_workstation(self):
         dialog = WorkstationConnectionDialog(self.config, self)
@@ -1454,21 +1526,19 @@ def main() -> int:
         try:
             remote_core.health()
         except Exception as exc:
-            answer = QMessageBox.question(
-                None,
-                "Chưa kết nối được máy chủ",
-                f"{exc}\n\nMở cấu hình kết nối máy chủ?",
-            )
-            if answer != QMessageBox.StandardButton.Yes:
-                return 1
-            dialog = WorkstationConnectionDialog(config)
-            if dialog.exec() != QDialog.DialogCode.Accepted:
-                return 1
             try:
-                remote_core.health()
-            except Exception as retry_exc:
-                QMessageBox.critical(None, "Không kết nối được", str(retry_exc))
-                return 1
+                servers = remote_core.discover_servers(timeout=1.5)
+                if len(servers) == 1:
+                    config.server_url = str(servers[0]["url"]); save_config(config); remote_core.health()
+                else:
+                    raise exc
+            except Exception:
+                answer = QMessageBox.question(None, "Chưa kết nối được máy chủ", f"{exc}\n\nMở cấu hình hoặc tự dò máy chủ?")
+                if answer != QMessageBox.StandardButton.Yes: return 1
+                dialog = WorkstationConnectionDialog(config)
+                if dialog.exec() != QDialog.DialogCode.Accepted: return 1
+                try: remote_core.health()
+                except Exception as retry_exc: QMessageBox.critical(None, "Không kết nối được", str(retry_exc)); return 1
     else:
         local_core.init_db()
     window = MainWindow(config)

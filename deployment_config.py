@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -28,6 +29,11 @@ class DeploymentConfig:
     server_url: str = "http://127.0.0.1:8765"
     password: str = ""
     auto_start_server: bool = True
+    server_name: str = ""
+    discovery_enabled: bool = True
+    auto_reconnect: bool = True
+    reconnect_attempts: int = 3
+    reconnect_delay_seconds: float = 1.0
 
     @property
     def is_standalone(self) -> bool:
@@ -65,6 +71,11 @@ def load_config() -> DeploymentConfig:
         server_url=server_url or f"http://127.0.0.1:{port}",
         password=str(raw.get("password", "") or ""),
         auto_start_server=bool(raw.get("auto_start_server", True)),
+        server_name=str(raw.get("server_name", "") or socket.gethostname()).strip(),
+        discovery_enabled=bool(raw.get("discovery_enabled", True)),
+        auto_reconnect=bool(raw.get("auto_reconnect", True)),
+        reconnect_attempts=max(1, min(10, int(raw.get("reconnect_attempts", 3) or 3))),
+        reconnect_delay_seconds=max(0.1, min(10.0, float(raw.get("reconnect_delay_seconds", 1.0) or 1.0))),
     )
 
 
@@ -73,6 +84,9 @@ def save_config(config: DeploymentConfig) -> Path:
         raise ValueError("Chế độ triển khai không hợp lệ.")
     config.server_port = max(1, min(65535, int(config.server_port)))
     config.server_url = config.server_url.strip().rstrip("/")
+    config.server_name = (config.server_name or socket.gethostname()).strip()
+    config.reconnect_attempts = max(1, min(10, int(config.reconnect_attempts)))
+    config.reconnect_delay_seconds = max(0.1, min(10.0, float(config.reconnect_delay_seconds)))
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     temp = CONFIG_PATH.with_suffix(".tmp")
     temp.write_text(json.dumps(asdict(config), ensure_ascii=False, indent=2), encoding="utf-8")

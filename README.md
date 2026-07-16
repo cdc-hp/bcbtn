@@ -1,10 +1,10 @@
-# Ứng dụng Giám sát dịch bệnh — phiên bản 0.4.0
+# Ứng dụng Giám sát dịch bệnh — phiên bản 0.5.0
 
 Ứng dụng desktop Windows dùng **Python + SQLite + PyQt6** để quản lý ca bệnh, ổ dịch, lọc trùng và chia sẻ dữ liệu trong mạng LAN.
 
 ## Cài đặt
 
-Tải `GiamSatDichBenh-Setup-v0.4.0.exe` trong GitHub Releases. Người dùng không cần cài Python hoặc tự build.
+Tải `GiamSatDichBenh-Setup-v0.5.0.exe` trong GitHub Releases. Người dùng không cần cài Python hoặc tự build.
 
 Bộ cài yêu cầu chọn một trong ba chế độ:
 
@@ -37,17 +37,23 @@ GitHub Actions từ chối phát hành nếu phát hiện `.db`, SQLite, Excel, 
   - Ca bệnh: mã ca, CCCD/CMND, họ tên, năm sinh, giới, điện thoại, địa bàn, chẩn đoán, ngày khởi phát.
   - Ổ dịch: tên bệnh, địa điểm chuẩn hóa, địa bàn, thời gian khởi phát và đơn vị báo cáo.
   - Phân loại `Trùng chắc chắn` và `Nghi trùng`.
-  - Người dùng chọn bản ghi giữ lại; CSDL được sao lưu trước khi xóa bản trùng.
+  - Cấu hình trọng số và ngưỡng xác định trùng.
+  - Chọn giá trị tốt nhất từng trường để tạo bản ghi hợp nhất.
+  - Bản còn lại được đưa vào Thùng rác và có thể khôi phục; CSDL được sao lưu trước thao tác.
 - Tìm kiếm, lọc, phân trang, xem chi tiết và xuất Excel/CSV.
 - Thêm, sửa, xóa ổ dịch.
 - Kiểm tra chất lượng dữ liệu và SQL chỉ đọc.
 - Menu ứng dụng: nhập dữ liệu, lọc trùng, sao lưu, cập nhật, cấu hình máy trạm/máy chủ và trợ giúp.
 - Máy chủ LAN có cổng và mật khẩu tùy chọn; tab Server chỉ xuất hiện ở chế độ máy chủ.
+- Tự dò máy chủ trong LAN bằng UDP, tự kết nối lại khi mạng chập chờn.
+- Server hiển thị danh sách máy trạm, nhật ký yêu cầu và chuyển sang chỉ đọc trong lúc sao lưu.
+- Sao lưu tự động theo chu kỳ; lưu giữ bản ngày/tuần/tháng, kiểm tra toàn vẹn và phục hồi có bản an toàn.
+- Có thể chọn thư mục NAS, OneDrive hoặc Google Drive for Desktop làm đích sao lưu.
 
 ## Lưu ý mạng LAN
 
 - Máy chủ mặc định nghe tại cổng `8765` trên mọi card mạng (`0.0.0.0`).
-- Khi Windows Firewall hỏi quyền, chỉ cho phép trên **Private networks / Mạng riêng tư**.
+- Bộ cài chế độ Máy chủ tạo quy tắc TCP `8765` và UDP tự dò `8766` cho **Private networks / Mạng riêng tư**; tab Server cũng có nút cấu hình lại.
 - Không chuyển tiếp cổng server ra Internet. API hiện được thiết kế cho mạng LAN tin cậy, không có TLS.
 - Nếu không đặt mật khẩu, mọi máy trong LAN biết IP và cổng đều có thể kết nối.
 
@@ -73,8 +79,11 @@ python -m pytest -q
 app.py                 Giao diện, menu, lọc trùng, máy trạm và tab Server
 core.py                SQLite, nhập/xuất, chất lượng và thuật toán lọc trùng
 deployment_config.py   Cấu hình standalone/workstation/server
-lan_server.py          HTTP API cho máy chủ LAN
-remote_core.py         Lớp gọi API dành cho máy trạm
+lan_server.py          HTTP API, theo dõi client và khóa ghi khi sao lưu
+lan_discovery.py       Tự dò máy chủ trong mạng LAN
+remote_core.py         Lớp gọi API, retry và trạng thái kết nối máy trạm
+backup_manager.py      Chính sách, kiểm tra, lưu giữ và phục hồi sao lưu
+duplicate_config.py   Trọng số và ngưỡng lọc trùng
 update_manager.py      Cập nhật ứng dụng
 setup.iss              Bộ cài và trang chọn mô hình triển khai
 .github/workflows/     Kiểm thử, build và Release tự động
