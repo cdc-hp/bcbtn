@@ -1,4 +1,4 @@
-name: Check GSBTN v0.5.0 apply
+name: Check and apply GSBTN v0.5.0
 
 on:
   issue_comment:
@@ -6,7 +6,7 @@ on:
 
 permissions:
   contents: write
-  issues: read
+  issues: write
 
 jobs:
   check:
@@ -70,20 +70,59 @@ jobs:
           Path('.v050-apply-stage.txt').write_text(
               'sha256=' + hashlib.sha256(Path('v050.patch').read_bytes()).hexdigest() + '\n', encoding='utf-8'
           )
-      - name: Check patch and save result
+      - name: Apply, compile and publish or record failure
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set +e
-          git apply --check --verbose v050.patch > apply-output.txt 2>&1
-          code=$?
+          git apply --check --verbose --ignore-space-change --ignore-whitespace v050.patch > check-output.txt 2>&1
+          check_code=$?
+          apply_code=99
+          compile_code=99
+          if [ "$check_code" -eq 0 ]; then
+            git apply --ignore-space-change --ignore-whitespace v050.patch > apply-output.txt 2>&1
+            apply_code=$?
+          else
+            : > apply-output.txt
+          fi
+          if [ "$apply_code" -eq 0 ]; then
+            python -m py_compile app.py core.py deployment_config.py lan_server.py remote_core.py lan_discovery.py backup_manager.py duplicate_config.py > compile-output.txt 2>&1
+            compile_code=$?
+          else
+            : > compile-output.txt
+          fi
           {
             cat .v050-apply-stage.txt
-            echo "exit_code=$code"
+            echo "check_code=$check_code"
+            echo "apply_code=$apply_code"
+            echo "compile_code=$compile_code"
+            echo "--- check ---"
+            cat check-output.txt
+            echo "--- apply ---"
             cat apply-output.txt
-          } > .v050-apply-stage.tmp
-          mv .v050-apply-stage.tmp .v050-apply-stage.txt
+            echo "--- compile ---"
+            cat compile-output.txt
+            echo "--- status ---"
+            git status --short
+          } > stage-report.txt
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .v050-apply-stage.txt
-          git commit -m "Ghi kết quả kiểm tra git apply v0.5.0"
-          git push origin HEAD:agent/lan-duplicates-backup
+
+          if [ "$check_code" -eq 0 ] && [ "$apply_code" -eq 0 ] && [ "$compile_code" -eq 0 ]; then
+            find . -type d -name __pycache__ -prune -exec rm -rf {} +
+            rm -f v050.patch comments.json check-output.txt apply-output.txt compile-output.txt stage-report.txt
+            rm -f .v050-diagnostic.txt .v050-ping.txt .v050-apply-stage.txt
+            git add -A
+            git commit -m "Bổ sung LAN, lọc trùng nâng cao và sao lưu phục hồi"
+            git push origin HEAD:agent/lan-duplicates-backup
+            gh issue comment 16 --repo "$GITHUB_REPOSITORY" --body "Đã áp dụng và biên dịch thành công bản vá v0.5.0 trên nhánh phát triển."
+          else
+            git reset --hard HEAD
+            mv stage-report.txt .v050-deploy-error.txt
+            git add .v050-deploy-error.txt
+            git commit -m "Ghi lỗi triển khai bản vá v0.5.0"
+            git push origin HEAD:agent/lan-duplicates-backup
+            exit 1
+          fi
