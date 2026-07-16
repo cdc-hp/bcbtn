@@ -40,48 +40,55 @@ jobs:
           $tag = "v$version"
           $existingTag = git ls-remote --tags origin "refs/tags/$tag"
           if ($LASTEXITCODE -ne 0) { throw "Unable to query tags from origin." }
-          if ($existingTag -and "${{ github.event_name }}" -ne "pull_request") {
-            throw "Release $tag already exists. Increase VERSION.txt before publishing another release."
-          }
+          $releaseExists = if ($existingTag) { "true" } else { "false" }
           "version=$version" >> $env:GITHUB_OUTPUT
           "tag=$tag" >> $env:GITHUB_OUTPUT
+          "release_exists=$releaseExists" >> $env:GITHUB_OUTPUT
+          if ($releaseExists -eq "true" -and "${{ github.event_name }}" -ne "pull_request") {
+            Write-Host "Release $tag already exists; validation/build steps are skipped for this push."
+          }
 
       - name: Verify repository contains no user data
         shell: pwsh
         run: |
           $forbiddenExtensions = @('.db', '.sqlite', '.sqlite3', '.xlsx', '.xls', '.xlsm', '.csv')
           $forbiddenDirectories = @('data', 'backups', 'update_cache')
-          $forbiddenFiles = Get-ChildItem . -Recurse -File -Force | Where-Object {
-            $_.FullName -notmatch '\\.git\\' -and ($forbiddenExtensions -contains $_.Extension.ToLower())
-          }
-          $forbiddenDirs = Get-ChildItem . -Recurse -Directory -Force | Where-Object {
-            $_.FullName -notmatch '\\.git\\' -and ($forbiddenDirectories -contains $_.Name.ToLower())
+          $tracked = git ls-files
+          $forbiddenFiles = $tracked | Where-Object { $forbiddenExtensions -contains [IO.Path]::GetExtension($_).ToLower() }
+          $forbiddenDirs = $tracked | Where-Object {
+            $parts = $_ -split '[/\\]'
+            @($parts | Where-Object { $forbiddenDirectories -contains $_.ToLower() }).Count -gt 0
           }
           if ($forbiddenFiles -or $forbiddenDirs) {
-            $forbiddenFiles | ForEach-Object { Write-Error "Forbidden data file: $($_.FullName)" }
-            $forbiddenDirs | ForEach-Object { Write-Error "Forbidden data directory: $($_.FullName)" }
+            $forbiddenFiles | ForEach-Object { Write-Error "Forbidden tracked data file: $_" }
+            $forbiddenDirs | ForEach-Object { Write-Error "Forbidden tracked data path: $_" }
             exit 1
           }
 
       - name: Install Python dependencies
+        if: github.event_name == 'pull_request' || steps.version.outputs.release_exists != 'true'
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Run tests
+        if: github.event_name == 'pull_request' || steps.version.outputs.release_exists != 'true'
         shell: pwsh
         run: python -m pytest -q
 
       - name: Install Inno Setup
+        if: github.event_name == 'pull_request' || steps.version.outputs.release_exists != 'true'
         shell: pwsh
         run: choco install innosetup -y --no-progress
 
       - name: Build application and installer
+        if: github.event_name == 'pull_request' || steps.version.outputs.release_exists != 'true'
         shell: cmd
         run: build.bat
 
       - name: Verify build contains no user data
+        if: github.event_name == 'pull_request' || steps.version.outputs.release_exists != 'true'
         shell: pwsh
         run: |
           $forbidden = Get-ChildItem dist,setup_output -Recurse -File -ErrorAction SilentlyContinue | Where-Object {
@@ -93,12 +100,14 @@ jobs:
           }
 
       - name: Create portable ZIP
+        if: github.event_name == 'pull_request' || steps.version.outputs.release_exists != 'true'
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
           Compress-Archive -Path "dist/GiamSatDichBenh/*" -DestinationPath "GiamSatDichBenh-Portable-v$version.zip" -Force
 
       - name: Generate SHA-256 checksums
+        if: github.event_name == 'pull_request' || steps.version.outputs.release_exists != 'true'
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
@@ -111,7 +120,7 @@ jobs:
           $lines | Set-Content "SHA256SUMS.txt" -Encoding ascii
 
       - name: Create tag and GitHub Release
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && steps.version.outputs.release_exists != 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -130,6 +139,7 @@ jobs:
             --generate-notes
 
       - name: Upload workflow artifacts
+        if: github.event_name == 'pull_request' || steps.version.outputs.release_exists != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: GiamSatDichBenh-v${{ steps.version.outputs.version }}
