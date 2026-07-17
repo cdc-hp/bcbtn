@@ -180,7 +180,14 @@ khi xuất file = **xã của bản ghi có `admission_date` gần với ngày l
 
 ## 7. Hàng đợi nhập liệu hai tầng
 
-### 7.1 Máy chủ chính online — hàng đợi trực tiếp
+**Lưu ý thực tế triển khai**: vì máy chủ chính chỉ nghe trong LAN nội bộ CDC (không đưa cổng ra
+Internet — mục "Lưu ý mạng LAN" trong `README.md`), các xã không cùng mạng LAN với CDC **không
+bao giờ** vào thẳng được mục 7.1. Với phần lớn xã ở xa, mục 7.2 (Google Apps Script) mới là
+kênh nộp thường dùng hằng tuần, không phải "phương án dự phòng khi mất kết nối" như tên gọi hai
+tầng gợi ý — tên gọi vẫn giữ nguyên vì đúng về mặt kỹ thuật dữ liệu (CSDL chính luôn là SQLite,
+GAS chỉ là bộ đệm tạm), chỉ khác về tần suất sử dụng thực tế.
+
+### 7.1 Máy chủ chính online — hàng đợi trực tiếp (chủ yếu dùng khi ở trong LAN của CDC)
 
 - Bảng `import_queue`: `id, commune, week, file_path, source ('server_chinh'|'server_phu'), status ('cho_nhap'|'da_nhap'|'loi'), received_at, imported_at, imported_by`.
 - Màn hình CDC `/hang-doi`: bảng dữ liệu **nhóm theo xã**, mỗi dòng = 1 lần nộp, có nút "Nhập
@@ -188,7 +195,7 @@ khi xuất file = **xã của bản ghi có `admission_date` gần với ngày l
   lỗi trước khi nhập chính thức).
 - Khi nhập xong, cập nhật `import_batches` như cơ chế sẵn có, chuyển `status = 'da_nhap'`.
 
-### 7.2 Máy chủ chính offline — máy chủ phụ (Google Apps Script)
+### 7.2 Google Apps Script — kênh nộp chính cho các xã ở xa
 
 - Google Sheet `HangDoiPhu` đóng vai trò bảng hàng đợi tạm, cấu trúc cột tương ứng
   `import_queue`; file Excel gốc lưu trong thư mục Google Drive theo cấu trúc
@@ -240,11 +247,13 @@ thống chính, tránh nhầm tưởng đã nhận đủ báo cáo tuần.
   hạn dùng mặc định 8 giờ, khoá ký `web_token_secret` tự sinh và lưu trong `deployment.json`
   khi máy chủ khởi động lần đầu — xem `deployment_config.ensure_web_token_secret`).
 - Ràng buộc quan trọng: **ngay khi CDC tạo tài khoản xã đầu tiên**, endpoint `/queue/submit`
-  chuyển hẳn sang bắt buộc token cho mọi xã (không phân biệt xã đã có tài khoản hay chưa) —
-  xem `lan_server._handle_queue_submit`/`core.has_commune_accounts`. Trước khi có tài khoản
-  nào, hệ thống vẫn dùng cơ chế mật khẩu máy chủ dùng chung như cũ để không phá vỡ các máy chủ
-  đang chạy. Vì vậy CDC cần tạo tài khoản cho **tất cả** các xã trước khi triển khai thật, nếu
-  không các xã chưa có tài khoản sẽ không nộp được nữa.
+  trên máy chủ chính chuyển hẳn sang bắt buộc token cho mọi xã gọi vào endpoint đó (không phân
+  biệt xã đã có tài khoản hay chưa) — xem `lan_server._handle_queue_submit`/
+  `core.has_commune_accounts`. Trước khi có tài khoản nào, hệ thống vẫn dùng cơ chế mật khẩu
+  máy chủ dùng chung như cũ. Ràng buộc này chỉ ảnh hưởng xã dùng trực tiếp `/xa` trên máy chủ
+  chính (mục 7.1, thường chỉ khi đang ở trong LAN của CDC) — **không** ảnh hưởng kênh Google
+  Apps Script (mục 7.2), nơi phần lớn xã ở xa thực sự nộp dữ liệu và vẫn dùng `SHARED_KEY`
+  dùng chung như trước, chưa gắn với tài khoản riêng từng xã (xem `google_apps_script/README.md`).
 - `commune` của mỗi lần nộp lấy từ token (không còn tin vào trường tự khai trên form) khi đã
   đăng nhập — tránh một xã nộp nhầm/giả mạo tên xã khác.
 - CDC quản lý tài khoản xã (tạo, khoá/mở khoá, đặt lại mật khẩu) qua tab **Hàng đợi** trên app

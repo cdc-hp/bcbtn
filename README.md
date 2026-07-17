@@ -98,15 +98,23 @@ WEB_DEDUP_DESIGN.md    Thiết kế nền tảng Web, lọc trùng theo tiêu ch
 
 ## Nộp dữ liệu qua Web và hàng đợi nhập liệu
 
-Khi chạy ở chế độ Máy chủ, ngoài API LAN hiện có, máy chủ còn phục vụ 2 trang web:
+Máy chủ chính chỉ nghe trong LAN nội bộ CDC (không đưa cổng ra Internet — xem mục "Lưu ý mạng
+LAN"), nên **Trạm Y tế xã ở xa không vào thẳng được máy chủ chính**. Có 2 kênh nộp:
 
-- `http://<địa-chỉ-máy-chủ>:<cổng>/xa` — Trạm Y tế xã đăng nhập bằng tài khoản riêng (CDC tạo
-  qua tab **Hàng đợi** trên app hoặc trang `/cdc/hang-doi`) và nộp danh sách ca bệnh hằng tuần.
-- `http://<địa-chỉ-máy-chủ>:<cổng>/cdc/hang-doi` — CDC xem hàng đợi chia theo xã, nhập vào
-  CSDL chính, đồng bộ dữ liệu từ máy chủ phụ (Google Apps Script) khi máy chủ chính offline
-  rồi online trở lại, quản lý tài khoản xã và xem nhật ký kiểm toán. Xem `WEB_DEDUP_DESIGN.md`
-  và `google_apps_script/README.md` để triển khai máy chủ phụ.
+- **Link chính mà xã lưu và dùng hằng tuần**: URL Web App của Google Apps Script (luôn chạy
+  trên hạ tầng công cộng của Google, xã nào cũng vào được). Xem `google_apps_script/README.md`
+  để triển khai và lấy link gửi cho các xã.
+- `http://<địa-chỉ-máy-chủ>:<cổng>/xa` — chỉ dùng được khi đang ở ngay trong LAN của CDC (ví dụ
+  xã ghé văn phòng CDC), yêu cầu đăng nhập bằng tài khoản riêng của xã.
+
+Khi chạy ở chế độ Máy chủ, máy chủ phục vụ thêm:
+
+- `http://<địa-chỉ-máy-chủ>:<cổng>/cdc/hang-doi` — CDC xem hàng đợi chia theo xã (gồm cả dữ
+  liệu đã đồng bộ từ Google Apps Script), nhập vào CSDL chính, bấm đồng bộ máy chủ phụ, quản lý
+  tài khoản xã (dùng cho `/xa`) và xem nhật ký kiểm toán. Xem `WEB_DEDUP_DESIGN.md` để biết
+  chi tiết kiến trúc.
 
 **Lưu ý khi bật tài khoản xã**: ngay khi CDC tạo tài khoản xã đầu tiên, trang `/xa` bắt buộc
-đăng nhập cho *mọi* xã (không còn chấp nhận nộp tự do) — hãy tạo tài khoản cho tất cả các xã
-trước khi công bố đường dẫn `/xa` cho họ.
+đăng nhập cho *mọi* xã (không còn chấp nhận nộp tự do). Tài khoản này chỉ áp dụng cho `/xa`
+trên máy chủ chính — Google Apps Script vẫn dùng một khóa `SHARED_KEY` chung cho mọi xã (xem
+`google_apps_script/README.md`).
