@@ -163,11 +163,33 @@ def list_import_queue(status: str = "", commune: str = "", *args: Any, **kwargs:
 
 
 def import_queue_item(queue_id: int, *args: Any, **kwargs: Any) -> dict[str, Any]:
-    return _rpc("import_queue_item", int(queue_id))
+    return _rpc("import_queue_item", int(queue_id), actor=kwargs.get("actor", ""))
 
 
 def archive_old_queue_files(older_than_days: int = 90, *args: Any, **kwargs: Any) -> dict[str, Any]:
-    return _rpc("archive_old_queue_files", older_than_days)
+    return _rpc("archive_old_queue_files", older_than_days, actor=kwargs.get("actor", ""))
+
+
+def create_commune_account(
+    commune: str, username: str, password: str, display_name: str = "", *args: Any, **kwargs: Any,
+) -> dict[str, Any]:
+    return _rpc("create_commune_account", commune, username, password, display_name, actor=kwargs.get("actor", ""))
+
+
+def list_commune_accounts(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    return _rpc("list_commune_accounts")
+
+
+def set_commune_account_active(account_id: int, active: bool, *args: Any, **kwargs: Any) -> None:
+    _rpc("set_commune_account_active", int(account_id), bool(active), actor=kwargs.get("actor", ""))
+
+
+def reset_commune_account_password(account_id: int, new_password: str, *args: Any, **kwargs: Any) -> None:
+    _rpc("reset_commune_account_password", int(account_id), new_password, actor=kwargs.get("actor", ""))
+
+
+def list_audit_log(limit: int = 200, action: str = "", commune: str = "", *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    return _rpc("list_audit_log", limit=limit, action=action, commune=commune)
 
 
 def sync_secondary_queue(*args: Any, **kwargs: Any) -> dict[str, Any]:
@@ -181,10 +203,10 @@ def sync_secondary_queue(*args: Any, **kwargs: Any) -> dict[str, Any]:
 def create_backup(*args: Any, **kwargs: Any): return Path(str(_rpc("create_backup")))
 def list_backups(*args: Any, **kwargs: Any): return _rpc("list_backups")
 def find_duplicate_groups(entity_type: str, *args: Any, **kwargs: Any): kwargs.pop("db_path", None); return _rpc("find_duplicate_groups", entity_type, **kwargs)
-def remove_duplicate_records(entity_type: str, keep_id: int, remove_ids: list[int], *args: Any, **kwargs: Any): return _rpc("remove_duplicate_records", entity_type, keep_id, remove_ids)
-def merge_duplicate_records(entity_type: str, keep_id: int, remove_ids: list[int], merged_values: dict[str, Any], *args: Any, **kwargs: Any): return _rpc("merge_duplicate_records", entity_type, keep_id, remove_ids, merged_values)
+def remove_duplicate_records(entity_type: str, keep_id: int, remove_ids: list[int], *args: Any, **kwargs: Any): return _rpc("remove_duplicate_records", entity_type, keep_id, remove_ids, actor=kwargs.get("actor", ""))
+def merge_duplicate_records(entity_type: str, keep_id: int, remove_ids: list[int], merged_values: dict[str, Any], *args: Any, **kwargs: Any): return _rpc("merge_duplicate_records", entity_type, keep_id, remove_ids, merged_values, actor=kwargs.get("actor", ""))
 def list_duplicate_actions(*args: Any, **kwargs: Any): return _rpc("list_duplicate_actions", kwargs.get("limit", 200))
-def restore_duplicate_action(action_id: int, *args: Any, **kwargs: Any): return _rpc("restore_duplicate_action", action_id)
+def restore_duplicate_action(action_id: int, *args: Any, **kwargs: Any): return _rpc("restore_duplicate_action", action_id, actor=kwargs.get("actor", ""))
 
 
 def export_rows(path: Path | str, columns: Sequence[str], rows: Iterable[Sequence[Any]]) -> None:

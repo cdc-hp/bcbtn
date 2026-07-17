@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import getpass
 import math
 import os
 import sys
@@ -70,6 +71,15 @@ else:
     core = local_core
 
 APP_TITLE = f"{core.APP_NAME} {core.VERSION} — {mode_label(DEPLOYMENT_CONFIG.mode)}"
+
+
+def _current_actor() -> str:
+    """Định danh người dùng cho nhật ký kiểm toán — dùng tên đăng nhập hệ điều hành vì ứng dụng
+    desktop chưa có tài khoản CDC riêng (chỉ Trạm Y tế xã có tài khoản)."""
+    try:
+        return getpass.getuser() or "khong_ro"
+    except Exception:
+        return "khong_ro"
 
 APP_STYLE = """
 QMainWindow, QWidget { background: #f5f7fb; color: #172033; font-family: 'Segoe UI'; font-size: 10pt; }
@@ -934,7 +944,7 @@ class DuplicateHistoryDialog(QDialog):
         if QMessageBox.question(self, "Xác nhận khôi phục", "Khôi phục các bản ghi đã loại? CSDL hiện tại sẽ được sao lưu trước.") != QMessageBox.StandardButton.Yes:
             return
         try:
-            result = core.restore_duplicate_action(int(item["id"]))
+            result = core.restore_duplicate_action(int(item["id"]), actor=_current_actor())
             QMessageBox.information(self, "Đã khôi phục", f"Đã khôi phục {result['restored_count']} bản ghi.\nSao lưu an toàn: {result['backup_file']}")
             self.refresh()
             if self.after_restore: self.after_restore()
@@ -1053,7 +1063,7 @@ class DuplicateTab(QWidget):
         keep_id = dialog.keep_id; remove_ids = [int(i) for i in group["record_ids"] if int(i) != keep_id]
         if QMessageBox.question(self, "Xác nhận hợp nhất", f"Giữ ID {keep_id}, hợp nhất giá trị đã chọn và đưa {len(remove_ids)} bản ghi vào Thùng rác?") != QMessageBox.StandardButton.Yes: return
         try:
-            result = core.merge_duplicate_records(group["entity_type"], keep_id, remove_ids, dialog.merged_values)
+            result = core.merge_duplicate_records(group["entity_type"], keep_id, remove_ids, dialog.merged_values, actor=_current_actor())
             QMessageBox.information(self, "Đã hợp nhất", f"Đã giữ ID {result['kept_id']} và đưa {result['removed_count']} bản ghi vào Thùng rác.\nBản sao lưu: {result['backup_file']}")
             if self.after_change: self.after_change()
             self.refresh()
@@ -1083,7 +1093,7 @@ class DuplicateTab(QWidget):
                 "enabled": self.case_criteria.enabled,
                 "name_similarity_percent": self.case_criteria.name_similarity_percent,
                 "onset_max_days": self.case_criteria.onset_max_days,
-            })
+            }, actor=_current_actor())
             QMessageBox.information(
                 self, "Đã xuất theo xã",
                 f"Đã xuất {result['case_count']} ca bệnh vào {result['commune_count']} sheet xã.\n"
@@ -1144,6 +1154,163 @@ class WorkstationConnectionDialog(QDialog):
         super().accept()
 
 
+class CommuneAccountFormDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Tạo tài khoản xã")
+        self.resize(380, 260)
+        root = QVBoxLayout(self); form = QFormLayout()
+        self.commune = QLineEdit()
+        self.username = QLineEdit()
+        self.password = QLineEdit(); self.password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.display_name = QLineEdit()
+        form.addRow("Xã / phường:", self.commune)
+        form.addRow("Tên đăng nhập:", self.username)
+        form.addRow("Mật khẩu (≥ 8 ký tự):", self.password)
+        form.addRow("Tên hiển thị:", self.display_name)
+        root.addLayout(form)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
+
+    @property
+    def values(self) -> tuple[str, str, str, str]:
+        return (
+            self.commune.text().strip(), self.username.text().strip(),
+            self.password.text(), self.display_name.text().strip(),
+        )
+
+
+class CommuneAccountsDialog(QDialog):
+    """Quản lý tài khoản đăng nhập của Trạm Y tế xã dùng để nộp dữ liệu qua trang /xa."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Quản lý tài khoản xã")
+        self.resize(760, 420)
+        self.accounts: list[dict[str, Any]] = []
+        root = QVBoxLayout(self)
+        row = QHBoxLayout()
+        add_btn = QPushButton("Thêm tài khoản..."); add_btn.clicked.connect(self.add_account)
+        refresh_btn = QPushButton("Làm mới"); refresh_btn.clicked.connect(self.refresh)
+        row.addWidget(add_btn); row.addWidget(refresh_btn); row.addStretch()
+        root.addLayout(row)
+        self.table = QTableView(); self.table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableView.SelectionMode.SingleSelection)
+        self.model = DictTableModel(columns=[
+            ("commune", "Xã"), ("username", "Tên đăng nhập"), ("display_name", "Tên hiển thị"),
+            ("active_label", "Trạng thái"), ("last_login_at", "Đăng nhập gần nhất"),
+        ])
+        self.table.setModel(self.model)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        root.addWidget(self.table, 1)
+        action_row = QHBoxLayout()
+        toggle_btn = QPushButton("Khoá/Mở khoá"); toggle_btn.clicked.connect(self.toggle_active)
+        reset_btn = QPushButton("Đặt lại mật khẩu..."); reset_btn.clicked.connect(self.reset_password)
+        action_row.addWidget(toggle_btn); action_row.addWidget(reset_btn); action_row.addStretch()
+        root.addLayout(action_row)
+        close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close); close.rejected.connect(self.reject)
+        root.addWidget(close)
+        self.refresh()
+
+    def refresh(self):
+        try:
+            self.accounts = core.list_commune_accounts()
+            rows = []
+            for account in self.accounts:
+                row = dict(account)
+                row["active_label"] = "Đang hoạt động" if account.get("active") else "Đã khoá"
+                row["last_login_at"] = account.get("last_login_at") or "Chưa đăng nhập"
+                rows.append(row)
+            self.model.set_data(rows)
+        except Exception as exc:
+            QMessageBox.critical(self, "Không thể tải danh sách", str(exc))
+
+    def selected_account(self):
+        indexes = self.table.selectionModel().selectedRows()
+        if not indexes:
+            QMessageBox.information(self, "Chưa chọn", "Hãy chọn một tài khoản.")
+            return None
+        row = indexes[0].row()
+        return self.accounts[row] if 0 <= row < len(self.accounts) else None
+
+    def add_account(self):
+        dialog = CommuneAccountFormDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted: return
+        commune, username, password, display_name = dialog.values
+        try:
+            core.create_commune_account(commune, username, password, display_name, actor=_current_actor())
+            self.refresh()
+        except Exception as exc:
+            QMessageBox.critical(self, "Không thể tạo tài khoản", str(exc))
+
+    def toggle_active(self):
+        account = self.selected_account()
+        if not account: return
+        try:
+            core.set_commune_account_active(account["id"], not account.get("active"), actor=_current_actor())
+            self.refresh()
+        except Exception as exc:
+            QMessageBox.critical(self, "Không thể cập nhật", str(exc))
+
+    def reset_password(self):
+        account = self.selected_account()
+        if not account: return
+        password, ok = QInputDialog.getText(
+            self, "Đặt lại mật khẩu", f"Mật khẩu mới cho {account['username']} (≥ 8 ký tự):",
+            QLineEdit.EchoMode.Password,
+        )
+        if not ok or not password: return
+        try:
+            core.reset_commune_account_password(account["id"], password, actor=_current_actor())
+            QMessageBox.information(self, "Đã đặt lại", "Đã đặt lại mật khẩu.")
+        except Exception as exc:
+            QMessageBox.critical(self, "Không thể đặt lại", str(exc))
+
+
+class AuditLogDialog(QDialog):
+    ACTION_LABELS = {
+        "login": "Đăng nhập", "login_failed": "Đăng nhập thất bại", "queue_submit": "Nộp vào hàng đợi",
+        "import_queue_item": "Nhập vào CSDL", "merge_duplicate_records": "Hợp nhất trùng",
+        "remove_duplicate_records": "Loại trùng", "restore_duplicate_action": "Khôi phục",
+        "export_cases_by_commune": "Xuất theo xã", "archive_old_queue_files": "Dọn dẹp hàng đợi",
+        "create_commune_account": "Tạo tài khoản xã", "enable_commune_account": "Mở khoá tài khoản xã",
+        "disable_commune_account": "Khoá tài khoản xã", "reset_commune_account_password": "Đặt lại mật khẩu xã",
+    }
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Nhật ký kiểm toán")
+        self.resize(900, 500)
+        root = QVBoxLayout(self)
+        row = QHBoxLayout()
+        refresh_btn = QPushButton("Tải nhật ký"); refresh_btn.clicked.connect(self.refresh)
+        row.addWidget(refresh_btn); row.addStretch()
+        root.addLayout(row)
+        self.table = QTableView()
+        self.model = DictTableModel(columns=[
+            ("created_at", "Thời điểm"), ("action_label", "Hành động"), ("actor", "Người thực hiện"),
+            ("commune", "Xã"), ("detail", "Chi tiết"),
+        ])
+        self.table.setModel(self.model)
+        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        root.addWidget(self.table, 1)
+        close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close); close.rejected.connect(self.reject)
+        root.addWidget(close)
+        self.refresh()
+
+    def refresh(self):
+        try:
+            logs = core.list_audit_log(limit=500)
+            rows = []
+            for item in logs:
+                row = dict(item)
+                row["action_label"] = self.ACTION_LABELS.get(item.get("action"), item.get("action"))
+                rows.append(row)
+            self.model.set_data(rows)
+        except Exception as exc:
+            QMessageBox.critical(self, "Không thể tải nhật ký", str(exc))
+
+
 class QueueTab(QWidget):
     """Hàng đợi nhập liệu do Trạm Y tế xã nộp qua Web (trang /xa) — xem thêm WEB_DEDUP_DESIGN.md."""
 
@@ -1170,9 +1337,11 @@ class QueueTab(QWidget):
         import_btn = QPushButton("Nhập vào CSDL"); import_btn.clicked.connect(self.import_selected)
         sync_btn = QPushButton("Đồng bộ máy chủ phụ"); sync_btn.setObjectName("secondary"); sync_btn.clicked.connect(self.sync_secondary)
         cleanup_btn = QPushButton("Dọn dẹp hàng đợi cũ..."); cleanup_btn.setObjectName("secondary"); cleanup_btn.clicked.connect(self.archive_old_files)
+        accounts_btn = QPushButton("Tài khoản xã..."); accounts_btn.setObjectName("secondary"); accounts_btn.clicked.connect(self.open_accounts)
+        audit_btn = QPushButton("Nhật ký kiểm toán..."); audit_btn.setObjectName("secondary"); audit_btn.clicked.connect(self.open_audit_log)
         title_row.addWidget(title); title_row.addStretch()
         title_row.addWidget(QLabel("Trạng thái:")); title_row.addWidget(self.status_filter); title_row.addWidget(self.commune_filter)
-        for widget in (refresh_btn, import_btn, sync_btn, cleanup_btn): title_row.addWidget(widget)
+        for widget in (refresh_btn, import_btn, sync_btn, cleanup_btn, accounts_btn, audit_btn): title_row.addWidget(widget)
         root.addLayout(title_row)
         info = QLabel(
             "Danh sách các lần Trạm Y tế xã nộp qua Web (trang /xa) đang chờ CDC nhập vào CSDL chính. "
@@ -1220,7 +1389,7 @@ class QueueTab(QWidget):
             QMessageBox.information(self, "Không thể nhập", "Chỉ có thể nhập các mục đang ở trạng thái Chờ nhập.")
             return
         try:
-            result = core.import_queue_item(item["id"])
+            result = core.import_queue_item(item["id"], actor=_current_actor())
             QMessageBox.information(
                 self, "Đã nhập",
                 f"Đã thêm {result['inserted']} bản ghi, trùng {result['duplicates']}, bỏ qua {result['skipped']}.",
@@ -1265,11 +1434,17 @@ class QueueTab(QWidget):
         ) != QMessageBox.StandardButton.Yes:
             return
         try:
-            result = core.archive_old_queue_files(days)
+            result = core.archive_old_queue_files(days, actor=_current_actor())
             QMessageBox.information(self, "Đã dọn dẹp", f"Đã xoá {result['archived_count']} file, giải phóng {result['freed_bytes']:,} byte.")
             self.refresh()
         except Exception as exc:
             QMessageBox.critical(self, "Không thể dọn dẹp", str(exc))
+
+    def open_accounts(self):
+        CommuneAccountsDialog(self).exec()
+
+    def open_audit_log(self):
+        AuditLogDialog(self).exec()
 
 
 class ServerTab(QWidget):

@@ -100,8 +100,13 @@ WEB_DEDUP_DESIGN.md    Thiết kế nền tảng Web, lọc trùng theo tiêu ch
 
 Khi chạy ở chế độ Máy chủ, ngoài API LAN hiện có, máy chủ còn phục vụ 2 trang web:
 
-- `http://<địa-chỉ-máy-chủ>:<cổng>/xa` — Trạm Y tế xã nộp danh sách ca bệnh hằng tuần.
+- `http://<địa-chỉ-máy-chủ>:<cổng>/xa` — Trạm Y tế xã đăng nhập bằng tài khoản riêng (CDC tạo
+  qua tab **Hàng đợi** trên app hoặc trang `/cdc/hang-doi`) và nộp danh sách ca bệnh hằng tuần.
 - `http://<địa-chỉ-máy-chủ>:<cổng>/cdc/hang-doi` — CDC xem hàng đợi chia theo xã, nhập vào
-  CSDL chính và đồng bộ dữ liệu từ máy chủ phụ (Google Apps Script) khi máy chủ chính offline
-  rồi online trở lại. Xem `WEB_DEDUP_DESIGN.md` và `google_apps_script/README.md` để triển
-  khai máy chủ phụ.
+  CSDL chính, đồng bộ dữ liệu từ máy chủ phụ (Google Apps Script) khi máy chủ chính offline
+  rồi online trở lại, quản lý tài khoản xã và xem nhật ký kiểm toán. Xem `WEB_DEDUP_DESIGN.md`
+  và `google_apps_script/README.md` để triển khai máy chủ phụ.
+
+**Lưu ý khi bật tài khoản xã**: ngay khi CDC tạo tài khoản xã đầu tiên, trang `/xa` bắt buộc
+đăng nhập cho *mọi* xã (không còn chấp nhận nộp tự do) — hãy tạo tài khoản cho tất cả các xã
+trước khi công bố đường dẫn `/xa` cho họ.

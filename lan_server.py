@@ -18,7 +18,7 @@ from typing import Any
 
 import core
 import secondary_sync
-from deployment_config import DeploymentConfig, load_config
+from deployment_config import DeploymentConfig, ensure_web_token_secret, load_config
 from lan_discovery import DiscoveryResponder, get_lan_ip
 
 MAX_REQUEST_BYTES = 110 * 1024 * 1024
@@ -28,11 +28,19 @@ READ_FUNCTIONS = {
     "dashboard_stats", "disease_summary", "monthly_outbreak_summary", "recent_active_outbreaks",
     "list_filter_values", "query_records", "get_record", "list_quality_issues",
     "list_import_batches", "execute_select", "find_duplicate_groups", "list_duplicate_actions",
-    "list_backups", "list_import_queue",
+    "list_backups", "list_import_queue", "list_commune_accounts", "list_audit_log",
 }
 WRITE_FUNCTIONS = {
     "save_outbreak", "delete_record", "remove_duplicate_records", "merge_duplicate_records",
     "restore_duplicate_action", "create_backup", "import_queue_item", "archive_old_queue_files",
+    "create_commune_account", "set_commune_account_active", "reset_commune_account_password",
+}
+# Các hàm ghi có tham số actor — máy chủ tự điền actor mặc định theo IP nếu người gọi chưa cung cấp,
+# để nhật ký kiểm toán luôn có "ai" thực hiện ngay cả khi gọi qua Máy trạm.
+AUDITED_FUNCTIONS = {
+    "remove_duplicate_records", "merge_duplicate_records", "restore_duplicate_action",
+    "import_queue_item", "archive_old_queue_files", "create_commune_account",
+    "set_commune_account_active", "reset_commune_account_password",
 }
 
 DB_FUNCTIONS = {
@@ -41,7 +49,8 @@ DB_FUNCTIONS = {
     "list_quality_issues", "list_import_batches", "execute_select", "find_duplicate_groups",
     "remove_duplicate_records", "merge_duplicate_records", "list_duplicate_actions",
     "restore_duplicate_action", "create_backup", "list_import_queue", "import_queue_item",
-    "archive_old_queue_files",
+    "archive_old_queue_files", "list_commune_accounts", "list_audit_log",
+    "create_commune_account", "set_commune_account_active", "reset_commune_account_password",
 }
 
 
@@ -84,28 +93,51 @@ XA_UPLOAD_PAGE_HTML = """<!doctype html>
   input { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 6px; }
   button { margin-top: 18px; padding: 10px 16px; background: #2563eb; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 1rem; }
   button:disabled { background: #94a3b8; }
-  #msg { margin-top: 16px; padding: 10px; border-radius: 6px; display: none; }
-  #msg.ok { background: #dcfce7; color: #166534; display: block; }
-  #msg.err { background: #fee2e2; color: #991b1b; display: block; }
+  #msg, #login-msg { margin-top: 16px; padding: 10px; border-radius: 6px; display: none; }
+  #msg.ok, #login-msg.ok { background: #dcfce7; color: #166534; display: block; }
+  #msg.err, #login-msg.err { background: #fee2e2; color: #991b1b; display: block; }
+  #banner { margin-top: 16px; padding: 10px; border-radius: 6px; background: #eef2ff; color: #3730a3; display: none; }
+  a.link { color: #2563eb; cursor: pointer; font-size: 0.9rem; display: inline-block; margin-top: 12px; }
+  #submit-section, #legacy-fields { display: none; }
 </style>
 </head>
 <body>
 <h1>Nộp danh sách ca bệnh hằng tuần</h1>
-<p>Chọn xã, tuần báo cáo và file Excel danh sách ca bệnh (mẫu cột hiện có). Nếu không kết nối được máy chủ chính, hãy dùng đường dẫn máy chủ phụ do CDC cung cấp.</p>
-<form id="f">
-  <label>Xã / phường</label>
-  <input name="commune" required placeholder="Ví dụ: Xã Gia Viên">
-  <label>Tuần báo cáo</label>
-  <input name="week" required placeholder="Ví dụ: 2026-W29" id="week">
-  <label>Người nộp</label>
-  <input name="submitted_by" placeholder="Họ tên cán bộ nộp (không bắt buộc)">
-  <label>Mật khẩu máy chủ (nếu có)</label>
-  <input name="password" type="password" placeholder="Để trống nếu máy chủ không đặt mật khẩu">
-  <label>File Excel (.xlsx)</label>
-  <input name="file" type="file" accept=".xlsx,.xlsm" required>
-  <button type="submit">Nộp vào hàng đợi</button>
-</form>
-<div id="msg"></div>
+<p>Nếu không kết nối được máy chủ chính, hãy dùng đường dẫn máy chủ phụ do CDC cung cấp.</p>
+
+<div id="login-section">
+  <form id="login-form">
+    <label>Tên đăng nhập tài khoản xã</label>
+    <input name="username" id="login-username" autocomplete="username">
+    <label>Mật khẩu</label>
+    <input name="password" type="password" id="login-password" autocomplete="current-password">
+    <button type="submit">Đăng nhập</button>
+  </form>
+  <div id="login-msg"></div>
+  <a class="link" id="legacy-toggle">Chưa có tài khoản xã? Nộp bằng mật khẩu máy chủ dùng chung (chế độ cũ)</a>
+</div>
+
+<div id="banner"></div>
+
+<div id="submit-section">
+  <form id="f">
+    <div id="legacy-fields">
+      <label>Xã / phường</label>
+      <input name="commune" placeholder="Ví dụ: Xã Gia Viên">
+      <label>Mật khẩu máy chủ (nếu có)</label>
+      <input name="password" type="password" placeholder="Để trống nếu máy chủ không đặt mật khẩu">
+    </div>
+    <label>Tuần báo cáo</label>
+    <input name="week" required placeholder="Ví dụ: 2026-W29" id="week">
+    <label>Người nộp</label>
+    <input name="submitted_by" placeholder="Họ tên cán bộ nộp (không bắt buộc)">
+    <label>File Excel (.xlsx)</label>
+    <input name="file" type="file" accept=".xlsx,.xlsm" required>
+    <button type="submit">Nộp vào hàng đợi</button>
+  </form>
+  <div id="msg"></div>
+</div>
+
 <script>
 function isoWeek(d) {
   const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
@@ -116,6 +148,46 @@ function isoWeek(d) {
   return date.getUTCFullYear() + "-W" + String(week).padStart(2, "0");
 }
 document.getElementById("week").value = isoWeek(new Date());
+
+let session = null; // { token, commune, displayName } khi đăng nhập tài khoản xã
+let legacyMode = false;
+
+function showSubmitForm() {
+  document.getElementById("login-section").style.display = "none";
+  document.getElementById("submit-section").style.display = "block";
+  const banner = document.getElementById("banner");
+  if (session) {
+    banner.style.display = "block";
+    banner.textContent = "Đã đăng nhập: " + session.displayName + " (" + session.commune + ")";
+    document.getElementById("legacy-fields").style.display = "none";
+  } else {
+    banner.style.display = "none";
+    document.getElementById("legacy-fields").style.display = "block";
+  }
+}
+
+document.getElementById("legacy-toggle").addEventListener("click", () => {
+  legacyMode = true; session = null; showSubmitForm();
+});
+
+document.getElementById("login-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const msg = document.getElementById("login-msg");
+  const username = document.getElementById("login-username").value;
+  const password = document.getElementById("login-password").value;
+  try {
+    const resp = await fetch("/xa/login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await resp.json();
+    if (!data.ok) { msg.className = "err"; msg.textContent = "Lỗi: " + data.error; return; }
+    session = { token: data.result.token, commune: data.result.commune, displayName: data.result.display_name };
+    showSubmitForm();
+  } catch (e) {
+    msg.className = "err"; msg.textContent = "Không kết nối được máy chủ chính. Nếu máy chủ đang offline, hãy dùng đường dẫn dự phòng do CDC cung cấp.";
+  }
+});
 
 document.getElementById("f").addEventListener("submit", async (ev) => {
   ev.preventDefault();
@@ -129,14 +201,18 @@ document.getElementById("f").addEventListener("submit", async (ev) => {
   reader.onload = async () => {
     try {
       const base64 = reader.result.split(",")[1];
-      const resp = await fetch("/queue/submit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-GSBTN-Password": form.password.value },
-        body: JSON.stringify({
-          commune: form.commune.value, week: form.week.value, submitted_by: form.submitted_by.value,
-          file_name: file.name, content_base64: base64,
-        }),
-      });
+      const payload = {
+        week: form.week.value, submitted_by: form.submitted_by.value,
+        file_name: file.name, content_base64: base64,
+      };
+      const headers = { "Content-Type": "application/json" };
+      if (session) {
+        payload.commune_token = session.token;
+      } else {
+        payload.commune = form.commune.value;
+        headers["X-GSBTN-Password"] = form.password.value;
+      }
+      const resp = await fetch("/queue/submit", { method: "POST", headers, body: JSON.stringify(payload) });
       const data = await resp.json();
       if (data.ok) {
         msg.className = "ok"; msg.textContent = "Đã nộp vào hàng đợi. Mã hàng đợi #" + data.result.queue_id + ". CDC sẽ nhập vào hệ thống.";
@@ -187,6 +263,22 @@ CDC_QUEUE_PAGE_HTML = """<!doctype html>
 </div>
 <div id="msg"></div>
 <div id="groups"></div>
+
+<h2>Quản lý tài khoản xã</h2>
+<form id="account-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+  <input name="commune" placeholder="Xã / phường" required>
+  <input name="username" placeholder="Tên đăng nhập" required>
+  <input name="password" type="password" placeholder="Mật khẩu (tối thiểu 8 ký tự)" required>
+  <input name="display_name" placeholder="Tên hiển thị (không bắt buộc)">
+  <button type="submit">Tạo tài khoản</button>
+</form>
+<div id="account-msg"></div>
+<table id="account-table"><tr><th>Xã</th><th>Tên đăng nhập</th><th>Trạng thái</th><th>Đăng nhập gần nhất</th><th></th></tr></table>
+
+<h2>Nhật ký kiểm toán</h2>
+<button id="reload-audit">Tải nhật ký gần đây</button>
+<table id="audit-table"><tr><th>Thời điểm</th><th>Hành động</th><th>Người thực hiện</th><th>Xã</th><th>Chi tiết</th></tr></table>
+
 <script>
 async function rpc(fn, args, kwargs) {
   const resp = await fetch("/rpc", {
@@ -259,6 +351,74 @@ async function load() {
 }
 document.getElementById("reload").addEventListener("click", load);
 load();
+
+async function loadAccounts() {
+  const table = document.getElementById("account-table");
+  table.querySelectorAll("tr:not(:first-child)").forEach((tr) => tr.remove());
+  try {
+    const accounts = await rpc("list_commune_accounts");
+    for (const acc of accounts) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = "<td>" + acc.commune + "</td><td>" + acc.username + "</td><td>" +
+        (acc.active ? "Đang hoạt động" : "Đã khoá") + "</td><td>" + (acc.last_login_at || "Chưa đăng nhập") + "</td><td></td>";
+      const toggleBtn = document.createElement("button");
+      toggleBtn.textContent = acc.active ? "Khoá tài khoản" : "Mở khoá";
+      toggleBtn.onclick = async () => {
+        try { await rpc("set_commune_account_active", [acc.id, !acc.active]); await loadAccounts(); }
+        catch (e) { alert("Không thể cập nhật: " + e.message); }
+      };
+      const resetBtn = document.createElement("button");
+      resetBtn.textContent = "Đặt lại mật khẩu";
+      resetBtn.onclick = async () => {
+        const newPassword = prompt("Mật khẩu mới cho " + acc.username + " (tối thiểu 8 ký tự):");
+        if (!newPassword) return;
+        try { await rpc("reset_commune_account_password", [acc.id, newPassword]); alert("Đã đặt lại mật khẩu."); }
+        catch (e) { alert("Không thể đặt lại: " + e.message); }
+      };
+      tr.lastElementChild.appendChild(toggleBtn); tr.lastElementChild.appendChild(resetBtn);
+      table.appendChild(tr);
+    }
+  } catch (e) {
+    document.getElementById("account-msg").textContent = "Lỗi: " + e.message;
+  }
+}
+
+document.getElementById("account-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const form = ev.target;
+  const msg = document.getElementById("account-msg");
+  try {
+    await rpc("create_commune_account", [form.commune.value, form.username.value, form.password.value, form.display_name.value]);
+    msg.textContent = "Đã tạo tài khoản."; form.reset(); await loadAccounts();
+  } catch (e) {
+    msg.textContent = "Lỗi: " + e.message;
+  }
+});
+
+const AUDIT_ACTION_LABEL = {
+  login: "Đăng nhập", login_failed: "Đăng nhập thất bại", queue_submit: "Nộp vào hàng đợi",
+  import_queue_item: "Nhập vào CSDL", merge_duplicate_records: "Hợp nhất trùng", remove_duplicate_records: "Loại trùng",
+  restore_duplicate_action: "Khôi phục", export_cases_by_commune: "Xuất theo xã", archive_old_queue_files: "Dọn dẹp hàng đợi",
+  create_commune_account: "Tạo tài khoản xã", enable_commune_account: "Mở khoá tài khoản xã",
+  disable_commune_account: "Khoá tài khoản xã", reset_commune_account_password: "Đặt lại mật khẩu xã",
+};
+
+async function loadAudit() {
+  const table = document.getElementById("audit-table");
+  table.querySelectorAll("tr:not(:first-child)").forEach((tr) => tr.remove());
+  try {
+    const logs = await rpc("list_audit_log", [], { limit: 200 });
+    for (const item of logs) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = "<td>" + item.created_at + "</td><td>" + (AUDIT_ACTION_LABEL[item.action] || item.action) +
+        "</td><td>" + item.actor + "</td><td>" + (item.commune || "") + "</td><td>" + (item.detail || "") + "</td>";
+      table.appendChild(tr);
+    }
+  } catch (e) {
+    alert("Không thể tải nhật ký: " + e.message);
+  }
+}
+document.getElementById("reload-audit").addEventListener("click", loadAudit);
 </script>
 </body>
 </html>
@@ -420,13 +580,20 @@ class ApiHandler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             length = -1
-        if not self._authorized():
+        path = self.path.rstrip("/")
+        # "/xa/login" luôn công khai (đăng nhập không thể đòi hỏi đã đăng nhập). "/queue/submit"
+        # chỉ công khai khi CDC đã tạo tài khoản xã — lúc đó việc xác thực chuyển hẳn sang token
+        # đăng nhập theo xã (_handle_queue_submit); nếu chưa có tài khoản nào thì vẫn giữ nguyên
+        # cơ chế mật khẩu máy chủ dùng chung như trước để không phá vỡ các máy chủ đang chạy.
+        exempt_from_shared_password = path == "/xa/login" or (
+            path == "/queue/submit" and core.has_commune_accounts(core.DB_PATH)
+        )
+        if not exempt_from_shared_password and not self._authorized():
             self._drain_body(max(length, 0))
             self._reject_auth(); return
         if length < 0 or length > MAX_REQUEST_BYTES:
             self._write_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "Yêu cầu vượt giới hạn 110 MB."})
             return
-        path = self.path.rstrip("/")
         if path == "/queue/submit" and not self.server.check_queue_submit_rate(self.client_ip):
             self._drain_body(length)
             self.server.register_request(self.client_ip, path, "POST", False)
@@ -445,6 +612,8 @@ class ApiHandler(BaseHTTPRequestHandler):
                 if self.server.backup_in_progress:
                     raise RuntimeError("Máy chủ đang sao lưu; tạm thời chỉ cho phép đọc dữ liệu.")
                 result = self._handle_import(payload)
+            elif path == "/xa/login":
+                result = self._handle_commune_login(payload)
             elif path == "/queue/submit":
                 if self.server.backup_in_progress:
                     raise RuntimeError("Máy chủ đang sao lưu; tạm thời chỉ cho phép đọc dữ liệu.")
@@ -475,6 +644,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             kwargs["db_path"] = core.DB_PATH
         if function_name in WRITE_FUNCTIONS and function_name != "create_backup" and self.server.backup_in_progress:
             raise RuntimeError("Máy chủ đang sao lưu; tạm thời chỉ cho phép đọc dữ liệu.")
+        if function_name in AUDITED_FUNCTIONS and not kwargs.get("actor"):
+            kwargs["actor"] = f"LAN:{self.client_ip}"
         function = getattr(core, function_name, None)
         if not callable(function):
             raise ValueError(f"Máy chủ chưa hỗ trợ hàm {function_name}.")
@@ -505,18 +676,42 @@ class ApiHandler(BaseHTTPRequestHandler):
             path.write_bytes(data)
             return core.import_excel(path, core.DB_PATH)
 
+    def _handle_commune_login(self, payload: dict[str, Any]) -> Any:
+        username = str(payload.get("username", ""))
+        password = str(payload.get("password", ""))
+        account = core.verify_commune_account(username, password, db_path=core.DB_PATH)
+        if not account:
+            raise ValueError("Sai tên đăng nhập hoặc mật khẩu.")
+        config = ensure_web_token_secret(self.server.config)
+        token = core.issue_commune_token(
+            account["id"], account["commune"], account["username"], config.web_token_secret
+        )
+        return {
+            "token": token, "commune": account["commune"], "username": account["username"],
+            "display_name": account["display_name"],
+        }
+
     def _handle_queue_submit(self, payload: dict[str, Any]) -> Any:
         content = payload.get("content_base64")
         if not isinstance(content, str) or not content:
             raise ValueError("Thiếu nội dung file Excel.")
         data = base64.b64decode(content.encode("ascii"), validate=True)
+        commune = str(payload.get("commune", ""))
+        submitted_by = str(payload.get("submitted_by", ""))
+        if core.has_commune_accounts(core.DB_PATH):
+            token = str(payload.get("commune_token") or "")
+            claims = core.verify_commune_token(token, self.server.config.web_token_secret)
+            if not claims:
+                raise ValueError("Cần đăng nhập tài khoản xã để nộp dữ liệu (phiên đăng nhập hết hạn hoặc chưa đăng nhập).")
+            commune = claims["commune"]
+            submitted_by = submitted_by or claims.get("username", "")
         return core.queue_submit(
-            str(payload.get("commune", "")),
+            commune,
             str(payload.get("week", "")),
             str(payload.get("file_name", "du_lieu.xlsx")),
             data,
             source="server_chinh",
-            submitted_by=str(payload.get("submitted_by", "")),
+            submitted_by=submitted_by,
             db_path=core.DB_PATH,
         )
 
@@ -548,6 +743,7 @@ class LanServerController:
         if not port_available(self.config.server_host, self.config.server_port):
             raise OSError(f"Cổng {self.config.server_port} đang được chương trình khác sử dụng.")
         try:
+            self.config = ensure_web_token_secret(self.config)
             self.httpd = ApiServer((self.config.server_host, self.config.server_port), self.config)
             self.thread = threading.Thread(target=self.httpd.serve_forever, name="GSBTN-LAN-Server", daemon=True)
             self.thread.start()

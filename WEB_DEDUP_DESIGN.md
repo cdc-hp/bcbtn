@@ -7,8 +7,11 @@ trạng máy chủ chính offline.
 
 **Trạng thái**: Giai đoạn 1–4 ở mục 11 đã được cài đặt trong mã nguồn (lọc trùng theo tiêu
 chí, xuất Excel chia theo xã, Web nộp dữ liệu + hàng đợi trên `lan_server.py`, máy chủ phụ
-Google Apps Script trong `google_apps_script/` + `secondary_sync.py`). Giai đoạn 5 (đối soát,
-nhắc nộp báo cáo, giám sát vận hành, xác thực đầy đủ cho Internet) vẫn còn ở dạng thiết kế.
+Google Apps Script trong `google_apps_script/` + `secondary_sync.py`). Trong Giai đoạn 5, đã
+cài đặt **tài khoản riêng theo xã** (`commune_accounts`, đăng nhập qua `/xa/login`, token ký
+HMAC) và **nhật ký kiểm toán** (`audit_log`) — xem chi tiết mục 9. Các mục còn lại của Giai
+đoạn 5 (HTTPS, mã hoá CCCD/SĐT khi lưu, nhắc nộp báo cáo, đối soát ngược, giám sát vận hành)
+vẫn còn ở dạng thiết kế.
 
 ## 1. Bối cảnh và mục tiêu
 
@@ -211,12 +214,16 @@ thống chính, tránh nhầm tưởng đã nhận đủ báo cáo tuần.
 ## 8. Mô hình dữ liệu bổ sung (ngoài các bảng đã có trong `SCHEMA.md`)
 
 - `communes`: danh mục xã (mã xã, tên xã, đơn vị hành chính cấp trên) — chuẩn hoá thay vì chuỗi
-  tự do như `commune` hiện tại, giảm sai lệch khi nhóm theo xã.
-- `commune_accounts`: tài khoản đăng nhập của Trạm Y tế xã (liên kết `communes`), mật khẩu
-  băm, vai trò.
+  tự do như `commune` hiện tại, giảm sai lệch khi nhóm theo xã. **Chưa cài đặt** — `commune`
+  hiện vẫn là chuỗi tự do trên mỗi bản ghi/tài khoản.
+- `commune_accounts` — **đã cài đặt** (mục 9): xã, `username`, mật khẩu băm, tên hiển thị,
+  trạng thái hoạt động, thời điểm đăng nhập gần nhất. Chưa liên kết tới danh mục `communes`
+  chuẩn hoá vì bảng đó chưa tồn tại.
+- `audit_log` — **đã cài đặt** (mục 9): thời điểm, actor, hành động, xã, chi tiết.
 - `weekly_submissions`: xã, tuần (ISO week), file gốc, người nộp, thời điểm, trạng thái, liên
-  kết `import_batches` sau khi nhập.
-- `import_queue`: như mục 7.1.
+  kết `import_batches` sau khi nhập. **Chưa cài đặt** — hiện dùng trực tiếp `import_queue` để
+  tra cứu lịch sử nộp, chưa có view riêng theo tuần/ma trận tiến độ.
+- `import_queue`: như mục 7.1 — đã cài đặt.
 - `dedup_criteria_sets`: thay cho phần trọng số trong `duplicate_rules.json` — tên bộ tiêu chí,
   danh sách tiêu chí bật/tắt, tham số (N ngày, ngưỡng % họ tên gần giống).
 - `duplicate_actions` (đã có): bổ sung cột `criteria_used_json` thay cho việc suy ra từ điểm số.
@@ -225,16 +232,38 @@ thống chính, tránh nhầm tưởng đã nhận đủ báo cáo tuần.
 
 ## 9. Bảo mật, phân quyền, nhật ký
 
-- Web lộ ra Internet (khác LAN nội bộ hiện tại) → bắt buộc HTTPS, đăng nhập cho cả xã và CDC
-  (khác với chế độ "không mật khẩu" LAN hiện có), khoá tài khoản sau nhiều lần đăng nhập sai.
-- Phân quyền cứng theo xã: tài khoản xã chỉ query/API được dữ liệu `commune` của chính mình;
-  CDC mới có quyền xem toàn bộ và chạy lọc trùng liên xã.
-- Dữ liệu là thông tin y tế cá nhân (CCCD, SĐT, chẩn đoán) → áp dụng nguyên tắc tối thiểu hoá
-  hiển thị (mục 6.2 đã giới hạn xã chỉ thấy dữ liệu xã mình), cân nhắc mã hoá `national_id`,
-  `phone` lúc lưu trữ, tuân thủ Nghị định 13/2023/NĐ-CP về bảo vệ dữ liệu cá nhân.
-- Nhật ký kiểm toán: ai nộp, ai duyệt hàng đợi, ai đổi tiêu chí lọc trùng, ai gộp/xoá, ai xuất
-  Excel — mở rộng từ `duplicate_actions`/`import_batches` sẵn có sang một bảng `audit_log`
-  chung cho mọi thao tác ghi trên Web (không chỉ lọc trùng).
+**Đã cài đặt** (bảng `commune_accounts`, `audit_log` trong `core.py`):
+
+- Tài khoản riêng theo xã: mỗi xã có `username`/mật khẩu riêng (băm bằng PBKDF2-HMAC-SHA256,
+  200.000 vòng, salt ngẫu nhiên — không thêm thư viện ngoài). Đăng nhập qua `POST /xa/login`
+  trả về token stateless ký HMAC-SHA256 (`core.issue_commune_token`/`verify_commune_token`,
+  hạn dùng mặc định 8 giờ, khoá ký `web_token_secret` tự sinh và lưu trong `deployment.json`
+  khi máy chủ khởi động lần đầu — xem `deployment_config.ensure_web_token_secret`).
+- Ràng buộc quan trọng: **ngay khi CDC tạo tài khoản xã đầu tiên**, endpoint `/queue/submit`
+  chuyển hẳn sang bắt buộc token cho mọi xã (không phân biệt xã đã có tài khoản hay chưa) —
+  xem `lan_server._handle_queue_submit`/`core.has_commune_accounts`. Trước khi có tài khoản
+  nào, hệ thống vẫn dùng cơ chế mật khẩu máy chủ dùng chung như cũ để không phá vỡ các máy chủ
+  đang chạy. Vì vậy CDC cần tạo tài khoản cho **tất cả** các xã trước khi triển khai thật, nếu
+  không các xã chưa có tài khoản sẽ không nộp được nữa.
+- `commune` của mỗi lần nộp lấy từ token (không còn tin vào trường tự khai trên form) khi đã
+  đăng nhập — tránh một xã nộp nhầm/giả mạo tên xã khác.
+- CDC quản lý tài khoản xã (tạo, khoá/mở khoá, đặt lại mật khẩu) qua tab **Hàng đợi** trên app
+  desktop hoặc phần "Quản lý tài khoản xã" trên trang `/cdc/hang-doi`.
+- Nhật ký kiểm toán (`audit_log`): ghi nhận đăng nhập (thành công/thất bại), nộp hàng đợi,
+  nhập vào CSDL, hợp nhất/loại trùng, khôi phục, xuất Excel theo xã, dọn dẹp hàng đợi, và các
+  thao tác quản lý tài khoản xã — xem qua tab **Hàng đợi → Nhật ký kiểm toán...** hoặc trang
+  `/cdc/hang-doi`. Actor ghi theo tài khoản xã khi qua Web, theo tên đăng nhập hệ điều hành khi
+  qua app desktop (ứng dụng desktop chưa có tài khoản CDC riêng).
+
+**Chưa cài đặt** (giữ nguyên đề xuất gốc, cân nhắc theo nhu cầu triển khai thật):
+
+- HTTPS: `lan_server.py` vẫn dùng `http.server` thuần, mật khẩu/token vẫn truyền qua HTTP nếu
+  chưa có TLS — bắt buộc phải có trước khi mở hệ thống ra ngoài LAN nội bộ.
+- Khoá tài khoản sau nhiều lần đăng nhập sai (hiện chỉ ghi `login_failed` vào nhật ký, chưa
+  tự khoá).
+- Mã hoá `national_id`/`phone` lúc lưu trữ (Nghị định 13/2023/NĐ-CP) — cần thiết kế riêng vì
+  ảnh hưởng trực tiếp tới thuật toán so khớp trùng đang dựa trên so sánh giá trị thuần.
+- Tài khoản CDC riêng (hiện CDC vẫn dùng chung mật khẩu máy chủ `X-GSBTN-Password`).
 
 ## 10. Đề xuất bổ sung
 

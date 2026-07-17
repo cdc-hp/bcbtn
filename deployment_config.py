@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import socket
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -36,6 +37,7 @@ class DeploymentConfig:
     reconnect_delay_seconds: float = 1.0
     secondary_webapp_url: str = ""
     secondary_shared_key: str = ""
+    web_token_secret: str = ""
 
     @property
     def is_standalone(self) -> bool:
@@ -80,6 +82,7 @@ def load_config() -> DeploymentConfig:
         reconnect_delay_seconds=max(0.1, min(10.0, float(raw.get("reconnect_delay_seconds", 1.0) or 1.0))),
         secondary_webapp_url=str(raw.get("secondary_webapp_url", "") or "").strip(),
         secondary_shared_key=str(raw.get("secondary_shared_key", "") or ""),
+        web_token_secret=str(raw.get("web_token_secret", "") or ""),
     )
 
 
@@ -96,6 +99,14 @@ def save_config(config: DeploymentConfig) -> Path:
     temp.write_text(json.dumps(asdict(config), ensure_ascii=False, indent=2), encoding="utf-8")
     temp.replace(CONFIG_PATH)
     return CONFIG_PATH
+
+
+def ensure_web_token_secret(config: DeploymentConfig) -> DeploymentConfig:
+    """Sinh và lưu khóa ký phiên đăng nhập tài khoản xã nếu chưa có (chạy một lần)."""
+    if not config.web_token_secret:
+        config.web_token_secret = secrets.token_hex(32)
+        save_config(config)
+    return config
 
 
 def mode_label(mode: str) -> str:

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import base64
 import csv
 from contextlib import contextmanager
 from difflib import SequenceMatcher
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -11,6 +13,7 @@ import shutil
 import sqlite3
 import sys
 import threading
+import time
 import unicodedata
 import uuid
 from dataclasses import dataclass
@@ -357,6 +360,29 @@ def init_db(db_path: Path | str = DB_PATH) -> None:
 
                 CREATE INDEX IF NOT EXISTS idx_import_queue_status ON import_queue(status);
                 CREATE INDEX IF NOT EXISTS idx_import_queue_commune ON import_queue(commune, week);
+
+                CREATE TABLE IF NOT EXISTS commune_accounts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    commune TEXT NOT NULL UNIQUE,
+                    username TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    display_name TEXT,
+                    active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    last_login_at TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT NOT NULL,
+                    actor TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    commune TEXT,
+                    detail TEXT
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action, created_at);
+                CREATE INDEX IF NOT EXISTS idx_audit_log_commune ON audit_log(commune, created_at);
                 CREATE INDEX IF NOT EXISTS idx_duplicate_trash_action ON duplicate_trash(action_id, restored_at);
                 CREATE INDEX IF NOT EXISTS idx_cases_name ON cases(full_name);
                 CREATE INDEX IF NOT EXISTS idx_cases_code ON cases(case_code);
@@ -1300,6 +1326,7 @@ def merge_duplicate_records(
     remove_ids: Sequence[int],
     merged_values: dict[str, Any] | None = None,
     db_path: Path | str = DB_PATH,
+    actor: str = "",
 ) -> dict[str, Any]:
     table, _ = _safe_table(entity_type)
     init_db(db_path)
@@ -1374,6 +1401,10 @@ def merge_duplicate_records(
                     (entity_type, keep_id, keep.get("source_file", "Hợp nhất"), keep.get("source_row", 0),
                      severity, issue_type, description, now),
                 )
+    log_audit(
+        "merge_duplicate_records" if normalized else "remove_duplicate_records", actor=actor,
+        detail=f"entity={entity_type}; keep_id={keep_id}; removed={ids}", db_path=db_path,
+    )
     return {
         "action_id": action_id, "kept_id": keep_id, "removed_ids": ids,
         "removed_count": len(ids), "merged_values": normalized, "backup_file": str(backup),
@@ -1385,8 +1416,9 @@ def remove_duplicate_records(
     keep_id: int,
     remove_ids: Sequence[int],
     db_path: Path | str = DB_PATH,
+    actor: str = "",
 ) -> dict[str, Any]:
-    return merge_duplicate_records(entity_type, keep_id, remove_ids, {}, db_path)
+    return merge_duplicate_records(entity_type, keep_id, remove_ids, {}, db_path, actor=actor)
 
 
 def list_duplicate_actions(limit: int = 200, db_path: Path | str = DB_PATH) -> list[dict[str, Any]]:
@@ -1403,7 +1435,7 @@ def list_duplicate_actions(limit: int = 200, db_path: Path | str = DB_PATH) -> l
         return [dict(row) for row in rows]
 
 
-def restore_duplicate_action(action_id: int, db_path: Path | str = DB_PATH) -> dict[str, Any]:
+def restore_duplicate_action(action_id: int, db_path: Path | str = DB_PATH, actor: str = "") -> dict[str, Any]:
     init_db(db_path)
     action_id = int(action_id)
     with _connect(db_path) as conn:
@@ -1451,6 +1483,9 @@ def restore_duplicate_action(action_id: int, db_path: Path | str = DB_PATH) -> d
                 (now, restored_id, int(item["id"])),
             )
         conn.execute("UPDATE duplicate_actions SET restored_at=? WHERE id=?", (now, action_id))
+    log_audit(
+        "restore_duplicate_action", actor=actor, detail=f"action_id={action_id}; restored={restored}", db_path=db_path,
+    )
     return {"action_id": action_id, "restored_ids": restored, "restored_count": len(restored), "backup_file": str(backup)}
 
 
@@ -1533,6 +1568,10 @@ def queue_submit(
             (commune, week, safe_name, str(dest_path), source, submitted_by, now),
         )
         queue_id = int(cur.lastrowid)
+    log_audit(
+        "queue_submit", actor=submitted_by or source, commune=commune,
+        detail=f"week={week}; file={safe_name}; source={source}", db_path=db_path,
+    )
     return {"queue_id": queue_id, "commune": commune, "week": week, "source": source, "received_at": now}
 
 
@@ -1557,7 +1596,7 @@ def list_import_queue(
         return [dict(r) for r in rows]
 
 
-def archive_old_queue_files(older_than_days: int = 90, db_path: Path | str = DB_PATH) -> dict[str, Any]:
+def archive_old_queue_files(older_than_days: int = 90, db_path: Path | str = DB_PATH, actor: str = "") -> dict[str, Any]:
     """Xoá file vật lý của các mục hàng đợi đã nhập từ lâu, giữ nguyên dòng CSDL để tra cứu.
 
     Không tự động chạy — gọi thủ công (menu/nút bảo trì) hoặc từ một tác vụ định kỳ do CDC
@@ -1585,10 +1624,186 @@ def archive_old_queue_files(older_than_days: int = 90, db_path: Path | str = DB_
                     continue
             conn.execute("UPDATE import_queue SET archived_at=? WHERE id=?", (now, row["id"]))
             archived_ids.append(int(row["id"]))
+    log_audit(
+        "archive_old_queue_files", actor=actor, detail=f"archived={len(archived_ids)}; older_than_days={older_than_days}",
+        db_path=db_path,
+    )
     return {"archived_count": len(archived_ids), "archived_ids": archived_ids, "freed_bytes": freed_bytes}
 
 
-def import_queue_item(queue_id: int, db_path: Path | str = DB_PATH) -> dict[str, Any]:
+def log_audit(
+    action: str, *, actor: str = "", commune: str = "", detail: str = "", db_path: Path | str = DB_PATH,
+) -> None:
+    """Ghi một dòng nhật ký kiểm toán: ai làm gì, ở xã nào, khi nào."""
+    init_db(db_path)
+    now = datetime.now().isoformat(sep=" ", timespec="seconds")
+    with _connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO audit_log (created_at, actor, action, commune, detail) VALUES (?, ?, ?, ?, ?)",
+            (now, actor or "he_thong", action, commune or "", detail or ""),
+        )
+
+
+def list_audit_log(
+    limit: int = 200, action: str = "", commune: str = "", db_path: Path | str = DB_PATH,
+) -> list[dict[str, Any]]:
+    init_db(db_path)
+    where: list[str] = []
+    params: list[Any] = []
+    if action:
+        where.append("action = ?"); params.append(action)
+    if commune:
+        where.append("commune = ?"); params.append(commune)
+    where_sql = " WHERE " + " AND ".join(where) if where else ""
+    limit = max(1, min(2000, int(limit)))
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            f"SELECT * FROM audit_log{where_sql} ORDER BY id DESC LIMIT ?", [*params, limit]
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def _hash_password(password: str, salt: bytes | None = None, iterations: int = 200_000) -> str:
+    salt = salt or os.urandom(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+    return f"{iterations}${salt.hex()}${digest.hex()}"
+
+
+def _verify_password(password: str, stored: str) -> bool:
+    try:
+        iterations_str, salt_hex, digest_hex = stored.split("$")
+        salt = bytes.fromhex(salt_hex)
+        expected = bytes.fromhex(digest_hex)
+    except (ValueError, AttributeError):
+        return False
+    actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, int(iterations_str))
+    return hmac.compare_digest(actual, expected)
+
+
+def has_commune_accounts(db_path: Path | str = DB_PATH) -> bool:
+    init_db(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute("SELECT 1 FROM commune_accounts WHERE active=1 LIMIT 1").fetchone()
+        return row is not None
+
+
+def create_commune_account(
+    commune: str, username: str, password: str, display_name: str = "", db_path: Path | str = DB_PATH,
+    actor: str = "",
+) -> dict[str, Any]:
+    init_db(db_path)
+    commune = strip_text(commune)
+    username = strip_text(username).lower()
+    if not commune:
+        raise ValueError("Thiếu tên xã.")
+    if not username:
+        raise ValueError("Thiếu tên đăng nhập.")
+    if len(password or "") < 8:
+        raise ValueError("Mật khẩu phải có ít nhất 8 ký tự.")
+    now = datetime.now().isoformat(sep=" ", timespec="seconds")
+    with _connect(db_path) as conn:
+        try:
+            cur = conn.execute(
+                """INSERT INTO commune_accounts (commune, username, password_hash, display_name, active, created_at)
+                   VALUES (?, ?, ?, ?, 1, ?)""",
+                (commune, username, _hash_password(password), display_name or commune, now),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("Xã hoặc tên đăng nhập này đã có tài khoản.") from exc
+        account_id = int(cur.lastrowid)
+    log_audit("create_commune_account", actor=actor, commune=commune, detail=f"username={username}", db_path=db_path)
+    return {"id": account_id, "commune": commune, "username": username}
+
+
+def list_commune_accounts(db_path: Path | str = DB_PATH) -> list[dict[str, Any]]:
+    init_db(db_path)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT id, commune, username, display_name, active, created_at, last_login_at "
+            "FROM commune_accounts ORDER BY commune"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def set_commune_account_active(account_id: int, active: bool, db_path: Path | str = DB_PATH, actor: str = "") -> None:
+    init_db(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute("SELECT commune FROM commune_accounts WHERE id=?", (int(account_id),)).fetchone()
+        if not row:
+            raise ValueError("Không tìm thấy tài khoản.")
+        conn.execute("UPDATE commune_accounts SET active=? WHERE id=?", (1 if active else 0, int(account_id)))
+    log_audit(
+        "enable_commune_account" if active else "disable_commune_account",
+        actor=actor, commune=row["commune"], db_path=db_path,
+    )
+
+
+def reset_commune_account_password(
+    account_id: int, new_password: str, db_path: Path | str = DB_PATH, actor: str = "",
+) -> None:
+    init_db(db_path)
+    if len(new_password or "") < 8:
+        raise ValueError("Mật khẩu phải có ít nhất 8 ký tự.")
+    with _connect(db_path) as conn:
+        row = conn.execute("SELECT commune FROM commune_accounts WHERE id=?", (int(account_id),)).fetchone()
+        if not row:
+            raise ValueError("Không tìm thấy tài khoản.")
+        conn.execute(
+            "UPDATE commune_accounts SET password_hash=? WHERE id=?", (_hash_password(new_password), int(account_id))
+        )
+    log_audit("reset_commune_account_password", actor=actor, commune=row["commune"], db_path=db_path)
+
+
+def verify_commune_account(username: str, password: str, db_path: Path | str = DB_PATH) -> dict[str, Any] | None:
+    """Kiểm tra tên đăng nhập/mật khẩu tài khoản xã; ghi nhật ký cả khi thành công lẫn thất bại."""
+    init_db(db_path)
+    username_norm = strip_text(username).lower()
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM commune_accounts WHERE username=? AND active=1", (username_norm,)
+        ).fetchone()
+        if not row or not _verify_password(password or "", row["password_hash"]):
+            log_audit("login_failed", actor=username or "khong_ro", db_path=db_path)
+            return None
+        now = datetime.now().isoformat(sep=" ", timespec="seconds")
+        conn.execute("UPDATE commune_accounts SET last_login_at=? WHERE id=?", (now, row["id"]))
+    log_audit("login", actor=row["username"], commune=row["commune"], db_path=db_path)
+    return {
+        "id": int(row["id"]), "commune": row["commune"], "username": row["username"],
+        "display_name": row["display_name"] or row["commune"],
+    }
+
+
+def issue_commune_token(
+    account_id: int, commune: str, username: str, secret: str, ttl_seconds: int = 8 * 3600,
+) -> str:
+    """Token đăng nhập tự chứa (stateless), ký HMAC — không cần lưu phiên trên máy chủ."""
+    if not secret:
+        raise ValueError("Máy chủ chưa có khóa ký phiên đăng nhập (web_token_secret).")
+    expires = int(time.time()) + max(1, int(ttl_seconds))
+    payload = f"{account_id}:{commune}:{username}:{expires}"
+    signature = hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    return base64.urlsafe_b64encode(f"{payload}:{signature}".encode("utf-8")).decode("ascii")
+
+
+def verify_commune_token(token: str, secret: str) -> dict[str, Any] | None:
+    if not token or not secret:
+        return None
+    try:
+        raw = base64.urlsafe_b64decode(token.encode("ascii")).decode("utf-8")
+        account_id_str, commune, username, expires_str, signature = raw.split(":", 4)
+        payload = f"{account_id_str}:{commune}:{username}:{expires_str}"
+        expected = hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            return None
+        if int(expires_str) < int(time.time()):
+            return None
+        return {"account_id": int(account_id_str), "commune": commune, "username": username}
+    except Exception:
+        return None
+
+
+def import_queue_item(queue_id: int, db_path: Path | str = DB_PATH, actor: str = "") -> dict[str, Any]:
     """Nhập một file đang chờ trong hàng đợi vào CSDL chính bằng import_excel hiện có.
 
     Dùng một câu UPDATE nguyên tử để "giữ chỗ" mục hàng đợi (chuyển sang trạng thái tạm
@@ -1632,6 +1847,10 @@ def import_queue_item(queue_id: int, db_path: Path | str = DB_PATH) -> dict[str,
             "UPDATE import_queue SET status='da_nhap', imported_at=?, import_batch_id=?, error_message=NULL WHERE id=?",
             (now, batch[0] if batch else None, queue_id),
         )
+    log_audit(
+        "import_queue_item", actor=actor, commune=item.get("commune", ""),
+        detail=f"queue_id={queue_id}; file={item['file_name']}; inserted={summary.inserted}", db_path=db_path,
+    )
     return {
         "queue_id": queue_id, "file_name": item["file_name"], "rows_read": summary.rows_read,
         "inserted": summary.inserted, "duplicates": summary.duplicates, "skipped": summary.skipped,
@@ -1764,6 +1983,7 @@ def export_cases_by_commune(
     *,
     criteria: dict[str, Any] | CaseDuplicateCriteria | None = None,
     db_path: Path | str = DB_PATH,
+    actor: str = "",
 ) -> dict[str, Any]:
     """Xuất toàn bộ ca bệnh thành workbook Excel chia theo xã, mỗi xã một sheet.
 
@@ -1873,6 +2093,10 @@ def export_cases_by_commune(
 
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)
+    log_audit(
+        "export_cases_by_commune", actor=actor,
+        detail=f"cases={len(rows)}; communes={len(by_commune)}; groups={len(groups)}", db_path=db_path,
+    )
     return {
         "path": str(path),
         "case_count": len(rows),
