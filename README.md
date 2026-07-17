@@ -91,5 +91,17 @@ update_manager.py      Cập nhật ứng dụng
 setup.iss              Bộ cài và trang chọn mô hình triển khai
 .github/workflows/     Kiểm thử, build và Release tự động
 tests/                  Kiểm thử lõi, lọc trùng, cấu hình và LAN
+secondary_sync.py      Đồng bộ hàng đợi từ máy chủ phụ (Google Apps Script) khi online lại
+google_apps_script/    Code.gs + hướng dẫn triển khai máy chủ phụ (Google Sheet/Drive)
 WEB_DEDUP_DESIGN.md    Thiết kế nền tảng Web, lọc trùng theo tiêu chí, hàng đợi hai tầng
 ```
+
+## Nộp dữ liệu qua Web và hàng đợi nhập liệu
+
+Khi chạy ở chế độ Máy chủ, ngoài API LAN hiện có, máy chủ còn phục vụ 2 trang web:
+
+- `http://<địa-chỉ-máy-chủ>:<cổng>/xa` — Trạm Y tế xã nộp danh sách ca bệnh hằng tuần.
+- `http://<địa-chỉ-máy-chủ>:<cổng>/cdc/hang-doi` — CDC xem hàng đợi chia theo xã, nhập vào
+  CSDL chính và đồng bộ dữ liệu từ máy chủ phụ (Google Apps Script) khi máy chủ chính offline
+  rồi online trở lại. Xem `WEB_DEDUP_DESIGN.md` và `google_apps_script/README.md` để triển
+  khai máy chủ phụ.

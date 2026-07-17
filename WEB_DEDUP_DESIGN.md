@@ -3,8 +3,12 @@
 Tài liệu này thiết kế bước tiếp theo cho hệ thống hiện có (desktop PyQt6 + SQLite + LAN,
 xem `README.md`/`SCHEMA.md`): đưa việc **thu thập ca bệnh hằng tuần từ Trạm Y tế xã** và
 **lọc trùng tại CDC** lên một nền tảng Web, có cơ chế hàng đợi hai tầng để chịu được tình
-trạng máy chủ chính offline. Tài liệu chỉ mô tả kiến trúc/nghiệp vụ (chưa phải code); phần
-triển khai nên đi theo lộ trình ở mục 11.
+trạng máy chủ chính offline.
+
+**Trạng thái**: Giai đoạn 1–4 ở mục 11 đã được cài đặt trong mã nguồn (lọc trùng theo tiêu
+chí, xuất Excel chia theo xã, Web nộp dữ liệu + hàng đợi trên `lan_server.py`, máy chủ phụ
+Google Apps Script trong `google_apps_script/` + `secondary_sync.py`). Giai đoạn 5 (đối soát,
+nhắc nộp báo cáo, giám sát vận hành, xác thực đầy đủ cho Internet) vẫn còn ở dạng thiết kế.
 
 ## 1. Bối cảnh và mục tiêu
 

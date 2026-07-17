@@ -39,9 +39,10 @@ def test_case_duplicate_detection_and_removal():
         make_excel(file, core.CASE_FIELDS, rows)
         summary = core.import_excel(file, db)
         assert summary.inserted == 2
-        groups = core.find_duplicate_groups('case', db_path=db, min_score=65)
+        groups = core.find_duplicate_groups('case', db_path=db, criteria={"enabled": ["phone", "name_birth_year"]})
         assert len(groups) == 1
-        assert groups[0]['score'] >= 85
+        assert groups[0]['confidence'] == 'Nghi trùng'
+        assert 'Trùng số điện thoại' in groups[0]['matched_criteria']
         ids = groups[0]['record_ids']
         result = core.remove_duplicate_records('case', ids[0], ids[1:], db_path=db)
         assert result['removed_count'] == 1

@@ -34,6 +34,8 @@ class DeploymentConfig:
     auto_reconnect: bool = True
     reconnect_attempts: int = 3
     reconnect_delay_seconds: float = 1.0
+    secondary_webapp_url: str = ""
+    secondary_shared_key: str = ""
 
     @property
     def is_standalone(self) -> bool:
@@ -76,6 +78,8 @@ def load_config() -> DeploymentConfig:
         auto_reconnect=bool(raw.get("auto_reconnect", True)),
         reconnect_attempts=max(1, min(10, int(raw.get("reconnect_attempts", 3) or 3))),
         reconnect_delay_seconds=max(0.1, min(10.0, float(raw.get("reconnect_delay_seconds", 1.0) or 1.0))),
+        secondary_webapp_url=str(raw.get("secondary_webapp_url", "") or "").strip(),
+        secondary_shared_key=str(raw.get("secondary_shared_key", "") or ""),
     )
 
 

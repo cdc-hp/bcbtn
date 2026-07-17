@@ -45,7 +45,7 @@ def test_merge_to_trash_and_restore():
         }
         make_excel(file, core.CASE_FIELDS, [dict(base, case_code="CA-1"), dict(base, case_code="CA-2", current_address="Gia Viên")])
         assert core.import_excel(file, db).inserted == 2
-        group = core.find_duplicate_groups("case", db_path=db, min_score=60)[0]
+        group = core.find_duplicate_groups("case", db_path=db, criteria={"enabled": ["phone", "name_birth_year"]})[0]
         keep, remove = group["record_ids"][0], group["record_ids"][1:]
         result = core.merge_duplicate_records("case", keep, remove, {"phone": "0911111111", "full_name": "Nguyễn Văn A"}, db)
         assert result["removed_count"] == 1

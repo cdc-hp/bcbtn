@@ -159,6 +159,13 @@ def export_rows(path: Path | str, columns: Sequence[str], rows: Iterable[Sequenc
     local_core.export_rows(path, columns, rows)
 
 
+def export_cases_by_commune(path: Path | str, **kwargs: Any) -> dict[str, Any]:
+    raise NotImplementedError(
+        "Xuất ca bệnh chia theo xã cần chạy trực tiếp trên máy chủ (chế độ Máy chủ/Máy đơn lẻ) "
+        "vì cần đọc toàn bộ 48 trường dữ liệu — chưa hỗ trợ từ Máy trạm."
+    )
+
+
 def export_filtered_records(path: Path | str, entity_type: str, **kwargs: Any) -> int:
     page, page_size, all_rows = 1, 2000, []
     while True:

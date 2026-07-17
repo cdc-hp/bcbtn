@@ -52,7 +52,15 @@ import core as local_core
 import backup_manager
 import update_manager
 from deployment_config import DeploymentConfig, load_config, mode_label, save_config
-from duplicate_config import DuplicateRules, load_rules, save_rules
+from duplicate_config import (
+    CASE_CRITERIA_DEFS,
+    CaseDuplicateCriteria,
+    DuplicateRules,
+    load_case_criteria,
+    load_rules,
+    save_case_criteria,
+    save_rules,
+)
 from lan_server import LanServerController, configure_windows_firewall, port_available
 
 DEPLOYMENT_CONFIG = load_config()
@@ -700,11 +708,8 @@ class ImportTab(QWidget):
 
 
 class DuplicateRulesDialog(QDialog):
-    CASE_LABELS = {
-        "name": "Họ tên", "phone": "Điện thoại", "birth_year": "Năm sinh", "gender": "Giới tính",
-        "area": "Xã/phường", "disease": "Chẩn đoán", "onset_exact": "Khởi phát trùng ngày",
-        "onset_near": "Khởi phát gần nhau", "address": "Địa chỉ gần giống",
-    }
+    """Cấu hình trọng số lọc trùng ổ dịch. Ca bệnh dùng CaseDuplicateCriteriaDialog (chọn tiêu chí)."""
+
     OUTBREAK_LABELS = {
         "disease": "Tên bệnh", "location_exact": "Địa điểm trùng", "location_near": "Địa điểm gần giống",
         "area": "Địa bàn", "onset_exact": "Khởi phát trùng ngày", "onset_near": "Khởi phát gần nhau",
@@ -714,8 +719,8 @@ class DuplicateRulesDialog(QDialog):
     def __init__(self, rules: DuplicateRules, parent=None):
         super().__init__(parent)
         self.rules = rules
-        self.setWindowTitle("Cấu hình trọng số lọc trùng")
-        self.resize(620, 650)
+        self.setWindowTitle("Cấu hình trọng số lọc trùng ổ dịch")
+        self.resize(560, 480)
         root = QVBoxLayout(self)
         general = QGroupBox("Ngưỡng phân loại")
         form = QFormLayout(general)
@@ -724,9 +729,8 @@ class DuplicateRulesDialog(QDialog):
         form.addRow("Điểm tối thiểu để đưa vào danh sách:", self.min_score)
         form.addRow("Điểm xác định trùng chắc chắn:", self.definite)
         root.addWidget(general)
-        self.case_inputs = self._weight_box(root, "Trọng số ca bệnh", rules.case_weights, self.CASE_LABELS)
         self.outbreak_inputs = self._weight_box(root, "Trọng số ổ dịch", rules.outbreak_weights, self.OUTBREAK_LABELS)
-        note = QLabel("Trùng mã ca hoặc CCCD/CMND vẫn luôn được tính 100 điểm. Tổng điểm cuối được giới hạn ở 100.")
+        note = QLabel("Tổng điểm cuối được giới hạn ở 100. Lọc trùng ca bệnh không còn dùng điểm số — xem nút \"Tiêu chí...\".")
         note.setWordWrap(True); root.addWidget(note)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
@@ -743,9 +747,51 @@ class DuplicateRulesDialog(QDialog):
             QMessageBox.warning(self, "Ngưỡng chưa hợp lệ", "Điểm trùng chắc chắn phải lớn hơn hoặc bằng điểm tối thiểu.")
             return
         self.rules.min_score = self.min_score.value(); self.rules.definite_score = self.definite.value()
-        self.rules.case_weights = {k: w.value() for k, w in self.case_inputs.items()}
         self.rules.outbreak_weights = {k: w.value() for k, w in self.outbreak_inputs.items()}
         save_rules(self.rules)
+        super().accept()
+
+
+class CaseDuplicateCriteriaDialog(QDialog):
+    """Chọn tiêu chí lọc trùng ca bệnh — thay cho chấm điểm/trọng số."""
+
+    def __init__(self, criteria: CaseDuplicateCriteria, parent=None):
+        super().__init__(parent)
+        self.criteria = criteria
+        self.setWindowTitle("Tiêu chí lọc trùng ca bệnh")
+        self.resize(480, 420)
+        root = QVBoxLayout(self)
+        info = QLabel(
+            "Hai ca bệnh được coi là trùng nếu khớp ít nhất một tiêu chí đang chọn. "
+            "Không còn tính điểm — mỗi tiêu chí là một quy tắc so khớp rõ ràng."
+        )
+        info.setWordWrap(True); root.addWidget(info)
+        box = QGroupBox("Tiêu chí"); form = QVBoxLayout(box)
+        self.checks: dict[str, QCheckBox] = {}
+        for criterion_id, label in CASE_CRITERIA_DEFS:
+            check = QCheckBox(label); check.setChecked(criterion_id in criteria.enabled)
+            form.addWidget(check); self.checks[criterion_id] = check
+        root.addWidget(box)
+        params = QGroupBox("Tham số"); params_form = QFormLayout(params)
+        self.name_threshold = QSpinBox(); self.name_threshold.setRange(50, 100); self.name_threshold.setSuffix(" %")
+        self.name_threshold.setValue(criteria.name_similarity_percent)
+        self.onset_days = QSpinBox(); self.onset_days.setRange(0, 60); self.onset_days.setSuffix(" ngày")
+        self.onset_days.setValue(criteria.onset_max_days)
+        params_form.addRow("Ngưỡng họ tên gần giống:", self.name_threshold)
+        params_form.addRow("Khởi phát lệch tối đa:", self.onset_days)
+        root.addWidget(params)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
+
+    def accept(self):
+        enabled = [criterion_id for criterion_id, check in self.checks.items() if check.isChecked()]
+        if not enabled:
+            QMessageBox.warning(self, "Chưa chọn tiêu chí", "Hãy chọn ít nhất một tiêu chí lọc trùng.")
+            return
+        self.criteria.enabled = enabled
+        self.criteria.name_similarity_percent = self.name_threshold.value()
+        self.criteria.onset_max_days = self.onset_days.value()
+        save_case_criteria(self.criteria)
         super().accept()
 
 
@@ -765,8 +811,15 @@ class DuplicateReviewDialog(QDialog):
         self.setWindowTitle(f"Duyệt và hợp nhất nhóm trùng #{group['group_id']}")
         self.resize(1180, 760)
         root = QVBoxLayout(self)
+        if group["entity_type"] == "case":
+            heading = f"<b>{group['confidence']} — tiêu chí khớp: {group['reasons']}</b>"
+            case_codes = ", ".join(code for code in group.get("case_codes") or [] if code)
+            if case_codes:
+                heading += f"<br>Mã ca bệnh liên quan: {case_codes}"
+        else:
+            heading = f"<b>{group['confidence']} — điểm {group['score']}/100</b><br>Lý do: {group['reasons']}"
         note = QLabel(
-            f"<b>{group['confidence']} — điểm {group['score']}/100</b><br>Lý do: {group['reasons']}<br><br>"
+            f"{heading}<br><br>"
             "Chọn bản ghi chính và giá trị cuối cho từng trường. Bản còn lại được đưa vào Thùng rác, không xóa vĩnh viễn; "
             "CSDL được sao lưu trước thao tác."
         )
@@ -888,47 +941,100 @@ class DuplicateHistoryDialog(QDialog):
 
 
 class DuplicateTab(QWidget):
+    CASE_COLUMNS = [
+        ("group_id", "Nhóm"), ("confidence", "Mức"), ("case_codes_text", "Mã ca bệnh liên quan"),
+        ("record_count", "Số bản ghi"), ("summary", "Tóm tắt"), ("reasons", "Tiêu chí khớp"),
+    ]
+    OUTBREAK_COLUMNS = [
+        ("group_id", "Nhóm"), ("confidence", "Mức"), ("score", "Điểm"),
+        ("record_count", "Số bản ghi"), ("summary", "Tóm tắt"), ("reasons", "Lý do"),
+    ]
+
     def __init__(self, after_change=None):
         super().__init__(); self.after_change = after_change; self.groups = []; self.rules = load_rules()
+        self.case_criteria = load_case_criteria()
         root = QVBoxLayout(self); title_row = QHBoxLayout(); title = QLabel("Lọc trùng dữ liệu"); title.setObjectName("sectionTitle")
         self.entity = QComboBox(); self.entity.addItem("Ca bệnh", "case"); self.entity.addItem("Ổ dịch", "outbreak")
+        self.entity.currentIndexChanged.connect(self._on_entity_changed)
         self.min_score = QSpinBox(); self.min_score.setRange(40, 100); self.min_score.setValue(self.rules.min_score); self.min_score.setSuffix(" điểm")
+        self.min_score_label = QLabel("Ngưỡng:")
         scan = QPushButton("Quét dữ liệu"); scan.clicked.connect(self.refresh)
         review = QPushButton("Duyệt & hợp nhất"); review.clicked.connect(self.review_selected)
-        rules_btn = QPushButton("Trọng số..."); rules_btn.setObjectName("secondary"); rules_btn.clicked.connect(self.configure_rules)
+        self.rules_btn = QPushButton("Tiêu chí..."); self.rules_btn.setObjectName("secondary"); self.rules_btn.clicked.connect(self.configure_rules)
         history = QPushButton("Thùng rác / lịch sử"); history.setObjectName("secondary"); history.clicked.connect(self.open_history)
         export = QPushButton("Xuất kết quả"); export.setObjectName("secondary"); export.clicked.connect(self.export)
+        self.export_by_commune_btn = QPushButton("Xuất theo xã..."); self.export_by_commune_btn.setObjectName("secondary")
+        self.export_by_commune_btn.clicked.connect(self.export_by_commune)
         title_row.addWidget(title); title_row.addStretch(); title_row.addWidget(QLabel("Đối tượng:")); title_row.addWidget(self.entity)
-        title_row.addWidget(QLabel("Ngưỡng:")); title_row.addWidget(self.min_score)
-        for widget in (scan, review, rules_btn, history, export): title_row.addWidget(widget)
+        title_row.addWidget(self.min_score_label); title_row.addWidget(self.min_score)
+        for widget in (scan, review, self.rules_btn, history, export, self.export_by_commune_btn): title_row.addWidget(widget)
         root.addLayout(title_row)
-        info = QLabel("Phát hiện trùng theo trọng số có thể cấu hình. Khi xử lý, người dùng chọn giá trị tốt nhất từng trường; bản còn lại vào Thùng rác và có thể khôi phục.")
-        info.setWordWrap(True); root.addWidget(info)
+        self.info = QLabel(); self.info.setWordWrap(True); root.addWidget(self.info)
         self.summary = QLabel("Chưa quét dữ liệu."); root.addWidget(self.summary)
         self.table = QTableView(); self.table.setAlternatingRowColors(True); self.table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableView.SelectionMode.SingleSelection); self.table.doubleClicked.connect(self.review_selected)
-        self.model = DictTableModel(columns=[("group_id", "Nhóm"), ("confidence", "Mức"), ("score", "Điểm"), ("record_count", "Số bản ghi"), ("summary", "Tóm tắt"), ("reasons", "Lý do")])
+        self.model = DictTableModel(columns=self.CASE_COLUMNS)
         self.table.setModel(self.model); self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch); self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
         root.addWidget(self.table, 1)
+        self._on_entity_changed()
+
+    def _on_entity_changed(self):
+        is_case = self.entity.currentData() == "case"
+        self.rules_btn.setText("Tiêu chí..." if is_case else "Trọng số...")
+        self.min_score_label.setVisible(not is_case); self.min_score.setVisible(not is_case)
+        self.export_by_commune_btn.setVisible(is_case)
+        self.info.setText(
+            "Hai ca bệnh trùng nếu khớp ít nhất một tiêu chí đang chọn (không tính điểm). "
+            "Bấm \"Tiêu chí...\" để thay đổi." if is_case else
+            "Phát hiện trùng theo trọng số có thể cấu hình. Khi xử lý, người dùng chọn giá trị tốt nhất từng "
+            "trường; bản còn lại vào Thùng rác và có thể khôi phục."
+        )
+        self.clear_results()
 
     def configure_rules(self):
-        dialog = DuplicateRulesDialog(self.rules, self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.rules = load_rules(); self.min_score.setValue(self.rules.min_score); self.clear_results()
+        if self.entity.currentData() == "case":
+            dialog = CaseDuplicateCriteriaDialog(self.case_criteria, self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                self.case_criteria = load_case_criteria(); self.clear_results()
+        else:
+            dialog = DuplicateRulesDialog(self.rules, self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                self.rules = load_rules(); self.min_score.setValue(self.rules.min_score); self.clear_results()
 
     def open_history(self): DuplicateHistoryDialog(self.after_change, self).exec()
-    def clear_results(self): self.groups = []; self.model.set_data([]); self.summary.setText("Dữ liệu hoặc quy tắc đã thay đổi. Bấm Quét dữ liệu để cập nhật.")
+
+    def clear_results(self):
+        self.groups = []
+        columns = self.CASE_COLUMNS if self.entity.currentData() == "case" else self.OUTBREAK_COLUMNS
+        self.model.set_data([], columns)
+        self.summary.setText("Dữ liệu hoặc quy tắc đã thay đổi. Bấm Quét dữ liệu để cập nhật.")
 
     def refresh(self):
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            weights = self.rules.weights_for(self.entity.currentData())
-            self.groups = core.find_duplicate_groups(self.entity.currentData(), min_score=self.min_score.value(), rules={"weights": weights, "definite_score": self.rules.definite_score})
-            rows = []
-            for group in self.groups:
-                row = {k: v for k, v in group.items() if k != "records"}; row["severity"] = "error" if group["score"] >= self.rules.definite_score else "warning"; rows.append(row)
-            self.model.set_data(rows); total = sum(int(g["record_count"]) for g in self.groups)
-            self.summary.setText(f"Phát hiện {len(self.groups):,} nhóm với {total:,} bản ghi cần duyệt." if self.groups else "Không phát hiện bản ghi trùng theo ngưỡng hiện tại.")
+            entity_type = self.entity.currentData()
+            if entity_type == "case":
+                self.groups = core.find_duplicate_groups("case", criteria={
+                    "enabled": self.case_criteria.enabled,
+                    "name_similarity_percent": self.case_criteria.name_similarity_percent,
+                    "onset_max_days": self.case_criteria.onset_max_days,
+                })
+                rows = []
+                for group in self.groups:
+                    row = {k: v for k, v in group.items() if k != "records"}
+                    row["case_codes_text"] = ", ".join(code for code in group.get("case_codes") or [] if code)
+                    row["severity"] = "error" if group["confidence"] == "Trùng chắc chắn" else "warning"
+                    rows.append(row)
+                self.model.set_data(rows, self.CASE_COLUMNS)
+            else:
+                weights = self.rules.weights_for(entity_type)
+                self.groups = core.find_duplicate_groups(entity_type, min_score=self.min_score.value(), rules={"weights": weights, "definite_score": self.rules.definite_score})
+                rows = []
+                for group in self.groups:
+                    row = {k: v for k, v in group.items() if k != "records"}; row["severity"] = "error" if group["score"] >= self.rules.definite_score else "warning"; rows.append(row)
+                self.model.set_data(rows, self.OUTBREAK_COLUMNS)
+            total = sum(int(g["record_count"]) for g in self.groups)
+            self.summary.setText(f"Phát hiện {len(self.groups):,} nhóm với {total:,} bản ghi cần duyệt." if self.groups else "Không phát hiện bản ghi trùng theo tiêu chí/ngưỡng hiện tại.")
         except Exception as exc: QMessageBox.critical(self, "Không thể lọc trùng", str(exc))
         finally: QApplication.restoreOverrideCursor()
 
@@ -955,9 +1061,37 @@ class DuplicateTab(QWidget):
         if not self.groups: QMessageBox.information(self, "Không có dữ liệu", "Hãy quét dữ liệu trước khi xuất."); return
         path, _ = QFileDialog.getSaveFileName(self, "Xuất kết quả lọc trùng", "ket_qua_loc_trung.xlsx", "Excel (*.xlsx);;CSV (*.csv)")
         if not path: return
-        columns = ["Nhóm", "Mức", "Điểm", "Số bản ghi", "Danh sách ID", "Tóm tắt", "Lý do"]
-        rows = [[g["group_id"], g["confidence"], g["score"], g["record_count"], ", ".join(map(str, g["record_ids"])), g["summary"], g["reasons"]] for g in self.groups]
+        if self.entity.currentData() == "case":
+            columns = ["Nhóm", "Mức", "Mã ca bệnh liên quan", "Số bản ghi", "Danh sách ID", "Tóm tắt", "Tiêu chí khớp"]
+            rows = [[
+                g["group_id"], g["confidence"], ", ".join(code for code in g.get("case_codes") or [] if code),
+                g["record_count"], ", ".join(map(str, g["record_ids"])), g["summary"], g["reasons"],
+            ] for g in self.groups]
+        else:
+            columns = ["Nhóm", "Mức", "Điểm", "Số bản ghi", "Danh sách ID", "Tóm tắt", "Lý do"]
+            rows = [[g["group_id"], g["confidence"], g["score"], g["record_count"], ", ".join(map(str, g["record_ids"])), g["summary"], g["reasons"]] for g in self.groups]
         core.export_rows(path, columns, rows); QMessageBox.information(self, "Đã xuất", path)
+
+    def export_by_commune(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Xuất ca bệnh chia theo xã", "ca_benh_theo_xa.xlsx", "Excel (*.xlsx)")
+        if not path: return
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            result = core.export_cases_by_commune(path, criteria={
+                "enabled": self.case_criteria.enabled,
+                "name_similarity_percent": self.case_criteria.name_similarity_percent,
+                "onset_max_days": self.case_criteria.onset_max_days,
+            })
+            QMessageBox.information(
+                self, "Đã xuất theo xã",
+                f"Đã xuất {result['case_count']} ca bệnh vào {result['commune_count']} sheet xã.\n"
+                f"{result['duplicate_group_count']} nhóm trùng, trong đó {result['cross_commune_group_count']} nhóm "
+                f"trùng khác xã (đã gộp theo xã của ca vào viện gần nhất).\nFile: {result['path']}"
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Không thể xuất", str(exc))
+        finally:
+            QApplication.restoreOverrideCursor()
 
 
 class WorkstationConnectionDialog(QDialog):
@@ -1021,7 +1155,24 @@ class ServerTab(QWidget):
         self.auto_start = QCheckBox("Tự khởi động server khi mở ứng dụng"); self.auto_start.setChecked(config.auto_start_server)
         self.discovery = QCheckBox("Cho phép máy trạm tự tìm server trong LAN"); self.discovery.setChecked(config.discovery_enabled)
         form.addRow("Tên máy chủ:", self.server_name); form.addRow("Cổng LAN:", self.port); form.addRow("Mật khẩu máy trạm:", self.password); form.addRow("", self.auto_start); form.addRow("", self.discovery)
-        root.addWidget(box); self.status = QLabel(); self.status.setWordWrap(True); root.addWidget(self.status)
+        root.addWidget(box)
+        secondary_box = QGroupBox("Máy chủ phụ (Google Apps Script) — dự phòng khi offline")
+        secondary_form = QFormLayout(secondary_box)
+        self.secondary_url = QLineEdit(config.secondary_webapp_url)
+        self.secondary_url.setPlaceholderText("https://script.google.com/macros/s/XXXX/exec")
+        self.secondary_key = QLineEdit(config.secondary_shared_key); self.secondary_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.secondary_key.setPlaceholderText("Khóa bí mật đặt trong Script Properties (SHARED_KEY)")
+        secondary_form.addRow("URL Web App:", self.secondary_url)
+        secondary_form.addRow("Khóa chia sẻ:", self.secondary_key)
+        secondary_note = QLabel("Xem hướng dẫn triển khai trong google_apps_script/README.md.")
+        secondary_note.setWordWrap(True); secondary_form.addRow("", secondary_note)
+        root.addWidget(secondary_box)
+        web_note = QLabel(
+            "Trang web: /xa (Trạm Y tế xã nộp danh sách hằng tuần) và /cdc/hang-doi "
+            "(CDC xem hàng đợi chia theo xã, nhập vào CSDL và đồng bộ máy chủ phụ)."
+        )
+        web_note.setWordWrap(True); root.addWidget(web_note)
+        self.status = QLabel(); self.status.setWordWrap(True); root.addWidget(self.status)
         row = QHBoxLayout(); save = QPushButton("Lưu cấu hình"); save.clicked.connect(self.save_settings)
         self.start_button = QPushButton("Khởi động server"); self.start_button.clicked.connect(self.start_server)
         self.stop_button = QPushButton("Dừng server"); self.stop_button.setObjectName("danger"); self.stop_button.clicked.connect(self.stop_server)
@@ -1041,7 +1192,9 @@ class ServerTab(QWidget):
 
     def _apply_fields(self):
         self.config.server_name = self.server_name.text().strip(); self.config.server_port = self.port.value(); self.config.password = self.password.text()
-        self.config.auto_start_server = self.auto_start.isChecked(); self.config.discovery_enabled = self.discovery.isChecked(); save_config(self.config); self.controller.config = self.config
+        self.config.auto_start_server = self.auto_start.isChecked(); self.config.discovery_enabled = self.discovery.isChecked()
+        self.config.secondary_webapp_url = self.secondary_url.text().strip(); self.config.secondary_shared_key = self.secondary_key.text()
+        save_config(self.config); self.controller.config = self.config
 
     def save_settings(self):
         was_running = self.controller.running

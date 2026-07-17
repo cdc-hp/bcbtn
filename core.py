@@ -20,7 +20,7 @@ from typing import Any, Iterable, Sequence
 from openpyxl import Workbook, load_workbook
 
 import backup_manager
-from duplicate_config import load_rules
+from duplicate_config import CASE_CRITERIA_LABELS, CaseDuplicateCriteria, load_case_criteria, load_rules
 
 APP_NAME = "Giám sát dịch bệnh"
 VERSION = "0.5.0"
@@ -51,11 +51,15 @@ USER_DATA_DIR = _user_data_root()
 DATA_DIR = USER_DATA_DIR / "data"
 BACKUP_DIR = USER_DATA_DIR / "backups"
 UPDATE_CACHE_DIR = USER_DATA_DIR / "update_cache"
+QUEUE_DIR = USER_DATA_DIR / "queue_uploads"
 DB_PATH = DATA_DIR / "giam_sat_dich_benh.db"
 _DB_INIT_LOCK = threading.RLock()
 
-for directory in (DATA_DIR, BACKUP_DIR, UPDATE_CACHE_DIR):
+for directory in (DATA_DIR, BACKUP_DIR, UPDATE_CACHE_DIR, QUEUE_DIR):
     directory.mkdir(parents=True, exist_ok=True)
+
+QUEUE_STATUSES = {"cho_nhap", "da_nhap", "loi"}
+QUEUE_SOURCES = {"server_chinh", "server_phu"}
 
 
 CASE_FIELDS: list[tuple[str, str]] = [
@@ -334,6 +338,23 @@ def init_db(db_path: Path | str = DB_PATH) -> None:
                     restored_id INTEGER
                 );
     
+                CREATE TABLE IF NOT EXISTS import_queue (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    commune TEXT NOT NULL,
+                    week TEXT NOT NULL,
+                    file_name TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'server_chinh',
+                    status TEXT NOT NULL DEFAULT 'cho_nhap',
+                    submitted_by TEXT,
+                    received_at TEXT NOT NULL,
+                    imported_at TEXT,
+                    import_batch_id INTEGER,
+                    error_message TEXT
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_import_queue_status ON import_queue(status);
+                CREATE INDEX IF NOT EXISTS idx_import_queue_commune ON import_queue(commune, week);
                 CREATE INDEX IF NOT EXISTS idx_duplicate_trash_action ON duplicate_trash(action_id, restored_at);
                 CREATE INDEX IF NOT EXISTS idx_cases_name ON cases(full_name);
                 CREATE INDEX IF NOT EXISTS idx_cases_code ON cases(case_code);
@@ -966,46 +987,41 @@ def _weight(weights: dict[str, Any], key: str, default: int) -> int:
         return default
 
 
-def _case_pair_score(a: dict[str, Any], b: dict[str, Any], weights: dict[str, Any] | None = None) -> tuple[int, list[str]]:
-    weights = weights or {}
-    score = 0
-    reasons: list[str] = []
+def _case_pair_criteria_matches(
+    a: dict[str, Any], b: dict[str, Any], criteria: CaseDuplicateCriteria,
+) -> list[str]:
+    """Trả về danh sách nhãn tiêu chí đã khớp giữa 2 ca bệnh (rỗng nếu không trùng).
+
+    Không chấm điểm: CDC tự chọn tiêu chí nào coi là trùng; hai bản ghi được xem là
+    trùng nếu khớp ít nhất một tiêu chí đang bật.
+    """
+    enabled = set(criteria.enabled)
+    matches: list[str] = []
     code_a, code_b = _match_text(a.get("case_code")), _match_text(b.get("case_code"))
     id_a, id_b = _match_digits(a.get("national_id")), _match_digits(b.get("national_id"))
     phone_a, phone_b = _match_digits(a.get("phone"))[-9:], _match_digits(b.get("phone"))[-9:]
     name_a, name_b = _match_text(a.get("full_name")), _match_text(b.get("full_name"))
+    commune_a, commune_b = _match_text(a.get("commune")), _match_text(b.get("commune"))
 
-    if code_a and code_a == code_b:
-        return 100, ["Trùng mã ca bệnh"]
-    if len(id_a) >= 9 and id_a == id_b:
-        return 100, ["Trùng CCCD/CMND"]
-    if name_a and name_a == name_b:
-        score += _weight(weights, "name", 35); reasons.append("Trùng họ tên")
-    elif name_a and name_b:
+    if "case_code" in enabled and code_a and code_a == code_b:
+        matches.append(CASE_CRITERIA_LABELS["case_code"])
+    if "national_id" in enabled and len(id_a) >= 9 and id_a == id_b:
+        matches.append(CASE_CRITERIA_LABELS["national_id"])
+    if "phone" in enabled and len(phone_a) >= 7 and phone_a == phone_b:
+        matches.append(CASE_CRITERIA_LABELS["phone"])
+    if "name_birth_year" in enabled and name_a and name_a == name_b and a.get("birth_year") and a.get("birth_year") == b.get("birth_year"):
+        matches.append(CASE_CRITERIA_LABELS["name_birth_year"])
+    if "name_commune" in enabled and name_a and name_a == name_b and commune_a and commune_a == commune_b:
+        matches.append(CASE_CRITERIA_LABELS["name_commune"])
+    if "name_similar" in enabled and name_a and name_b and name_a != name_b:
         ratio = SequenceMatcher(None, name_a, name_b).ratio()
-        if ratio >= 0.92:
-            score += round(_weight(weights, "name", 35) * 0.8); reasons.append(f"Họ tên gần giống {ratio:.0%}")
-    if len(phone_a) >= 7 and phone_a == phone_b:
-        score += _weight(weights, "phone", 35); reasons.append("Trùng số điện thoại")
-    if a.get("birth_year") and a.get("birth_year") == b.get("birth_year"):
-        score += _weight(weights, "birth_year", 15); reasons.append("Trùng năm sinh")
-    if _match_text(a.get("gender")) and _match_text(a.get("gender")) == _match_text(b.get("gender")):
-        score += _weight(weights, "gender", 5); reasons.append("Trùng giới tính")
-    if _match_text(a.get("commune")) and _match_text(a.get("commune")) == _match_text(b.get("commune")):
-        score += _weight(weights, "area", 8); reasons.append("Trùng xã/phường")
-    if _match_text(a.get("main_diagnosis")) and _match_text(a.get("main_diagnosis")) == _match_text(b.get("main_diagnosis")):
-        score += _weight(weights, "disease", 7); reasons.append("Trùng chẩn đoán")
-    days = _date_distance_days(a.get("onset_date"), b.get("onset_date"))
-    if days == 0:
-        score += _weight(weights, "onset_exact", 15); reasons.append("Trùng ngày khởi phát")
-    elif days is not None and days <= 3:
-        score += _weight(weights, "onset_near", 10); reasons.append(f"Khởi phát lệch {days} ngày")
-    elif days is not None and days <= 14:
-        score += round(_weight(weights, "onset_near", 10) * 0.4); reasons.append(f"Khởi phát trong {days} ngày")
-    addr_a, addr_b = _match_text(a.get("current_address")), _match_text(b.get("current_address"))
-    if addr_a and addr_b and SequenceMatcher(None, addr_a, addr_b).ratio() >= 0.85:
-        score += _weight(weights, "address", 5); reasons.append("Địa chỉ gần giống")
-    return min(score, 99), reasons
+        if ratio * 100 >= criteria.name_similarity_percent:
+            matches.append(f"{CASE_CRITERIA_LABELS['name_similar']} ({ratio:.0%})")
+    if "onset_near" in enabled:
+        days = _date_distance_days(a.get("onset_date"), b.get("onset_date"))
+        if days is not None and days <= criteria.onset_max_days:
+            matches.append(f"{CASE_CRITERIA_LABELS['onset_near']} (lệch {days} ngày)")
+    return matches
 
 
 def _outbreak_pair_score(a: dict[str, Any], b: dict[str, Any], weights: dict[str, Any] | None = None) -> tuple[int, list[str]]:
@@ -1046,29 +1062,43 @@ def find_duplicate_groups(
     min_score: int = 65,
     max_records: int = 20000,
     rules: dict[str, Any] | None = None,
+    criteria: dict[str, Any] | CaseDuplicateCriteria | None = None,
     db_path: Path | str = DB_PATH,
 ) -> list[dict[str, Any]]:
-    """Phát hiện nhóm trùng nghiệp vụ; không tự động xóa hoặc gộp."""
+    """Phát hiện nhóm trùng nghiệp vụ; không tự động xóa hoặc gộp.
+
+    Ca bệnh (``entity_type="case"``): lọc theo tiêu chí do CDC chọn (``criteria``), không
+    chấm điểm — hai bản ghi trùng nếu khớp ít nhất một tiêu chí đang bật. ``min_score``/``rules``
+    bị bỏ qua với ca bệnh, chỉ còn áp dụng cho ổ dịch.
+    Ổ dịch (``entity_type="outbreak"``): vẫn dùng cơ chế chấm điểm/trọng số như trước.
+    """
     table, _ = _safe_table(entity_type)
-    configured = load_rules()
-    min_score = max(40, min(100, int(min_score if min_score is not None else configured.min_score)))
-    if rules:
-        weights = dict(rules.get("weights") or rules)
-        definite_score = max(min_score, min(100, int(rules.get("definite_score", configured.definite_score))))
-    else:
-        weights = configured.weights_for(entity_type)
-        definite_score = configured.definite_score
     if entity_type == "case":
-        fields = [
-            "id", "case_code", "full_name", "birth_date_raw", "birth_year", "gender",
-            "national_id", "phone", "current_address", "commune", "main_diagnosis",
-            "onset_date", "report_datetime", "reporting_unit", "source_file", "source_row",
-        ]
-    else:
-        fields = [
-            "id", "disease", "location", "admin_area", "first_onset_date", "last_onset_date",
-            "status", "case_count", "report_datetime", "reporting_unit", "source_file", "source_row",
-        ]
+        return _find_case_duplicate_groups(table, criteria, max_records, db_path)
+    return _find_outbreak_duplicate_groups(table, min_score, rules, max_records, db_path)
+
+
+def _resolve_case_criteria(criteria: dict[str, Any] | CaseDuplicateCriteria | None) -> CaseDuplicateCriteria:
+    if isinstance(criteria, CaseDuplicateCriteria):
+        return criteria.normalized()
+    if criteria:
+        return CaseDuplicateCriteria(
+            enabled=list(criteria.get("enabled") or []),
+            name_similarity_percent=criteria.get("name_similarity_percent", 92),
+            onset_max_days=criteria.get("onset_max_days", 3),
+        ).normalized()
+    return load_case_criteria()
+
+
+def _find_case_duplicate_groups(
+    table: str, criteria: dict[str, Any] | CaseDuplicateCriteria | None, max_records: int, db_path: Path | str,
+) -> list[dict[str, Any]]:
+    resolved_criteria = _resolve_case_criteria(criteria)
+    fields = [
+        "id", "case_code", "full_name", "birth_date_raw", "birth_year", "gender",
+        "national_id", "phone", "current_address", "commune", "main_diagnosis",
+        "onset_date", "admission_date", "report_datetime", "reporting_unit", "source_file", "source_row",
+    ]
     with _connect(db_path) as conn:
         rows = [dict(r) for r in conn.execute(
             f"SELECT {','.join(fields)} FROM {table} ORDER BY id LIMIT ?", (max_records,)
@@ -1079,25 +1109,113 @@ def find_duplicate_groups(
     buckets: dict[str, list[int]] = {}
     for index, row in enumerate(rows):
         keys: set[str] = set()
-        if entity_type == "case":
-            code = _match_text(row.get("case_code"))
-            national_id = _match_digits(row.get("national_id"))
-            phone = _match_digits(row.get("phone"))[-9:]
-            name = _match_text(row.get("full_name"))
-            year = row.get("birth_year") or ""
-            commune = _match_text(row.get("commune"))
-            if code: keys.add("code:" + code)
-            if len(national_id) >= 9: keys.add("nid:" + national_id)
-            if len(phone) >= 7: keys.add("phone:" + phone)
-            if name and year: keys.add(f"nameyear:{name}:{year}")
-            if name and commune: keys.add(f"namearea:{name}:{commune}")
-            if name: keys.add("name:" + name)
-        else:
-            disease = _disease_match_text(row.get("disease"))
-            location = _match_text(row.get("location"))
-            area = _match_text(row.get("admin_area"))
-            if disease and location: keys.add(f"event:{disease}:{location}")
-            if disease and area: keys.add(f"eventarea:{disease}:{area}")
+        code = _match_text(row.get("case_code"))
+        national_id = _match_digits(row.get("national_id"))
+        phone = _match_digits(row.get("phone"))[-9:]
+        name = _match_text(row.get("full_name"))
+        year = row.get("birth_year") or ""
+        commune = _match_text(row.get("commune"))
+        if code: keys.add("code:" + code)
+        if len(national_id) >= 9: keys.add("nid:" + national_id)
+        if len(phone) >= 7: keys.add("phone:" + phone)
+        if name and year: keys.add(f"nameyear:{name}:{year}")
+        if name and commune: keys.add(f"namearea:{name}:{commune}")
+        if name: keys.add("name:" + name)
+        for key in keys:
+            buckets.setdefault(key, []).append(index)
+
+    candidate_pairs: set[tuple[int, int]] = set()
+    for indexes in buckets.values():
+        if len(indexes) > 250:
+            indexes = indexes[:250]
+        for pos, left in enumerate(indexes):
+            for right in indexes[pos + 1:]:
+                candidate_pairs.add((min(left, right), max(left, right)))
+
+    edges: list[tuple[int, int, list[str]]] = []
+    for left, right in candidate_pairs:
+        matches = _case_pair_criteria_matches(rows[left], rows[right], resolved_criteria)
+        if matches:
+            edges.append((left, right, matches))
+    if not edges:
+        return []
+
+    parent = list(range(len(rows)))
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb: parent[rb] = ra
+    for left, right, _ in edges:
+        union(left, right)
+
+    groups: dict[int, set[int]] = {}
+    for left, right, _ in edges:
+        root = find(left)
+        groups.setdefault(root, set()).update((left, right))
+
+    definite_criteria = {CASE_CRITERIA_LABELS["case_code"], CASE_CRITERIA_LABELS["national_id"]}
+    result: list[dict[str, Any]] = []
+    for group_no, indexes in enumerate(sorted(groups.values(), key=lambda g: min(rows[i]["id"] for i in g)), start=1):
+        group_edges = [edge for edge in edges if edge[0] in indexes and edge[1] in indexes]
+        matched_criteria: list[str] = []
+        for _, _, edge_matches in group_edges:
+            for match in edge_matches:
+                if match not in matched_criteria:
+                    matched_criteria.append(match)
+        records = [rows[i] for i in sorted(indexes, key=lambda i: rows[i]["id"])]
+        case_codes = [str(r.get("case_code") or "") for r in records]
+        summary = " / ".join(str(r.get("full_name") or r.get("case_code") or r["id"]) for r in records[:3])
+        is_definite = any(any(base in match for base in definite_criteria) for match in matched_criteria)
+        result.append({
+            "group_id": group_no,
+            "entity_type": "case",
+            "confidence": "Trùng chắc chắn" if is_definite else "Nghi trùng",
+            "matched_criteria": matched_criteria,
+            "case_codes": case_codes,
+            "record_count": len(records),
+            "record_ids": [int(r["id"]) for r in records],
+            "summary": summary,
+            "reasons": "; ".join(matched_criteria[:8]),
+            "records": records,
+        })
+    return sorted(result, key=lambda g: (0 if g["confidence"] == "Trùng chắc chắn" else 1, int(g["group_id"])))
+
+
+def _find_outbreak_duplicate_groups(
+    table: str, min_score: int, rules: dict[str, Any] | None, max_records: int, db_path: Path | str,
+) -> list[dict[str, Any]]:
+    entity_type = "outbreak"
+    configured = load_rules()
+    min_score = max(40, min(100, int(min_score if min_score is not None else configured.min_score)))
+    if rules:
+        weights = dict(rules.get("weights") or rules)
+        definite_score = max(min_score, min(100, int(rules.get("definite_score", configured.definite_score))))
+    else:
+        weights = configured.weights_for(entity_type)
+        definite_score = configured.definite_score
+    fields = [
+        "id", "disease", "location", "admin_area", "first_onset_date", "last_onset_date",
+        "status", "case_count", "report_datetime", "reporting_unit", "source_file", "source_row",
+    ]
+    with _connect(db_path) as conn:
+        rows = [dict(r) for r in conn.execute(
+            f"SELECT {','.join(fields)} FROM {table} ORDER BY id LIMIT ?", (max_records,)
+        ).fetchall()]
+    if len(rows) < 2:
+        return []
+
+    buckets: dict[str, list[int]] = {}
+    for index, row in enumerate(rows):
+        keys: set[str] = set()
+        disease = _disease_match_text(row.get("disease"))
+        location = _match_text(row.get("location"))
+        area = _match_text(row.get("admin_area"))
+        if disease and location: keys.add(f"event:{disease}:{location}")
+        if disease and area: keys.add(f"eventarea:{disease}:{area}")
         for key in keys:
             buckets.setdefault(key, []).append(index)
 
@@ -1110,9 +1228,8 @@ def find_duplicate_groups(
                 candidate_pairs.add((min(left, right), max(left, right)))
 
     edges: list[tuple[int, int, int, list[str]]] = []
-    scorer = _case_pair_score if entity_type == "case" else _outbreak_pair_score
     for left, right in candidate_pairs:
-        score, reasons = scorer(rows[left], rows[right], weights)
+        score, reasons = _outbreak_pair_score(rows[left], rows[right], weights)
         if score >= min_score:
             edges.append((left, right, score, reasons))
     if not edges:
@@ -1145,10 +1262,7 @@ def find_duplicate_groups(
                 if reason not in all_reasons:
                     all_reasons.append(reason)
         records = [rows[i] for i in sorted(indexes, key=lambda i: rows[i]["id"])]
-        if entity_type == "case":
-            summary = " / ".join(str(r.get("full_name") or r.get("case_code") or r["id"]) for r in records[:3])
-        else:
-            summary = " / ".join(str(r.get("location") or r["id"]) for r in records[:3])
+        summary = " / ".join(str(r.get("location") or r["id"]) for r in records[:3])
         result.append({
             "group_id": group_no,
             "entity_type": entity_type,
@@ -1357,6 +1471,115 @@ def list_import_batches(db_path: Path | str = DB_PATH, limit: int = 50) -> list[
         return [dict(r) for r in rows]
 
 
+def _safe_path_part(value: str) -> str:
+    cleaned = re.sub(r"[^\w\-]+", "_", strip_text(value), flags=re.UNICODE)
+    return cleaned.strip("_") or "khong_xac_dinh"
+
+
+def queue_submit(
+    commune: str,
+    week: str,
+    file_name: str,
+    file_bytes: bytes,
+    *,
+    source: str = "server_chinh",
+    submitted_by: str = "",
+    db_path: Path | str = DB_PATH,
+) -> dict[str, Any]:
+    """Lưu file Excel xã vừa nộp vào hàng đợi nhập liệu (chưa nhập vào CSDL chính).
+
+    ``source`` phân biệt dữ liệu vào thẳng hàng đợi máy chủ chính (``server_chinh``) hay được
+    đồng bộ về từ máy chủ phụ Google Apps Script sau khi máy chủ chính online lại (``server_phu``).
+    """
+    init_db(db_path)
+    commune = strip_text(commune)
+    week = strip_text(week)
+    if not commune:
+        raise ValueError("Thiếu tên xã nộp báo cáo.")
+    if not week:
+        raise ValueError("Thiếu tuần báo cáo (ví dụ 2026-W29).")
+    if source not in QUEUE_SOURCES:
+        raise ValueError("Nguồn dữ liệu không hợp lệ.")
+    safe_name = Path(file_name or "du_lieu.xlsx").name
+    if Path(safe_name).suffix.lower() not in {".xlsx", ".xlsm"}:
+        raise ValueError("Chỉ chấp nhận file XLSX hoặc XLSM.")
+    if not file_bytes:
+        raise ValueError("File rỗng hoặc thiếu nội dung.")
+    if len(file_bytes) > 100 * 1024 * 1024:
+        raise ValueError("File vượt quá giới hạn 100 MB.")
+    now = datetime.now().isoformat(sep=" ", timespec="seconds")
+    dest_dir = QUEUE_DIR / _safe_path_part(commune) / _safe_path_part(week)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    dest_path = dest_dir / f"{stamp}_{safe_name}"
+    dest_path.write_bytes(file_bytes)
+    with _connect(db_path) as conn:
+        cur = conn.execute(
+            """INSERT INTO import_queue (commune, week, file_name, file_path, source, status, submitted_by, received_at)
+               VALUES (?, ?, ?, ?, ?, 'cho_nhap', ?, ?)""",
+            (commune, week, safe_name, str(dest_path), source, submitted_by, now),
+        )
+        queue_id = int(cur.lastrowid)
+    return {"queue_id": queue_id, "commune": commune, "week": week, "source": source, "received_at": now}
+
+
+def list_import_queue(status: str = "", commune: str = "", db_path: Path | str = DB_PATH) -> list[dict[str, Any]]:
+    init_db(db_path)
+    where: list[str] = []
+    params: list[Any] = []
+    if status:
+        where.append("status = ?"); params.append(status)
+    if commune:
+        where.append("commune = ?"); params.append(commune)
+    where_sql = " WHERE " + " AND ".join(where) if where else ""
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            f"SELECT * FROM import_queue{where_sql} ORDER BY commune, received_at DESC", params
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def import_queue_item(queue_id: int, db_path: Path | str = DB_PATH) -> dict[str, Any]:
+    """Nhập một file đang chờ trong hàng đợi vào CSDL chính bằng import_excel hiện có."""
+    init_db(db_path)
+    queue_id = int(queue_id)
+    with _connect(db_path) as conn:
+        row = conn.execute("SELECT * FROM import_queue WHERE id=?", (queue_id,)).fetchone()
+    if not row:
+        raise ValueError("Không tìm thấy mục trong hàng đợi.")
+    item = dict(row)
+    if item["status"] == "da_nhap":
+        raise ValueError("Mục này đã được nhập vào CSDL trước đó.")
+    file_path = Path(item["file_path"])
+    now = datetime.now().isoformat(sep=" ", timespec="seconds")
+    if not file_path.exists():
+        with _connect(db_path) as conn:
+            conn.execute(
+                "UPDATE import_queue SET status='loi', error_message=? WHERE id=?",
+                ("Không tìm thấy file đã lưu trên máy chủ.", queue_id),
+            )
+        raise ValueError("Không tìm thấy file đã lưu trên máy chủ.")
+    try:
+        summary = import_excel(file_path, db_path)
+    except Exception as exc:
+        with _connect(db_path) as conn:
+            conn.execute("UPDATE import_queue SET status='loi', error_message=? WHERE id=?", (str(exc), queue_id))
+        raise
+    with _connect(db_path) as conn:
+        batch = conn.execute(
+            "SELECT id FROM import_batches WHERE file_name=? ORDER BY id DESC LIMIT 1", (file_path.name,)
+        ).fetchone()
+        conn.execute(
+            "UPDATE import_queue SET status='da_nhap', imported_at=?, import_batch_id=?, error_message=NULL WHERE id=?",
+            (now, batch[0] if batch else None, queue_id),
+        )
+    return {
+        "queue_id": queue_id, "file_name": item["file_name"], "rows_read": summary.rows_read,
+        "inserted": summary.inserted, "duplicates": summary.duplicates, "skipped": summary.skipped,
+        "issues": summary.issues, "summary_text": summary.as_text(),
+    }
+
+
 def execute_select(sql: str, db_path: Path | str = DB_PATH, max_rows: int = 5000) -> tuple[list[str], list[list[Any]]]:
     cleaned = sql.strip().rstrip(";")
     if not re.match(r"^(SELECT|WITH)\b", cleaned, flags=re.I):
@@ -1459,6 +1682,141 @@ def export_filtered_records(
     out_headers = [labels.get(c, extra_labels.get(c, c)) for c in db_columns]
     export_rows(path, out_headers, [[row[c] for c in db_columns] for row in values])
     return total
+
+
+_INVALID_SHEET_CHARS = re.compile(r"[\\/*?:\[\]]")
+
+
+def _safe_sheet_name(name: str, used: set[str]) -> str:
+    cleaned = _INVALID_SHEET_CHARS.sub(" ", (name or "").strip()) or "Chua_xac_dinh"
+    cleaned = cleaned[:31] or "Sheet"
+    base = cleaned
+    counter = 1
+    while cleaned in used:
+        counter += 1
+        suffix = f" ({counter})"
+        cleaned = base[: 31 - len(suffix)] + suffix
+    used.add(cleaned)
+    return cleaned
+
+
+def export_cases_by_commune(
+    path: Path | str,
+    *,
+    criteria: dict[str, Any] | CaseDuplicateCriteria | None = None,
+    db_path: Path | str = DB_PATH,
+) -> dict[str, Any]:
+    """Xuất toàn bộ ca bệnh thành workbook Excel chia theo xã, mỗi xã một sheet.
+
+    Dùng để gửi các xã tự lọc trùng trên phần mềm của Bộ Y tế. Khi một nhóm ca trùng có bản ghi
+    thuộc nhiều xã khác nhau, cả nhóm được xếp vào sheet của xã có ``admission_date`` (ngày vào
+    viện) gần hiện tại nhất — phản ánh nơi bệnh nhân đang được xử lý thực tế; nếu không phân
+    định được thì lần lượt so ``onset_date`` rồi ``report_datetime``, cuối cùng giữ xã của bản
+    ghi có id nhỏ nhất và đánh dấu "cần xác nhận" trên sheet Tong_hop.
+    """
+    path = Path(path)
+    init_db(db_path)
+    resolved_criteria = _resolve_case_criteria(criteria)
+    groups = _find_case_duplicate_groups("cases", resolved_criteria, 20000, db_path)
+
+    hidden = {"row_hash", "raw_json"}
+    with _connect(db_path) as conn:
+        db_columns = [r[1] for r in conn.execute("PRAGMA table_info(cases)").fetchall() if r[1] not in hidden]
+        rows = [dict(zip(db_columns, r)) for r in conn.execute(
+            f"SELECT {','.join(db_columns)} FROM cases ORDER BY commune, id"
+        ).fetchall()]
+    if not rows:
+        raise ValueError("Không có ca bệnh để xuất.")
+
+    def _record_sort_key(record: dict[str, Any]) -> tuple[datetime, datetime, datetime, int]:
+        admission = _date_obj(strip_text(record.get("admission_date") or "")) or datetime.min
+        onset = _date_obj(strip_text(record.get("onset_date") or "")) or datetime.min
+        report = _date_obj(strip_text(record.get("report_datetime") or "")) or datetime.min
+        return (admission, onset, report, -int(record["id"]))
+
+    commune_override: dict[int, str] = {}
+    case_group_info: dict[int, dict[str, Any]] = {}
+    group_summary: list[dict[str, Any]] = []
+    for group in groups:
+        communes = {str(r.get("commune") or "").strip() for r in group["records"]}
+        communes.discard("")
+        cross_commune = len(communes) > 1
+        resolved_commune = ""
+        needs_confirmation = False
+        if cross_commune:
+            winner = max(group["records"], key=_record_sort_key)
+            resolved_commune = str(winner.get("commune") or "").strip()
+            needs_confirmation = not any(
+                _date_obj(strip_text(r.get("admission_date") or "")) for r in group["records"]
+            )
+            for record in group["records"]:
+                commune_override[int(record["id"])] = resolved_commune
+        for record in group["records"]:
+            case_group_info[int(record["id"])] = {"group_id": group["group_id"], "reasons": group["reasons"]}
+        group_summary.append({
+            "group_id": group["group_id"],
+            "confidence": group["confidence"],
+            "case_codes": ", ".join(code for code in group.get("case_codes") or [] if code),
+            "communes_goc": ", ".join(sorted(c for c in communes if c)) or "(cùng xã)",
+            "xa_duoc_chon": resolved_commune if cross_commune else "(cùng xã, không đổi)",
+            "tieu_chi_khop": group["reasons"],
+            "can_xac_nhan": "Có" if needs_confirmation else "",
+        })
+
+    by_commune: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        commune = commune_override.get(int(row["id"])) or str(row.get("commune") or "").strip() or "Chưa xác định xã"
+        by_commune.setdefault(commune, []).append(row)
+
+    wb = Workbook()
+    summary_ws = wb.active
+    summary_ws.title = "Tong_hop"
+    summary_ws.append(["Nhóm", "Mức", "Mã ca bệnh liên quan", "Xã gốc các bản ghi", "Xã được chọn", "Tiêu chí khớp", "Cần xác nhận"])
+    for item in group_summary:
+        summary_ws.append([
+            item["group_id"], item["confidence"], item["case_codes"], item["communes_goc"],
+            item["xa_duoc_chon"], item["tieu_chi_khop"], item["can_xac_nhan"],
+        ])
+    if not group_summary:
+        summary_ws.append(["Không phát hiện ca trùng theo tiêu chí hiện tại.", "", "", "", "", "", ""])
+    for cell in summary_ws[1]:
+        cell.font = cell.font.copy(bold=True)
+    summary_ws.freeze_panes = "A2"
+
+    extra_labels = {
+        "id": "ID", "birth_year": "Năm sinh", "source_file": "File nguồn",
+        "source_sheet": "Sheet nguồn", "source_row": "Dòng nguồn", "imported_at": "Thời điểm nhập",
+    }
+    out_headers = [CASE_LABELS.get(c, extra_labels.get(c, c)) for c in db_columns] + ["Nhóm trùng", "Ghi chú lọc trùng"]
+
+    used_sheet_names: set[str] = {"Tong_hop"}
+    for commune in sorted(by_commune):
+        ws = wb.create_sheet(_safe_sheet_name(commune, used_sheet_names))
+        ws.append(out_headers)
+        for cell in ws[1]:
+            cell.font = cell.font.copy(bold=True)
+        for row in sorted(by_commune[commune], key=lambda r: r["id"]):
+            info = case_group_info.get(int(row["id"]))
+            values = [row.get(c) for c in db_columns]
+            values.append(info["group_id"] if info else "")
+            values.append(info["reasons"] if info else "")
+            ws.append(values)
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = ws.dimensions
+        for col in ws.columns:
+            col_values = [str(c.value or "") for c in col[:200]]
+            width = min(max(max((len(v) for v in col_values), default=8) + 2, 10), 45)
+            ws.column_dimensions[col[0].column_letter].width = width
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(path)
+    return {
+        "path": str(path),
+        "case_count": len(rows),
+        "commune_count": len(by_commune),
+        "duplicate_group_count": len(groups),
+        "cross_commune_group_count": sum(1 for g in group_summary if g["xa_duoc_chon"] not in ("", "(cùng xã, không đổi)")),
+    }
 
 
 def _backup_policy_for_core():
