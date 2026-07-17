@@ -462,15 +462,18 @@ class ApiServer(ThreadingHTTPServer):
         self.state_lock = threading.RLock()
         self._queue_submit_times: dict[str, deque[float]] = {}
 
-    def check_queue_submit_rate(self, client_ip: str) -> bool:
-        """Giới hạn số lần nộp hàng đợi mỗi IP trong một cửa sổ thời gian trượt.
+    def check_queue_submit_rate(self, rate_key: str) -> bool:
+        """Giới hạn số lần nộp hàng đợi mỗi (IP, xã) trong một cửa sổ thời gian trượt.
 
+        Khoá theo cặp (IP, xã) chứ không chỉ IP: khi Google Apps Script chuyển tiếp trực tiếp
+        cho nhiều xã, mọi request đều mang IP đi ra của Google — nếu khoá theo IP đơn thuần,
+        một xã gửi dồn dập có thể khiến các xã khác dùng chung đường chuyển tiếp bị chặn oan.
         Tránh một máy (vô tình lỗi hoặc cố ý) gửi liên tục nhiều file lớn làm đầy RAM khi đọc
-        request hoặc đầy ổ đĩa QUEUE_DIR. Trả False nếu IP đã vượt ngưỡng.
+        request hoặc đầy ổ đĩa QUEUE_DIR. Trả False nếu đã vượt ngưỡng.
         """
         now = time.monotonic()
         with self.state_lock:
-            times = self._queue_submit_times.setdefault(client_ip, deque())
+            times = self._queue_submit_times.setdefault(rate_key, deque())
             while times and now - times[0] > QUEUE_SUBMIT_RATE_WINDOW_SECONDS:
                 times.popleft()
             if len(times) >= QUEUE_SUBMIT_RATE_LIMIT:
@@ -582,29 +585,29 @@ class ApiHandler(BaseHTTPRequestHandler):
             length = -1
         path = self.path.rstrip("/")
         # "/xa/login" luôn công khai (đăng nhập không thể đòi hỏi đã đăng nhập). "/queue/submit"
-        # chỉ công khai khi CDC đã tạo tài khoản xã — lúc đó việc xác thực chuyển hẳn sang token
-        # đăng nhập theo xã (_handle_queue_submit); nếu chưa có tài khoản nào thì vẫn giữ nguyên
-        # cơ chế mật khẩu máy chủ dùng chung như trước để không phá vỡ các máy chủ đang chạy.
-        exempt_from_shared_password = path == "/xa/login" or (
-            path == "/queue/submit" and core.has_commune_accounts(core.DB_PATH)
-        )
+        # tự xử lý xác thực bên trong _handle_queue_submit — chấp nhận CẢ token đăng nhập xã LẪN
+        # mật khẩu máy chủ dùng chung (không "chỉ dùng token khi đã có tài khoản" như trước),
+        # vì Google Apps Script khi chuyển tiếp trực tiếp chỉ biết mật khẩu dùng chung, không có
+        # token của từng xã — hai đường xác thực cần cùng tồn tại song song thay vì loại trừ nhau.
+        exempt_from_shared_password = path in ("/xa/login", "/queue/submit")
         if not exempt_from_shared_password and not self._authorized():
             self._drain_body(max(length, 0))
             self._reject_auth(); return
         if length < 0 or length > MAX_REQUEST_BYTES:
             self._write_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "Yêu cầu vượt giới hạn 110 MB."})
             return
-        if path == "/queue/submit" and not self.server.check_queue_submit_rate(self.client_ip):
-            self._drain_body(length)
-            self.server.register_request(self.client_ip, path, "POST", False)
-            self._write_json(
-                HTTPStatus.TOO_MANY_REQUESTS,
-                {"ok": False, "error": "Vượt giới hạn số lần nộp trong 5 phút. Hãy thử lại sau."},
-            )
-            return
         try:
             payload = json.loads((self.rfile.read(length) if length else b"{}").decode("utf-8"))
             log_path = path
+            if path == "/queue/submit":
+                rate_key = f"{self.client_ip}:{str(payload.get('commune', ''))[:80]}"
+                if not self.server.check_queue_submit_rate(rate_key):
+                    self.server.register_request(self.client_ip, path, "POST", False)
+                    self._write_json(
+                        HTTPStatus.TOO_MANY_REQUESTS,
+                        {"ok": False, "error": "Vượt giới hạn số lần nộp trong 5 phút. Hãy thử lại sau."},
+                    )
+                    return
             if path == "/rpc":
                 log_path = f"/rpc:{str(payload.get('function', 'unknown'))}"
                 result = self._handle_rpc(payload)
@@ -692,19 +695,30 @@ class ApiHandler(BaseHTTPRequestHandler):
         }
 
     def _handle_queue_submit(self, payload: dict[str, Any]) -> Any:
+        """Xác thực nộp hàng đợi — chấp nhận HAI đường song song, không loại trừ nhau:
+
+        1. Token đăng nhập tài khoản xã (``commune_token``) — dùng bởi trang ``/xa`` sau khi xã
+           đăng nhập. ``commune`` khi đó lấy từ token, không tin trường tự khai trên form.
+        2. Mật khẩu máy chủ dùng chung (``X-GSBTN-Password``) — dùng bởi máy trạm nội bộ và bởi
+           Google Apps Script khi chuyển tiếp trực tiếp (GAS chỉ biết một mật khẩu dùng chung
+           cho mọi xã, không có token riêng từng xã). ``commune`` khi đó lấy từ trường tự khai.
+
+        Không còn bắt buộc token chỉ vì hệ thống đã có tài khoản xã — nếu không thì đường
+        chuyển tiếp từ Google Apps Script (không có token) sẽ luôn bị chặn.
+        """
         content = payload.get("content_base64")
         if not isinstance(content, str) or not content:
             raise ValueError("Thiếu nội dung file Excel.")
         data = base64.b64decode(content.encode("ascii"), validate=True)
         commune = str(payload.get("commune", ""))
         submitted_by = str(payload.get("submitted_by", ""))
-        if core.has_commune_accounts(core.DB_PATH):
-            token = str(payload.get("commune_token") or "")
-            claims = core.verify_commune_token(token, self.server.config.web_token_secret)
-            if not claims:
-                raise ValueError("Cần đăng nhập tài khoản xã để nộp dữ liệu (phiên đăng nhập hết hạn hoặc chưa đăng nhập).")
+        token = str(payload.get("commune_token") or "")
+        claims = core.verify_commune_token(token, self.server.config.web_token_secret) if token else None
+        if claims:
             commune = claims["commune"]
             submitted_by = submitted_by or claims.get("username", "")
+        elif not self._authorized():
+            raise ValueError("Cần đăng nhập tài khoản xã hoặc mật khẩu máy chủ hợp lệ để nộp dữ liệu.")
         return core.queue_submit(
             commune,
             str(payload.get("week", "")),

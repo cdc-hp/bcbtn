@@ -57,8 +57,13 @@ GitHub Actions từ chối phát hành nếu phát hiện `.db`, SQLite, Excel, 
 
 - Máy chủ mặc định nghe tại cổng `8765` trên mọi card mạng (`0.0.0.0`).
 - Bộ cài chế độ Máy chủ tạo quy tắc TCP `8765` và UDP tự dò `8766` cho **Private networks / Mạng riêng tư**; tab Server cũng có nút cấu hình lại.
-- Không chuyển tiếp cổng server ra Internet. API hiện được thiết kế cho mạng LAN tin cậy, không có TLS.
-- Nếu không đặt mật khẩu, mọi máy trong LAN biết IP và cổng đều có thể kết nối.
+- Mặc định khuyến nghị **không** chuyển tiếp cổng server ra Internet — API hiện được thiết kế
+  cho mạng LAN tin cậy, chưa có TLS. Nếu cần Trạm Y tế xã ở xa nộp trực tiếp (không qua đệm
+  Google Apps Script), xem `google_apps_script/README.md` mục "Mở máy chủ chính ra Internet" —
+  **bắt buộc đặt mật khẩu máy chủ** trước khi làm việc này, và cân nhắc đặt sau reverse proxy
+  có HTTPS vì bản thân `lan_server.py` chưa hỗ trợ TLS.
+- Nếu không đặt mật khẩu, mọi máy biết IP và cổng đều có thể kết nối (trong LAN, hoặc từ
+  Internet nếu đã chuyển tiếp cổng).
 
 ## Phát hành
 
@@ -98,12 +103,16 @@ WEB_DEDUP_DESIGN.md    Thiết kế nền tảng Web, lọc trùng theo tiêu ch
 
 ## Nộp dữ liệu qua Web và hàng đợi nhập liệu
 
-Máy chủ chính chỉ nghe trong LAN nội bộ CDC (không đưa cổng ra Internet — xem mục "Lưu ý mạng
-LAN"), nên **Trạm Y tế xã ở xa không vào thẳng được máy chủ chính**. Có 2 kênh nộp:
+Theo mặc định, máy chủ chính chỉ nghe trong LAN nội bộ CDC (xem mục "Lưu ý mạng LAN"), nên
+**Trạm Y tế xã ở xa không vào thẳng được máy chủ chính** trừ khi CDC chủ động mở cổng ra
+Internet. Có 2 kênh nộp:
 
 - **Link chính mà xã lưu và dùng hằng tuần**: URL Web App của Google Apps Script (luôn chạy
-  trên hạ tầng công cộng của Google, xã nào cũng vào được). Xem `google_apps_script/README.md`
-  để triển khai và lấy link gửi cho các xã.
+  trên hạ tầng công cộng của Google, xã nào cũng vào được). Nếu CDC đã mở máy chủ chính ra
+  Internet (domain/IP công khai + cấu hình `MAIN_SERVER_URL`), mỗi lần nộp qua link này được
+  Apps Script **chuyển tiếp thẳng** vào hàng đợi máy chủ chính ngay lập tức; nếu chưa mở hoặc
+  máy chủ chính tạm thời không phản hồi, dữ liệu tự lưu tạm trên Google và CDC đồng bộ bù sau.
+  Xem `google_apps_script/README.md` để triển khai và lấy link gửi cho các xã.
 - `http://<địa-chỉ-máy-chủ>:<cổng>/xa` — chỉ dùng được khi đang ở ngay trong LAN của CDC (ví dụ
   xã ghé văn phòng CDC), yêu cầu đăng nhập bằng tài khoản riêng của xã.
 

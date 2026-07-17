@@ -1,14 +1,18 @@
 /**
- * Máy chủ phụ (Google Apps Script) cho hệ thống Giám sát dịch bệnh.
+ * "Cửa sổ online" (Google Apps Script) của máy chủ chính hệ thống Giám sát dịch bệnh.
  *
- * Dùng khi máy chủ chính (lan_server.py) offline: Trạm Y tế xã mở URL Web App này để nộp
- * file Excel tạm thời; script lưu file vào Google Drive và ghi một dòng "chờ đồng bộ" vào
- * Google Sheet gắn với script. Khi máy chủ chính online lại, module Python
- * `secondary_sync.py` gọi `POST {action:"list_pending", key:...}` để lấy các dòng đang chờ,
- * tải nội dung base64 rồi đẩy vào hàng đợi nhập liệu cục bộ (`import_queue`,
- * source="server_phu"), sau đó gọi `POST {action:"mark_synced"}` để đánh dấu đã đồng bộ —
- * tránh kéo trùng lần sau. Mọi hành động đều qua POST (không dùng query string) để khóa
- * SHARED_KEY không lộ qua log truy cập/lịch sử trình duyệt.
+ * Máy chủ chính (lan_server.py) chỉ nghe trong LAN nội bộ CDC, nên Trạm Y tế xã ở xa không vào
+ * thẳng được — họ dùng URL Web App này làm link nộp cố định. Với mỗi lần nộp, script thử
+ * CHUYỂN TIẾP TRỰC TIẾP (server-to-server, qua UrlFetchApp) tới `MAIN_SERVER_URL` cấu hình
+ * trong Script Properties, nếu máy chủ chính đó có địa chỉ Internet thật (domain/IP công khai,
+ * đã mở cổng — xem google_apps_script/README.md). Chỉ khi KHÔNG chuyển tiếp được (lỗi mạng —
+ * máy chủ chính offline/mất kết nối/chưa cấu hình `MAIN_SERVER_URL`) thì mới lưu file vào
+ * Google Drive và ghi một dòng "chờ đồng bộ" vào Google Sheet gắn với script, để CDC đồng bộ
+ * bù sau. `secondary_sync.py` (module Python) gọi `POST {action:"list_pending", key:...}` để
+ * lấy các dòng đang chờ, tải nội dung base64 rồi đẩy vào hàng đợi nhập liệu cục bộ
+ * (`import_queue`, source="server_phu"), sau đó gọi `POST {action:"mark_synced"}` để đánh dấu
+ * đã đồng bộ — tránh kéo trùng lần sau. Mọi hành động đều qua POST (không dùng query string)
+ * để khóa SHARED_KEY không lộ qua log truy cập/lịch sử trình duyệt.
  *
  * Triển khai: xem google_apps_script/README.md.
  */
@@ -116,6 +120,7 @@ function handleSubmit(payload) {
   var commune = String(payload.commune || "").trim();
   var week = String(payload.week || "").trim();
   var fileName = String(payload.file_name || "du_lieu.xlsx");
+  var submittedBy = String(payload.submitted_by || "");
   var contentBase64 = payload.content_base64;
   if (!commune) throw new Error("Thiếu tên xã.");
   if (!week) throw new Error("Thiếu tuần báo cáo.");
@@ -127,13 +132,64 @@ function handleSubmit(payload) {
   if (!hasXlsxSignature(bytes)) {
     throw new Error("Nội dung không đúng định dạng file Excel (.xlsx/.xlsm).");
   }
+
+  var forwarded = tryForwardToMainServer(commune, week, fileName, contentBase64, submittedBy);
+  if (forwarded) return forwarded;
+
+  // Không chuyển tiếp trực tiếp được (chưa cấu hình MAIN_SERVER_URL hoặc lỗi mạng) -> đệm tạm.
   var blob = Utilities.newBlob(bytes, MimeType.MICROSOFT_EXCEL, fileName);
   var folder = getUploadFolder(commune, week);
   var file = folder.createFile(blob);
   var sheet = getSheet();
   var now = new Date();
-  sheet.appendRow([commune, week, fileName, file.getId(), String(payload.submitted_by || ""), now, "cho_dong_bo", ""]);
-  return { row: sheet.getLastRow(), file_id: file.getId() };
+  sheet.appendRow([commune, week, fileName, file.getId(), submittedBy, now, "cho_dong_bo", ""]);
+  return { row: sheet.getLastRow(), file_id: file.getId(), forwarded: false };
+}
+
+/**
+ * Thử gửi thẳng tới máy chủ chính (POST {MAIN_SERVER_URL}/queue/submit). Trả về kết quả (đã
+ * gắn forwarded=true) nếu máy chủ chính PHẢN HỒI (kể cả phản hồi lỗi thật — sai mật khẩu, dữ
+ * liệu không hợp lệ — thì báo lỗi đó thẳng, không đệm ngầm để tránh lặp lại lỗi khi đồng bộ
+ * sau). Trả về null (để hàm gọi rơi xuống nhánh đệm Sheet/Drive) khi chưa cấu hình
+ * MAIN_SERVER_URL hoặc gặp lỗi mạng (không tới được máy chủ chính).
+ */
+function tryForwardToMainServer(commune, week, fileName, contentBase64, submittedBy) {
+  var props = PropertiesService.getScriptProperties();
+  var mainUrl = props.getProperty("MAIN_SERVER_URL");
+  if (!mainUrl) return null;
+  var password = props.getProperty("MAIN_SERVER_PASSWORD") || "";
+  var headers = { "Content-Type": "application/json" };
+  if (password) headers["X-GSBTN-Password"] = password;
+  var options = {
+    method: "post",
+    contentType: "application/json",
+    headers: headers,
+    payload: JSON.stringify({
+      commune: commune, week: week, file_name: fileName, content_base64: contentBase64,
+      submitted_by: submittedBy,
+    }),
+    muteHttpExceptions: true,
+  };
+  var response;
+  try {
+    response = UrlFetchApp.fetch(mainUrl.replace(/\/+$/, "") + "/queue/submit", options);
+  } catch (err) {
+    return null; // Lỗi mạng (không tới được máy chủ chính) -> đệm tạm thay vì báo lỗi cho xã.
+  }
+  var code = response.getResponseCode();
+  var body;
+  try {
+    body = JSON.parse(response.getContentText());
+  } catch (err) {
+    throw new Error("Máy chủ chính phản hồi không hợp lệ (HTTP " + code + ").");
+  }
+  if (code < 200 || code >= 300 || !body.ok) {
+    // Máy chủ chính CÓ phản hồi nhưng từ chối -> báo lỗi thật, không đệm ngầm.
+    throw new Error((body && body.error) || ("Máy chủ chính từ chối yêu cầu (HTTP " + code + ")."));
+  }
+  var result = body.result || {};
+  result.forwarded = true;
+  return result;
 }
 
 function handleMarkSynced(payload) {
@@ -179,8 +235,8 @@ var UPLOAD_FORM_HTML =
   'button{margin-top:18px;padding:10px 16px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer}' +
   '#msg{margin-top:16px;padding:10px;border-radius:6px;display:none}' +
   '#msg.ok{background:#dcfce7;color:#166534;display:block}#msg.err{background:#fee2e2;color:#991b1b;display:block}</style></head>' +
-  '<body><h1>Nộp danh sách ca bệnh (máy chủ phụ)</h1>' +
-  '<p>Chỉ dùng khi không kết nối được máy chủ chính. CDC sẽ đồng bộ dữ liệu này vào hệ thống chính khi máy chủ online lại.</p>' +
+  '<body><h1>Nộp danh sách ca bệnh hằng tuần</h1>' +
+  '<p>Đây là link cố định để nộp mỗi tuần. Hệ thống tự chuyển thẳng tới máy chủ chính; nếu máy chủ chính tạm thời không phản hồi được, dữ liệu sẽ lưu tạm và CDC đồng bộ bù sau.</p>' +
   '<form id="f">' +
   '<label>Xã / phường</label><input name="commune" required>' +
   '<label>Tuần báo cáo</label><input name="week" required placeholder="2026-W29">' +
@@ -201,7 +257,8 @@ var UPLOAD_FORM_HTML =
   '      body: JSON.stringify({ action: "submit", commune: form.commune.value, week: form.week.value,' +
   '        submitted_by: form.submitted_by.value, key: form.key.value, file_name: file.name, content_base64: base64 }),' +
   '    }).then(function (r) { return r.json(); }).then(function (data) {' +
-  '      if (data.ok) { msg.className = "ok"; msg.textContent = "Đã nộp tạm, dòng #" + data.result.row + ". CDC sẽ đồng bộ khi máy chủ chính online."; form.reset(); }' +
+  '      if (data.ok && data.result.forwarded) { msg.className = "ok"; msg.textContent = "Đã nộp trực tiếp vào máy chủ chính, mã hàng đợi #" + data.result.queue_id + "."; form.reset(); }' +
+  '      else if (data.ok) { msg.className = "ok"; msg.textContent = "Máy chủ chính tạm thời không phản hồi — đã lưu tạm, dòng #" + data.result.row + ". CDC sẽ đồng bộ bù sau."; form.reset(); }' +
   '      else { msg.className = "err"; msg.textContent = "Lỗi: " + data.error; }' +
   '    }).catch(function (e) { msg.className = "err"; msg.textContent = "Lỗi kết nối: " + e; });' +
   '  };' +
