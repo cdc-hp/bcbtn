@@ -14,7 +14,7 @@ import threading
 import unicodedata
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -351,7 +351,8 @@ def init_db(db_path: Path | str = DB_PATH) -> None:
                     received_at TEXT NOT NULL,
                     imported_at TEXT,
                     import_batch_id INTEGER,
-                    error_message TEXT
+                    error_message TEXT,
+                    archived_at TEXT
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_import_queue_status ON import_queue(status);
@@ -372,6 +373,7 @@ def init_db(db_path: Path | str = DB_PATH) -> None:
             _ensure_column(conn, "duplicate_actions", "action_type", "TEXT DEFAULT 'merge'")
             _ensure_column(conn, "duplicate_actions", "merged_values_json", "TEXT")
             _ensure_column(conn, "duplicate_actions", "restored_at", "TEXT")
+            _ensure_column(conn, "import_queue", "archived_at", "TEXT")
 
 def strip_text(value: Any) -> str:
     if value is None:
@@ -1534,7 +1536,9 @@ def queue_submit(
     return {"queue_id": queue_id, "commune": commune, "week": week, "source": source, "received_at": now}
 
 
-def list_import_queue(status: str = "", commune: str = "", db_path: Path | str = DB_PATH) -> list[dict[str, Any]]:
+def list_import_queue(
+    status: str = "", commune: str = "", limit: int = 200, offset: int = 0, db_path: Path | str = DB_PATH,
+) -> list[dict[str, Any]]:
     init_db(db_path)
     where: list[str] = []
     params: list[Any] = []
@@ -1543,11 +1547,45 @@ def list_import_queue(status: str = "", commune: str = "", db_path: Path | str =
     if commune:
         where.append("commune = ?"); params.append(commune)
     where_sql = " WHERE " + " AND ".join(where) if where else ""
+    limit = max(1, min(2000, int(limit)))
+    offset = max(0, int(offset))
     with _connect(db_path) as conn:
         rows = conn.execute(
-            f"SELECT * FROM import_queue{where_sql} ORDER BY commune, received_at DESC", params
+            f"SELECT * FROM import_queue{where_sql} ORDER BY commune, received_at DESC LIMIT ? OFFSET ?",
+            [*params, limit, offset],
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def archive_old_queue_files(older_than_days: int = 90, db_path: Path | str = DB_PATH) -> dict[str, Any]:
+    """Xoá file vật lý của các mục hàng đợi đã nhập từ lâu, giữ nguyên dòng CSDL để tra cứu.
+
+    Không tự động chạy — gọi thủ công (menu/nút bảo trì) hoặc từ một tác vụ định kỳ do CDC
+    thiết lập, để tránh xoá ngầm bằng chứng khi có tranh chấp.
+    """
+    init_db(db_path)
+    older_than_days = max(1, int(older_than_days))
+    cutoff = (datetime.now() - timedelta(days=older_than_days)).isoformat(sep=" ", timespec="seconds")
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """SELECT id, file_path FROM import_queue
+               WHERE status = 'da_nhap' AND archived_at IS NULL AND imported_at IS NOT NULL AND imported_at < ?""",
+            (cutoff,),
+        ).fetchall()
+        now = datetime.now().isoformat(sep=" ", timespec="seconds")
+        archived_ids: list[int] = []
+        freed_bytes = 0
+        for row in rows:
+            path = Path(row["file_path"])
+            if path.exists():
+                try:
+                    freed_bytes += path.stat().st_size
+                    path.unlink()
+                except OSError:
+                    continue
+            conn.execute("UPDATE import_queue SET archived_at=? WHERE id=?", (now, row["id"]))
+            archived_ids.append(int(row["id"]))
+    return {"archived_count": len(archived_ids), "archived_ids": archived_ids, "freed_bytes": freed_bytes}
 
 
 def import_queue_item(queue_id: int, db_path: Path | str = DB_PATH) -> dict[str, Any]:

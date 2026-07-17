@@ -146,6 +146,38 @@ def import_excel(path: Path | str, *args: Any, **kwargs: Any):
     return local_core.ImportSummary(**result)
 
 
+def queue_submit(
+    commune: str, week: str, file_name: str, file_bytes: bytes,
+    *, source: str = "server_chinh", submitted_by: str = "", **kwargs: Any,
+) -> dict[str, Any]:
+    if len(file_bytes) > 100 * 1024 * 1024:
+        raise ValueError("File Excel vượt quá giới hạn 100 MB.")
+    return _request("/queue/submit", {
+        "commune": commune, "week": week, "file_name": file_name, "submitted_by": submitted_by,
+        "content_base64": base64.b64encode(file_bytes).decode("ascii"),
+    }, timeout=300)
+
+
+def list_import_queue(status: str = "", commune: str = "", *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    return _rpc("list_import_queue", status=status, commune=commune)
+
+
+def import_queue_item(queue_id: int, *args: Any, **kwargs: Any) -> dict[str, Any]:
+    return _rpc("import_queue_item", int(queue_id))
+
+
+def archive_old_queue_files(older_than_days: int = 90, *args: Any, **kwargs: Any) -> dict[str, Any]:
+    return _rpc("archive_old_queue_files", older_than_days)
+
+
+def sync_secondary_queue(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """Yêu cầu máy chủ đang kết nối tự đồng bộ hàng đợi từ máy chủ phụ của chính nó.
+
+    Máy trạm không cần biết URL/khóa máy chủ phụ — đó là cấu hình riêng của máy chủ.
+    """
+    return _request("/queue/sync-secondary", {}, timeout=120)
+
+
 def create_backup(*args: Any, **kwargs: Any): return Path(str(_rpc("create_backup")))
 def list_backups(*args: Any, **kwargs: Any): return _rpc("list_backups")
 def find_duplicate_groups(entity_type: str, *args: Any, **kwargs: Any): kwargs.pop("db_path", None); return _rpc("find_duplicate_groups", entity_type, **kwargs)

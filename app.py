@@ -1144,6 +1144,134 @@ class WorkstationConnectionDialog(QDialog):
         super().accept()
 
 
+class QueueTab(QWidget):
+    """Hàng đợi nhập liệu do Trạm Y tế xã nộp qua Web (trang /xa) — xem thêm WEB_DEDUP_DESIGN.md."""
+
+    STATUS_LABELS = {"cho_nhap": "Chờ nhập", "dang_nhap": "Đang nhập...", "da_nhap": "Đã nhập", "loi": "Lỗi"}
+    SOURCE_LABELS = {"server_chinh": "Trực tiếp", "server_phu": "Qua máy chủ phụ"}
+    COLUMNS = [
+        ("commune", "Xã"), ("week", "Tuần"), ("file_name", "File"), ("source_label", "Nguồn"),
+        ("status_label", "Trạng thái"), ("submitted_by", "Người nộp"), ("received_at", "Nhận lúc"),
+        ("error_message", "Lỗi"),
+    ]
+
+    def __init__(self, config: DeploymentConfig, after_change=None):
+        super().__init__(); self.config = config; self.after_change = after_change; self.items = []
+        root = QVBoxLayout(self)
+        title_row = QHBoxLayout()
+        title = QLabel("Hàng đợi nhập liệu"); title.setObjectName("sectionTitle")
+        self.status_filter = QComboBox()
+        for label, value in (("Tất cả trạng thái", ""), ("Chờ nhập", "cho_nhap"), ("Đang nhập", "dang_nhap"), ("Đã nhập", "da_nhap"), ("Lỗi", "loi")):
+            self.status_filter.addItem(label, value)
+        self.status_filter.currentIndexChanged.connect(self.refresh)
+        self.commune_filter = QLineEdit(); self.commune_filter.setPlaceholderText("Lọc theo xã (để trống = tất cả)")
+        self.commune_filter.returnPressed.connect(self.refresh)
+        refresh_btn = QPushButton("Làm mới"); refresh_btn.clicked.connect(self.refresh)
+        import_btn = QPushButton("Nhập vào CSDL"); import_btn.clicked.connect(self.import_selected)
+        sync_btn = QPushButton("Đồng bộ máy chủ phụ"); sync_btn.setObjectName("secondary"); sync_btn.clicked.connect(self.sync_secondary)
+        cleanup_btn = QPushButton("Dọn dẹp hàng đợi cũ..."); cleanup_btn.setObjectName("secondary"); cleanup_btn.clicked.connect(self.archive_old_files)
+        title_row.addWidget(title); title_row.addStretch()
+        title_row.addWidget(QLabel("Trạng thái:")); title_row.addWidget(self.status_filter); title_row.addWidget(self.commune_filter)
+        for widget in (refresh_btn, import_btn, sync_btn, cleanup_btn): title_row.addWidget(widget)
+        root.addLayout(title_row)
+        info = QLabel(
+            "Danh sách các lần Trạm Y tế xã nộp qua Web (trang /xa) đang chờ CDC nhập vào CSDL chính. "
+            "\"Đồng bộ máy chủ phụ\" kéo dữ liệu xã đã nộp tạm qua Google Apps Script khi máy chủ chính offline."
+        )
+        info.setWordWrap(True); root.addWidget(info)
+        self.summary = QLabel("Chưa tải dữ liệu."); root.addWidget(self.summary)
+        self.table = QTableView(); self.table.setAlternatingRowColors(True); self.table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableView.SelectionMode.SingleSelection); self.table.doubleClicked.connect(self.import_selected)
+        self.model = DictTableModel(columns=self.COLUMNS)
+        self.table.setModel(self.model); self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        root.addWidget(self.table, 1)
+        self.refresh()
+
+    def refresh(self):
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            self.items = core.list_import_queue(status=self.status_filter.currentData() or "", commune=self.commune_filter.text().strip())
+            rows = []
+            for item in self.items:
+                row = dict(item)
+                row["status_label"] = self.STATUS_LABELS.get(item.get("status"), item.get("status"))
+                row["source_label"] = self.SOURCE_LABELS.get(item.get("source"), item.get("source"))
+                row["severity"] = "error" if item.get("status") == "loi" else ("warning" if item.get("status") == "cho_nhap" else None)
+                rows.append(row)
+            self.model.set_data(rows)
+            self.summary.setText(f"{len(self.items):,} mục trong hàng đợi." if self.items else "Không có mục nào khớp bộ lọc.")
+        except Exception as exc:
+            QMessageBox.critical(self, "Không thể tải hàng đợi", str(exc))
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def selected_item(self):
+        indexes = self.table.selectionModel().selectedRows()
+        if not indexes:
+            QMessageBox.information(self, "Chưa chọn", "Hãy chọn một mục trong hàng đợi.")
+            return None
+        row = indexes[0].row()
+        return self.items[row] if 0 <= row < len(self.items) else None
+
+    def import_selected(self):
+        item = self.selected_item()
+        if not item: return
+        if item.get("status") != "cho_nhap":
+            QMessageBox.information(self, "Không thể nhập", "Chỉ có thể nhập các mục đang ở trạng thái Chờ nhập.")
+            return
+        try:
+            result = core.import_queue_item(item["id"])
+            QMessageBox.information(
+                self, "Đã nhập",
+                f"Đã thêm {result['inserted']} bản ghi, trùng {result['duplicates']}, bỏ qua {result['skipped']}.",
+            )
+            if self.after_change: self.after_change()
+            self.refresh()
+        except Exception as exc:
+            QMessageBox.critical(self, "Không thể nhập", str(exc))
+
+    def sync_secondary(self):
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            if self.config.is_workstation:
+                result = core.sync_secondary_queue()
+            else:
+                import secondary_sync
+                result = secondary_sync.pull_secondary_queue(
+                    self.config.secondary_webapp_url, self.config.secondary_shared_key, db_path=local_core.DB_PATH,
+                )
+            QMessageBox.information(
+                self, "Đồng bộ máy chủ phụ",
+                f"Đã kéo {result['pulled_count']}/{result['pending_count']} mục từ máy chủ phụ."
+                + (f" Lỗi: {len(result['errors'])} dòng." if result.get("errors") else ""),
+            )
+            self.refresh()
+        except Exception as exc:
+            QMessageBox.critical(self, "Không thể đồng bộ", str(exc))
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def archive_old_files(self):
+        days, ok = QInputDialog.getInt(
+            self, "Dọn dẹp hàng đợi cũ",
+            "Xoá file vật lý của các mục đã nhập (giữ nguyên lịch sử) cũ hơn (ngày):",
+            90, 1, 3650,
+        )
+        if not ok: return
+        if QMessageBox.question(
+            self, "Xác nhận dọn dẹp",
+            f"Xoá file gốc của các mục đã nhập vào CSDL cách đây trên {days} ngày? "
+            "Dòng lịch sử trong hàng đợi vẫn được giữ lại.",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            result = core.archive_old_queue_files(days)
+            QMessageBox.information(self, "Đã dọn dẹp", f"Đã xoá {result['archived_count']} file, giải phóng {result['freed_bytes']:,} byte.")
+            self.refresh()
+        except Exception as exc:
+            QMessageBox.critical(self, "Không thể dọn dẹp", str(exc))
+
+
 class ServerTab(QWidget):
     def __init__(self, controller: LanServerController, config: DeploymentConfig):
         super().__init__(); self.controller = controller; self.config = config
@@ -1525,11 +1653,14 @@ class MainWindow(QMainWindow):
         self.sql = SqlTab()
         self.settings = SettingsTab(config, self.refresh_all, self.server_controller)
         self.server_tab = ServerTab(self.server_controller, config) if self.server_controller else None
+        self.queue_tab = QueueTab(config, self.refresh_all) if (config.is_server or config.is_workstation) else None
         self.tabs.addTab(self.dashboard, "Tổng quan")
         self.tabs.addTab(self.cases, "Ca bệnh")
         self.tabs.addTab(self.outbreaks, "Ổ dịch")
         self.tabs.addTab(self.duplicates, "Lọc trùng")
         self.tabs.addTab(self.import_tab, "Nhập Excel")
+        if self.queue_tab:
+            self.tabs.addTab(self.queue_tab, "Hàng đợi")
         self.tabs.addTab(self.quality, "Chất lượng dữ liệu")
         self.tabs.addTab(self.sql, "Truy vấn SQL")
         if self.server_tab:

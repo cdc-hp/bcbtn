@@ -31,12 +31,23 @@ Dùng khi máy chủ chính offline — xem `WEB_DEDUP_DESIGN.md` mục 7 và `s
   Google Drive (thư mục `MayChuPhu_GSBTN/<xã>/<tuần>/`) và ghi một dòng trạng thái
   `cho_dong_bo` vào sheet `HangDoiPhu`.
 - Khi máy chủ chính online lại, CDC bấm **"Đồng bộ máy chủ phụ"** trên trang
-  `/cdc/hang-doi` (hoặc gọi `secondary_sync.pull_secondary_queue(...)`): hệ thống kéo các dòng
+  `/cdc/hang-doi`, tab **Hàng đợi** của ứng dụng desktop (chạy được cả ở chế độ Máy chủ và Máy
+  trạm), hoặc gọi thẳng `secondary_sync.pull_secondary_queue(...)`: hệ thống kéo các dòng
   `cho_dong_bo` vào hàng đợi chính (`import_queue`, nguồn `server_phu`), rồi báo lại cho Apps
   Script đánh dấu `da_dong_bo` để không kéo trùng lần sau.
 - Có thể đặt một trình kích hoạt theo thời gian (Triggers → Time-driven) gọi lại
   `pull_secondary_queue` định kỳ từ phía máy chủ chính (ví dụ cron/scheduled task chạy Python)
   thay vì chỉ bấm tay — script trong repo không tự lập lịch việc này.
+
+## Bảo mật
+
+- Mọi hành động (`submit`, `list_pending`, `mark_synced`) đều qua **POST**, khóa `SHARED_KEY`
+  luôn nằm trong phần thân request — không bao giờ xuất hiện trong query string (tránh lộ qua
+  log truy cập/lịch sử trình duyệt/Referer). So khớp khóa dùng so sánh không phụ thuộc thời
+  gian sớm dừng (constant-time), hạn chế dò khóa qua độ trễ phản hồi.
+- `handleSubmit` giới hạn file tối đa 20 MB (chặt hơn giới hạn 100 MB phía máy chủ chính, vì đây
+  chỉ là bộ đệm tạm) và kiểm tra chữ ký đầu file (`PK\x03\x04`, đặc trưng định dạng ZIP mà
+  `.xlsx`/`.xlsm` dựa trên) trước khi lưu vào Drive — chặn việc nạp file không phải Excel.
 
 ## Giới hạn đã biết
 

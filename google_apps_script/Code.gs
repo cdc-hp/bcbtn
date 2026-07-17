@@ -4,9 +4,11 @@
  * Dùng khi máy chủ chính (lan_server.py) offline: Trạm Y tế xã mở URL Web App này để nộp
  * file Excel tạm thời; script lưu file vào Google Drive và ghi một dòng "chờ đồng bộ" vào
  * Google Sheet gắn với script. Khi máy chủ chính online lại, module Python
- * `secondary_sync.py` gọi `GET ?action=list_pending` để lấy các dòng đang chờ, tải nội dung
- * base64 rồi đẩy vào hàng đợi nhập liệu cục bộ (`import_queue`, source="server_phu"), sau đó
- * gọi `POST {action:"mark_synced"}` để đánh dấu đã đồng bộ — tránh kéo trùng lần sau.
+ * `secondary_sync.py` gọi `POST {action:"list_pending", key:...}` để lấy các dòng đang chờ,
+ * tải nội dung base64 rồi đẩy vào hàng đợi nhập liệu cục bộ (`import_queue`,
+ * source="server_phu"), sau đó gọi `POST {action:"mark_synced"}` để đánh dấu đã đồng bộ —
+ * tránh kéo trùng lần sau. Mọi hành động đều qua POST (không dùng query string) để khóa
+ * SHARED_KEY không lộ qua log truy cập/lịch sử trình duyệt.
  *
  * Triển khai: xem google_apps_script/README.md.
  */
@@ -18,14 +20,6 @@ var COL_STATUS = 7;
 var COL_SYNCED_AT = 8;
 
 function doGet(e) {
-  var params = (e && e.parameter) || {};
-  if (params.action === "list_pending") {
-    try {
-      return jsonResponse(true, listPending(params.key));
-    } catch (err) {
-      return jsonResponse(false, errorMessage(err));
-    }
-  }
   return HtmlService.createHtmlOutput(UPLOAD_FORM_HTML)
     .setTitle("Nộp danh sách ca bệnh — máy chủ phụ")
     .addMetaTag("viewport", "width=device-width, initial-scale=1");
@@ -39,6 +33,8 @@ function doPost(e) {
       result = handleSubmit(payload);
     } else if (payload.action === "mark_synced") {
       result = handleMarkSynced(payload);
+    } else if (payload.action === "list_pending") {
+      result = listPending(payload.key);
     } else {
       throw new Error("Hành động không hợp lệ.");
     }
@@ -57,12 +53,26 @@ function errorMessage(err) {
   return (err && err.message) ? err.message : String(err);
 }
 
+function constantTimeEquals(a, b) {
+  a = String(a || "");
+  b = String(b || "");
+  // So sánh đủ độ dài của chuỗi dài hơn để thời gian chạy không lộ rõ độ dài khớp/không khớp.
+  var length = Math.max(a.length, b.length);
+  var diff = a.length ^ b.length;
+  for (var i = 0; i < length; i++) {
+    var codeA = i < a.length ? a.charCodeAt(i) : 0;
+    var codeB = i < b.length ? b.charCodeAt(i) : 0;
+    diff |= codeA ^ codeB;
+  }
+  return diff === 0;
+}
+
 function checkKey(key) {
   var expected = PropertiesService.getScriptProperties().getProperty("SHARED_KEY");
   if (!expected) {
     throw new Error("Chưa cấu hình SHARED_KEY trong Script Properties (Project Settings).");
   }
-  if (key !== expected) {
+  if (!constantTimeEquals(key, expected)) {
     throw new Error("Sai khóa xác thực máy chủ phụ.");
   }
 }
@@ -88,6 +98,19 @@ function getUploadFolder(commune, week) {
   return getOrCreateFolder(communeFolder, week);
 }
 
+var MAX_FILE_BYTES = 20 * 1024 * 1024; // Máy chủ phụ chỉ là bộ đệm tạm — giới hạn chặt hơn 100MB phía máy chủ chính.
+var XLSX_SIGNATURE = [0x50, 0x4b, 0x03, 0x04]; // "PK\x03\x04" — chữ ký đầu file .xlsx/.xlsm (định dạng ZIP).
+
+function hasXlsxSignature(bytes) {
+  if (bytes.length < XLSX_SIGNATURE.length) return false;
+  for (var i = 0; i < XLSX_SIGNATURE.length; i++) {
+    var value = bytes[i];
+    if (value < 0) value += 256; // byte[] trong Apps Script trả số có dấu cho giá trị > 127.
+    if (value !== XLSX_SIGNATURE[i]) return false;
+  }
+  return true;
+}
+
 function handleSubmit(payload) {
   checkKey(payload.key);
   var commune = String(payload.commune || "").trim();
@@ -98,6 +121,12 @@ function handleSubmit(payload) {
   if (!week) throw new Error("Thiếu tuần báo cáo.");
   if (!contentBase64) throw new Error("Thiếu nội dung file.");
   var bytes = Utilities.base64Decode(contentBase64);
+  if (bytes.length > MAX_FILE_BYTES) {
+    throw new Error("File vượt quá giới hạn " + Math.floor(MAX_FILE_BYTES / (1024 * 1024)) + " MB.");
+  }
+  if (!hasXlsxSignature(bytes)) {
+    throw new Error("Nội dung không đúng định dạng file Excel (.xlsx/.xlsm).");
+  }
   var blob = Utilities.newBlob(bytes, MimeType.MICROSOFT_EXCEL, fileName);
   var folder = getUploadFolder(commune, week);
   var file = folder.createFile(blob);

@@ -7,6 +7,7 @@ import socket
 import subprocess
 import tempfile
 import threading
+import time
 from collections import deque
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
@@ -21,6 +22,8 @@ from deployment_config import DeploymentConfig, load_config
 from lan_discovery import DiscoveryResponder, get_lan_ip
 
 MAX_REQUEST_BYTES = 110 * 1024 * 1024
+QUEUE_SUBMIT_RATE_LIMIT = 10
+QUEUE_SUBMIT_RATE_WINDOW_SECONDS = 300
 READ_FUNCTIONS = {
     "dashboard_stats", "disease_summary", "monthly_outbreak_summary", "recent_active_outbreaks",
     "list_filter_values", "query_records", "get_record", "list_quality_issues",
@@ -29,7 +32,7 @@ READ_FUNCTIONS = {
 }
 WRITE_FUNCTIONS = {
     "save_outbreak", "delete_record", "remove_duplicate_records", "merge_duplicate_records",
-    "restore_duplicate_action", "create_backup", "import_queue_item",
+    "restore_duplicate_action", "create_backup", "import_queue_item", "archive_old_queue_files",
 }
 
 DB_FUNCTIONS = {
@@ -38,6 +41,7 @@ DB_FUNCTIONS = {
     "list_quality_issues", "list_import_batches", "execute_select", "find_duplicate_groups",
     "remove_duplicate_records", "merge_duplicate_records", "list_duplicate_actions",
     "restore_duplicate_action", "create_backup", "list_import_queue", "import_queue_item",
+    "archive_old_queue_files",
 }
 
 
@@ -296,6 +300,23 @@ class ApiServer(ThreadingHTTPServer):
         self.request_log: deque[dict[str, Any]] = deque(maxlen=500)
         self.backup_in_progress = False
         self.state_lock = threading.RLock()
+        self._queue_submit_times: dict[str, deque[float]] = {}
+
+    def check_queue_submit_rate(self, client_ip: str) -> bool:
+        """Giới hạn số lần nộp hàng đợi mỗi IP trong một cửa sổ thời gian trượt.
+
+        Tránh một máy (vô tình lỗi hoặc cố ý) gửi liên tục nhiều file lớn làm đầy RAM khi đọc
+        request hoặc đầy ổ đĩa QUEUE_DIR. Trả False nếu IP đã vượt ngưỡng.
+        """
+        now = time.monotonic()
+        with self.state_lock:
+            times = self._queue_submit_times.setdefault(client_ip, deque())
+            while times and now - times[0] > QUEUE_SUBMIT_RATE_WINDOW_SECONDS:
+                times.popleft()
+            if len(times) >= QUEUE_SUBMIT_RATE_LIMIT:
+                return False
+            times.append(now)
+            return True
 
     def register_request(self, client_ip: str, path: str, method: str, ok: bool = True) -> None:
         now = datetime.now().isoformat(sep=" ", timespec="seconds")
@@ -382,17 +403,38 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.server.register_request(self.client_ip, path, "GET", True)
         self._write_json(HTTPStatus.OK, payload)
 
+    def _drain_body(self, length: int) -> None:
+        """Đọc bỏ phần thân request chưa xử lý trước khi trả lỗi sớm.
+
+        Nếu không đọc hết, phần thân còn lại trong socket sẽ bị hiểu nhầm là đầu request kế
+        tiếp trên cùng kết nối keep-alive (HTTP/1.1), làm lệch toàn bộ các request sau đó.
+        """
+        if length > 0:
+            try:
+                self.rfile.read(length)
+            except Exception:
+                pass
+
     def do_POST(self) -> None:  # noqa: N802
-        if not self._authorized():
-            self._reject_auth(); return
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             length = -1
+        if not self._authorized():
+            self._drain_body(max(length, 0))
+            self._reject_auth(); return
         if length < 0 or length > MAX_REQUEST_BYTES:
             self._write_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "Yêu cầu vượt giới hạn 110 MB."})
             return
         path = self.path.rstrip("/")
+        if path == "/queue/submit" and not self.server.check_queue_submit_rate(self.client_ip):
+            self._drain_body(length)
+            self.server.register_request(self.client_ip, path, "POST", False)
+            self._write_json(
+                HTTPStatus.TOO_MANY_REQUESTS,
+                {"ok": False, "error": "Vượt giới hạn số lần nộp trong 5 phút. Hãy thử lại sau."},
+            )
+            return
         try:
             payload = json.loads((self.rfile.read(length) if length else b"{}").decode("utf-8"))
             log_path = path

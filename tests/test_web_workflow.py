@@ -1,19 +1,24 @@
 from __future__ import annotations
 
 import base64
+import http.client
 import io
 import json
 import tempfile
 import threading
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from unittest.mock import patch
-from urllib.parse import parse_qs, urlparse
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+
+import lan_server
 
 from openpyxl import Workbook, load_workbook
 
 import core
+import remote_core
 import secondary_sync
 from deployment_config import DeploymentConfig
 from lan_server import LanServerController
@@ -273,20 +278,17 @@ class _FakeSecondaryServerHandler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         return
 
-    def do_GET(self):
-        qs = parse_qs(urlparse(self.path).query)
-        if qs.get("action", [""])[0] == "list_pending" and qs.get("key", [""])[0] == "s3cr3t":
-            body = json.dumps({"ok": True, "result": self.pending}).encode()
-        else:
-            body = json.dumps({"ok": False, "error": "unauthorized"}).encode()
-        self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(body)
-
     def do_POST(self):
         length = int(self.headers.get("Content-Length", "0"))
         payload = json.loads(self.rfile.read(length).decode())
-        assert payload.get("action") == "mark_synced" and payload.get("key") == "s3cr3t"
-        _FakeSecondaryServerHandler.synced.extend(payload.get("rows", []))
-        body = json.dumps({"ok": True, "result": {"marked": payload.get("rows", [])}}).encode()
+        assert payload.get("key") == "s3cr3t", "khóa phải luôn gửi qua POST body, không qua query string"
+        if payload.get("action") == "list_pending":
+            body = json.dumps({"ok": True, "result": self.pending}).encode()
+        elif payload.get("action") == "mark_synced":
+            _FakeSecondaryServerHandler.synced.extend(payload.get("rows", []))
+            body = json.dumps({"ok": True, "result": {"marked": payload.get("rows", [])}}).encode()
+        else:
+            body = json.dumps({"ok": False, "error": "unknown action"}).encode()
         self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(body)
 
 
@@ -307,3 +309,142 @@ def test_secondary_sync_pulls_pending_into_local_queue():
             assert items[0]["commune"] == "Xã Đông Hải"
     finally:
         server.shutdown()
+
+
+def test_remote_core_queue_proxies_against_live_server(monkeypatch):
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        core.DATA_DIR = root / "data"; core.DATA_DIR.mkdir()
+        core.DB_PATH = core.DATA_DIR / "test.db"
+        core.BACKUP_DIR = root / "backups"; core.QUEUE_DIR = root / "queue"
+        cfg = DeploymentConfig(mode="server", server_host="127.0.0.1", server_port=0, password="")
+        ctrl = LanServerController(cfg)
+        ctrl.start()
+        try:
+            workstation_cfg = DeploymentConfig(mode="workstation", server_url=f"http://127.0.0.1:{ctrl.port}")
+            monkeypatch.setattr(remote_core, "load_config", lambda: workstation_cfg)
+            data = make_excel_bytes(core.CASE_FIELDS, [dict(BASE_CASE, case_code="CA-REMOTE")])
+            submitted = remote_core.queue_submit("Xã Gia Viên", "2026-W29", "ds.xlsx", data, submitted_by="Y tá C")
+            assert submitted["commune"] == "Xã Gia Viên"
+            items = remote_core.list_import_queue()
+            assert len(items) == 1 and items[0]["status"] == "cho_nhap"
+            imported = remote_core.import_queue_item(items[0]["id"])
+            assert imported["inserted"] == 1
+            items_after = remote_core.list_import_queue(status="da_nhap")
+            assert len(items_after) == 1
+        finally:
+            ctrl.stop()
+
+
+def test_queue_submit_rate_limit_returns_429(monkeypatch):
+    monkeypatch.setattr(lan_server, "QUEUE_SUBMIT_RATE_LIMIT", 2)
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        core.DATA_DIR = root / "data"; core.DATA_DIR.mkdir()
+        core.DB_PATH = core.DATA_DIR / "test.db"
+        core.BACKUP_DIR = root / "backups"; core.QUEUE_DIR = root / "queue"
+        cfg = DeploymentConfig(mode="server", server_host="127.0.0.1", server_port=0, password="")
+        ctrl = LanServerController(cfg)
+        ctrl.start()
+        addr = f"http://127.0.0.1:{ctrl.port}"
+        try:
+            data = make_excel_bytes(core.CASE_FIELDS, [dict(BASE_CASE, case_code="CA-RATE")])
+            body = json.dumps({
+                "commune": "Xã Gia Viên", "week": "2026-W29", "file_name": "ds.xlsx",
+                "content_base64": base64.b64encode(data).decode("ascii"),
+            }).encode()
+
+            def submit():
+                req = Request(addr + "/queue/submit", data=body, headers={"Content-Type": "application/json"}, method="POST")
+                return urlopen(req, timeout=10)
+
+            submit().read()
+            submit().read()
+            try:
+                submit()
+                assert False, "lần nộp thứ 3 trong cửa sổ giới hạn phải bị chặn (429)"
+            except HTTPError as exc:
+                assert exc.code == 429
+        finally:
+            ctrl.stop()
+
+
+def test_auth_rejection_drains_body_before_next_request_on_keepalive():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        core.DATA_DIR = root / "data"; core.DATA_DIR.mkdir()
+        core.DB_PATH = core.DATA_DIR / "test.db"
+        core.BACKUP_DIR = root / "backups"; core.QUEUE_DIR = root / "queue"
+        cfg = DeploymentConfig(mode="server", server_host="127.0.0.1", server_port=0, password="secret")
+        ctrl = LanServerController(cfg)
+        ctrl.start()
+        try:
+            conn = http.client.HTTPConnection("127.0.0.1", ctrl.port, timeout=10)
+            body = json.dumps({"function": "dashboard_stats", "args": [], "kwargs": {}}).encode()
+            conn.request("POST", "/rpc", body=body, headers={
+                "Content-Type": "application/json", "X-GSBTN-Password": "wrong",
+            })
+            resp1 = conn.getresponse()
+            assert resp1.status == 401
+            resp1.read()
+            # Cùng một kết nối keep-alive: nếu request trên chưa đọc hết thân, request này sẽ bị
+            # đọc lệch (server hiểu nhầm phần thân cũ là dòng đầu request mới).
+            body2 = json.dumps({"function": "dashboard_stats", "args": [], "kwargs": {}}).encode()
+            conn.request("POST", "/rpc", body=body2, headers={
+                "Content-Type": "application/json", "X-GSBTN-Password": "secret",
+            })
+            resp2 = conn.getresponse()
+            payload = json.loads(resp2.read().decode("utf-8"))
+            assert resp2.status == 200
+            assert payload["ok"] is True
+            conn.close()
+        finally:
+            ctrl.stop()
+
+
+def test_list_import_queue_pagination():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp); db = root / "test.db"
+        core.BACKUP_DIR = root / "backups"; core.QUEUE_DIR = root / "queue"
+        for i in range(3):
+            data = make_excel_bytes(core.CASE_FIELDS, [dict(BASE_CASE, case_code=f"CA-P{i}")])
+            core.queue_submit("Xã Gia Viên", "2026-W29", f"ds{i}.xlsx", data, db_path=db)
+        page1 = core.list_import_queue(db_path=db, limit=2, offset=0)
+        page2 = core.list_import_queue(db_path=db, limit=2, offset=2)
+        all_items = core.list_import_queue(db_path=db, limit=10)
+        assert len(page1) == 2
+        assert len(page2) == 1
+        assert {item["id"] for item in page1} | {item["id"] for item in page2} == {item["id"] for item in all_items}
+
+
+def test_archive_old_queue_files_removes_only_old_imported_files():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp); db = root / "test.db"
+        core.BACKUP_DIR = root / "backups"; core.QUEUE_DIR = root / "queue"
+        data_old = make_excel_bytes(core.CASE_FIELDS, [dict(BASE_CASE, case_code="CA-OLD")])
+        data_new = make_excel_bytes(core.CASE_FIELDS, [dict(BASE_CASE, case_code="CA-NEW")])
+        old_submit = core.queue_submit("Xã A", "2026-W20", "cu.xlsx", data_old, db_path=db)
+        new_submit = core.queue_submit("Xã A", "2026-W29", "moi.xlsx", data_new, db_path=db)
+        core.import_queue_item(old_submit["queue_id"], db_path=db)
+        core.import_queue_item(new_submit["queue_id"], db_path=db)
+        old_date = (datetime.now() - timedelta(days=200)).isoformat(sep=" ", timespec="seconds")
+        with core._connect(db) as conn:
+            conn.execute("UPDATE import_queue SET imported_at=? WHERE id=?", (old_date, old_submit["queue_id"]))
+
+        items_before = {item["id"]: item for item in core.list_import_queue(db_path=db)}
+        old_path = Path(items_before[old_submit["queue_id"]]["file_path"])
+        new_path = Path(items_before[new_submit["queue_id"]]["file_path"])
+        assert old_path.exists() and new_path.exists()
+
+        result = core.archive_old_queue_files(older_than_days=90, db_path=db)
+        assert result["archived_count"] == 1
+        assert not old_path.exists()
+        assert new_path.exists()
+
+        items_after = {item["id"]: item for item in core.list_import_queue(db_path=db)}
+        assert items_after[old_submit["queue_id"]]["archived_at"] is not None
+        assert items_after[new_submit["queue_id"]]["archived_at"] is None
+
+        # Chạy lại lần 2 không đụng tới các mục đã dọn (idempotent, không lỗi).
+        result2 = core.archive_old_queue_files(older_than_days=90, db_path=db)
+        assert result2["archived_count"] == 0

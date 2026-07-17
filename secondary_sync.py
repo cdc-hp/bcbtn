@@ -23,15 +23,13 @@ import core
 DEFAULT_TIMEOUT = 30
 
 
-def _call(webapp_url: str, params: dict[str, str] | None = None, body: dict[str, Any] | None = None, timeout: int = DEFAULT_TIMEOUT) -> Any:
+def _call(webapp_url: str, body: dict[str, Any], timeout: int = DEFAULT_TIMEOUT) -> Any:
+    """Gọi Web App bằng POST — không dùng query string để tránh lộ SHARED_KEY qua log/lịch sử."""
     if not webapp_url:
         raise ValueError("Chưa cấu hình địa chỉ máy chủ phụ (secondary_webapp_url).")
     url = webapp_url.rstrip("/")
-    if params:
-        query = "&".join(f"{key}={value}" for key, value in params.items())
-        url = f"{url}?{query}"
-    data = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
-    request = Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST" if data else "GET")
+    data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    request = Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
     try:
         with urlopen(request, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
@@ -46,7 +44,7 @@ def _call(webapp_url: str, params: dict[str, str] | None = None, body: dict[str,
 
 def list_pending_secondary(webapp_url: str, shared_key: str, timeout: int = DEFAULT_TIMEOUT) -> list[dict[str, Any]]:
     """Lấy danh sách các lần nộp đang chờ đồng bộ trên máy chủ phụ."""
-    result = _call(webapp_url, params={"action": "list_pending", "key": shared_key}, timeout=timeout)
+    result = _call(webapp_url, {"action": "list_pending", "key": shared_key}, timeout=timeout)
     return result or []
 
 
@@ -54,7 +52,7 @@ def mark_synced(webapp_url: str, shared_key: str, rows: list[int], timeout: int 
     """Báo cho máy chủ phụ biết các dòng đã được kéo về, tránh đồng bộ lại lần sau."""
     if not rows:
         return
-    _call(webapp_url, body={"action": "mark_synced", "key": shared_key, "rows": rows}, timeout=timeout)
+    _call(webapp_url, {"action": "mark_synced", "key": shared_key, "rows": rows}, timeout=timeout)
 
 
 def pull_secondary_queue(
