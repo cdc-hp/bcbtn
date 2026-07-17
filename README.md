@@ -2,6 +2,9 @@
 
 Ứng dụng desktop Windows dùng **Python + SQLite + PyQt6** để quản lý ca bệnh, ổ dịch, lọc trùng và chia sẻ dữ liệu trong mạng LAN.
 
+Thiết kế giai đoạn kế tiếp (nộp dữ liệu qua Web theo xã, lọc trùng theo tiêu chí chọn, xuất
+Excel chia theo xã, hàng đợi nhập liệu hai tầng): xem [`WEB_DEDUP_DESIGN.md`](WEB_DEDUP_DESIGN.md).
+
 ## Cài đặt
 
 Tải `GiamSatDichBenh-Setup-v0.5.0.exe` trong GitHub Releases. Người dùng không cần cài Python hoặc tự build.
@@ -88,4 +91,5 @@ update_manager.py      Cập nhật ứng dụng
 setup.iss              Bộ cài và trang chọn mô hình triển khai
 .github/workflows/     Kiểm thử, build và Release tự động
 tests/                  Kiểm thử lõi, lọc trùng, cấu hình và LAN
+WEB_DEDUP_DESIGN.md    Thiết kế nền tảng Web, lọc trùng theo tiêu chí, hàng đợi hai tầng
 ```
