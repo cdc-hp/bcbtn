@@ -1,0 +1,181 @@
+# Ứng dụng Giám sát dịch bệnh — CDC Hải Phòng
+
+Tài liệu **cốt lõi** của dự án: kiến trúc, schema, vận hành. Việc còn phải làm/backlog xem
+[`TASKS.md`](TASKS.md). Hướng dẫn cài đặt/build cho người dùng cuối xem [`README.md`](README.md).
+
+Desktop **PyQt6 + SQLite** để quản lý ca bệnh/ổ dịch, lọc trùng, chia sẻ trong LAN — mở rộng
+thêm một tầng Web (xã nộp báo cáo qua GitHub Pages + Google Apps Script) và cơ chế nhiều máy
+chủ/nhiều quản trị viên. Phiên bản hiện tại: xem `VERSION.txt`.
+
+## Repo chính thức — đọc kỹ trước khi làm gì
+
+- **`cdc-hp/bcbtn`** — nơi phát triển chính thức, nhánh `main`. Đây là repo duy nhất còn được
+  cập nhật.
+- **`Monsterph6/GSBTN`** (public) — repo cũ, đã dừng phát triển, chỉ giữ lại để tra cứu lịch sử
+  commit trước khi chuyển sang `cdc-hp/bcbtn` (commit `37980e5` trở về trước).
+- **Bẫy khi push**: nhánh local đang checkout tên là `claude/disease-case-dedup-workflow-6mjzjx`
+  và **upstream mặc định của nó vẫn là `origin` = `Monsterph6/GSBTN`** (di sản từ lúc migrate).
+  `git push` trơn sẽ đẩy nhầm vào repo cũ. Luôn push tường minh vào repo chính thức:
+  ```
+  git push bcbtn claude/disease-case-dedup-workflow-6mjzjx:main
+  ```
+  (remote `bcbtn` trỏ `https://github.com/cdc-hp/bcbtn.git`). Cân nhắc đổi tên nhánh local
+  thành `main` và sửa lại upstream cho đỡ nhầm về sau.
+
+## Kiến trúc tổng thể
+
+```
+Xã/phường  ──►  GitHub Pages (docs/index.html, iframe)  ──►  Google Apps Script (Code.gs)
+                 link cố định: cdc-hp.github.io/bcbtn         │  chuyển tiếp thẳng nếu
+                                                                │  MAIN_SERVER_URL cấu hình,
+                                                                ▼  không thì đệm Sheet/Drive
+                                                        Máy chủ chính (lan_server.py + core.py, SQLite)
+                                                                │
+                          Máy trạm quản trị (remote_core.py) ◄──┤ đăng nhập /cdc/login,
+                          — tài khoản riêng từng người            tài khoản trong cdc_accounts
+```
+
+- `core.py` là **lõi nghiệp vụ** dùng chung cho cả desktop (LAN) và Web — mọi tầng khác (Web
+  API, GAS) chỉ bọc thêm quanh các hàm có sẵn (`import_excel`, `find_duplicate_groups`,
+  `merge_duplicate_records`, `export_rows`...), không viết lại logic import/dedup/export.
+- Toàn bộ AJAX của trang nộp báo cáo nằm **trong `doGet` của `Code.gs`** (cùng origin
+  script.google.com), GitHub Pages chỉ là khung `<iframe>` — tránh vướng CORS.
+- `docs/config.js` chứa `GAS_URL` hiện tại. Chỉ cần sửa khi tạo **deployment GAS mới** (đổi
+  ID); nếu chỉ "New version" trên deployment cũ thì URL không đổi, không cần sửa gì ở đây.
+- `gas_deploy/` (bị `.gitignore`) là thư mục làm việc với `clasp` để đẩy `Code.gs` lên project
+  GAS thật (`scriptId` trong `gas_deploy/.clasp.json`) — không commit vào git.
+
+### File chính
+
+```text
+app.py                 Giao diện, menu, lọc trùng, máy trạm và tab Server
+core.py                SQLite, nhập/xuất, chất lượng, thuật toán lọc trùng, cdc_accounts
+deployment_config.py   Cấu hình standalone/workstation/server
+lan_server.py          HTTP API, /xa, /cdc/hang-doi, /cdc/login, chuyển máy chủ, khóa ghi khi sao lưu
+lan_discovery.py       Tự dò máy chủ trong mạng LAN
+remote_core.py         Lớp gọi API, retry và trạng thái kết nối máy trạm
+backup_manager.py      Chính sách, kiểm tra, lưu giữ và phục hồi sao lưu
+duplicate_config.py    Trọng số và ngưỡng lọc trùng
+update_manager.py      Cập nhật ứng dụng
+secondary_sync.py      Đồng bộ hàng đợi từ máy chủ phụ (Google Apps Script) khi online lại
+setup.iss              Bộ cài tổng hợp (3 chế độ: đơn lẻ/máy trạm/máy chủ)
+setup-server.iss       Bộ cài riêng — chỉ chế độ Máy chủ, cài 1 lần duy nhất
+setup-admin.iss        Bộ cài riêng — chỉ máy trạm quản trị, đăng nhập tài khoản riêng
+docs/                  GitHub Pages (index.html + config.js) + docs/huong-dan (nguồn HTML + PDF)
+google_apps_script/    Code.gs + appsscript.json (nguồn — deploy qua gas_deploy/ với clasp)
+tests/                 Kiểm thử lõi, lọc trùng, cấu hình, LAN, cdc_accounts, chuyển máy chủ
+```
+
+## Mô hình dữ liệu
+
+- **`cases`** — 48 trường danh sách ca bệnh + `birth_year`, thông tin file nguồn, `row_hash`,
+  thời điểm nhập, JSON nguồn.
+- **`outbreaks`** — 15 trường ổ dịch, `admin_area`, thông tin file nguồn, `row_hash`, thời
+  điểm nhập, JSON nguồn.
+- **`import_batches`** — nhật ký nhập Excel: số dòng đọc, thêm mới, trùng tuyệt đối, bỏ qua,
+  cảnh báo.
+- **`data_quality_issues`** — lỗi/cảnh báo chất lượng gắn với loại đối tượng và ID bản ghi.
+- **`duplicate_actions`** — nhật ký xử lý lọc trùng: loại đối tượng, ID giữ lại, ID vào Thùng
+  rác, giá trị hợp nhất, file sao lưu, thời điểm thao tác/khôi phục.
+- **`duplicate_trash`** — JSON đầy đủ bản ghi bị loại trùng, ID gốc, thao tác nguồn, thời điểm
+  xóa, thông tin khôi phục.
+- **`commune_accounts`** — tài khoản riêng theo xã (đăng nhập `/xa`): username, mật khẩu băm
+  PBKDF2-HMAC-SHA256 (200.000 vòng, salt ngẫu nhiên), trạng thái, lần đăng nhập gần nhất.
+- **`cdc_accounts`** — tài khoản riêng từng quản trị viên CDC (đăng nhập `/cdc/login`), cùng
+  cơ chế băm mật khẩu như trên; thay cho mật khẩu máy chủ dùng chung ở các thao tác quản trị.
+- **`audit_log`** — thời điểm, actor, hành động, xã, chi tiết — ghi nhận đăng nhập, nộp hàng
+  đợi, nhập CSDL, hợp nhất/loại trùng, khôi phục, xuất Excel, dọn hàng đợi, quản lý tài khoản.
+- **`import_queue`** — hàng đợi nhập liệu: `id, commune, week, file_path, source
+  ('server_chinh'|'server_phu'), status ('cho_nhap'|'da_nhap'|'loi'), received_at,
+  imported_at, imported_by`.
+
+### Hai lớp chống trùng
+
+1. **Trùng tuyệt đối khi nhập**: `row_hash = SHA256(entity_type + JSON chuẩn hóa toàn bộ nội
+   dung nghiệp vụ)` — chỉ bỏ qua dòng giống hệt đã nhập trước đó.
+2. **Lọc trùng nghiệp vụ theo tiêu chí chọn**: `find_duplicate_groups()` tạo cặp ứng viên theo
+   khóa chặn (case_code, CCCD, số điện thoại, họ tên+năm sinh, họ tên+xã, họ tên gần giống,
+   khoảng cách ngày khởi phát); CDC tự bật/tắt tiêu chí nào coi là trùng (không chấm điểm/
+   ngưỡng như bản cũ) — hai bản ghi trùng nếu khớp **ít nhất một** tiêu chí đang bật. Có thể
+   lưu bộ tiêu chí thành preset (`dedup_criteria_sets`). `merge_duplicate_records()` sao lưu
+   CSDL trước khi hợp nhất; `restore_duplicate_action()` khôi phục được.
+
+### Triển khai LAN
+
+- Máy chủ và máy đơn lẻ dùng SQLite cục bộ; máy chủ mở HTTP API, mỗi request 1 kết nối SQLite
+  riêng + WAL. Máy trạm gọi API, không truy cập file `.db` qua thư mục chia sẻ mạng.
+- Mật khẩu máy chủ dùng chung là tùy chọn (để trống = API không yêu cầu header xác thực) —
+  **độc lập** với tài khoản `cdc_accounts`/`commune_accounts` (hai đường xác thực song song,
+  không loại trừ nhau, xem `lan_server._handle_queue_submit`).
+
+### Sao lưu và phục hồi
+
+Chính sách nằm trong `backup_policy.json` (không nằm trong CSDL). Mỗi bản sao SQLite kiểm tra
+`PRAGMA integrity_check`; trước khi phục hồi, hệ thống tạo thêm bản `before_restore`. Cơ chế
+lưu giữ chọn theo mốc ngày/tuần/tháng + vài bản thủ công gần nhất.
+
+## Xuất Excel chia theo xã
+
+Một workbook, mỗi xã một sheet (tên cắt theo giới hạn 31 ký tự Excel) + sheet tổng hợp
+`Tong_hop`. Khi một nhóm trùng có bản ghi ở nhiều xã: xã đại diện = xã của bản ghi có
+`admission_date` **mới nhất** (gần ngày lập báo cáo nhất); nếu bằng nhau/thiếu dữ liệu, rơi
+xuống so `onset_date` rồi `report_datetime`; nếu vẫn không phân định được, giữ xã của bản ghi
+`id` nhỏ nhất và gắn cờ "cần CDC xác nhận thủ công". Các xã khác trong nhóm chỉ thấy tham
+chiếu ở `Tong_hop`, không thấy dữ liệu cá nhân đầy đủ của ca thuộc xã khác.
+
+## Máy chủ phụ Google Apps Script — vận hành
+
+GAS là **"cửa sổ online" của chính máy chủ chính**, không phải hệ thống dữ liệu độc lập —
+CSDL chính luôn là SQLite trên máy chủ chính.
+
+- **Chuyển tiếp trực tiếp trước** (`Code.gs: tryForwardToMainServer`): nếu Script Property
+  `MAIN_SERVER_URL` được cấu hình, mỗi lần nộp gọi thẳng `{MAIN_SERVER_URL}/queue/submit`
+  (kèm `X-GSBTN-Password` từ `MAIN_SERVER_PASSWORD` nếu có). Máy chủ chính phản hồi (kể cả lỗi
+  thật) thì trả thẳng cho xã, không đệm. Chỉ khi `UrlFetchApp.fetch` lỗi (không tới được) hoặc
+  chưa cấu hình `MAIN_SERVER_URL` mới rơi xuống đệm.
+- **Đệm khi không chuyển tiếp được**: Sheet `HangDoiPhu` (bảng hàng đợi tạm) + file gốc lưu
+  Google Drive `MayChuPhu_GSBTN/<xã>/<tuần>/<file>.xlsx` — **không chia sẻ công khai**.
+- **Đồng bộ bù** (`secondary_sync.pull_secondary_queue`): kéo các dòng `cho_dong_bo`, tạo bản
+  ghi `import_queue` (`source='server_phu'`), đánh dấu `da_dong_bo` (idempotent).
+- **Xác thực**: khóa `SHARED_KEY` dùng chung cho mọi xã trên GAS (khác với
+  `commune_accounts`/`cdc_accounts` ở máy chủ chính — có chủ đích, GAS không tự nhiên hỗ trợ
+  tốt việc đồng bộ danh sách tài khoản từ máy chủ chính sang). Chặng GAS → máy chủ chính dùng
+  riêng `MAIN_SERVER_PASSWORD`, độc lập với `SHARED_KEY`.
+- **`SHARED_KEY` không nằm trong bất kỳ file nào trong repo** (chủ đích thiết kế, không đồng
+  bộ qua Git) — chỉ tồn tại trong Script Properties của project GAS đang chạy thật. Xem/đổi:
+  `script.google.com` → đăng nhập đúng tài khoản Google đã tạo project → **Project Settings**
+  (bánh răng) → **Script Properties** → dòng `SHARED_KEY`.
+
+### Triển khai GAS lần đầu (tóm tắt — chi tiết đầy đủ xem `docs/huong-dan/4-google-apps-script.pdf`)
+
+1. `script.google.com` (tài khoản Google CDC) → New project → dán nội dung
+   `google_apps_script/Code.gs`; bật hiện `appsscript.json` và dán nội dung
+   `google_apps_script/appsscript.json` (phải có khối `webapp` với `executeAs: USER_DEPLOYING`,
+   `access: ANYONE_ANONYMOUS`). Có thể dùng `clasp` (`gas_deploy/`) thay vì copy/dán thủ công.
+2. Project Settings → Script Properties → thêm `SHARED_KEY` (bắt buộc), tùy chọn
+   `ROOT_FOLDER_ID`, `MAIN_SERVER_URL`, `MAIN_SERVER_PASSWORD`.
+3. Deploy → New deployment → Web app, Execute as **Me**, Who has access **Anyone** → copy Web
+   app URL. Lần đầu có thể cần vào lại Manage deployments, sửa và Deploy lại một lần nữa để
+   kích hoạt đúng quyền "Anyone".
+4. Dán URL đó vào `GAS_URL` trong `docs/config.js`, commit & push nhánh `main` — GitHub Pages
+   tự build lại, kiểm tra tại `https://cdc-hp.github.io/bcbtn/`.
+5. Chỉ cần sửa lại `docs/config.js` khi tạo **deployment mới** (đổi ID). Nếu chỉ deploy lại
+   đúng deployment cũ (New version), URL giữ nguyên.
+
+### Mở máy chủ chính ra Internet (để GAS chuyển tiếp trực tiếp)
+
+Domain/IP công khai (khuyến nghị Dynamic DNS nếu IP động) + port forward cổng LAN (mặc định
+`8765`) trên router CDC + **bắt buộc đặt mật khẩu máy chủ** trước khi bật (đây là lớp xác thực
+duy nhất cho request từ Internet) + khuyến nghị đặt sau reverse proxy HTTPS (Caddy/Nginx +
+Let's Encrypt) vì `lan_server.py` chưa hỗ trợ TLS trực tiếp — rồi trỏ `MAIN_SERVER_URL` vào
+địa chỉ HTTPS đó. Đây là thay đổi có rủi ro bảo mật, cân nhắc kỹ trước khi bật.
+
+## Build & test
+
+```bat
+python -m pytest -q          REM chạy toàn bộ test (tests/)
+build.bat                     REM build bằng PyInstaller + Inno Setup
+```
+
+`.github/workflows/release.yml` build/test trên Windows khi push `main` hoặc tạo tag, quét
+chặn dữ liệu cấm (`.db`, Excel, CSV...) lọt vào release; PR chỉ build/test, không tạo Release.

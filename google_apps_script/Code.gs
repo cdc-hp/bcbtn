@@ -5,7 +5,7 @@
  * thẳng được — họ dùng URL Web App này làm link nộp cố định. Với mỗi lần nộp, script thử
  * CHUYỂN TIẾP TRỰC TIẾP (server-to-server, qua UrlFetchApp) tới `MAIN_SERVER_URL` cấu hình
  * trong Script Properties, nếu máy chủ chính đó có địa chỉ Internet thật (domain/IP công khai,
- * đã mở cổng — xem google_apps_script/README.md). Chỉ khi KHÔNG chuyển tiếp được (lỗi mạng —
+ * đã mở cổng — xem CLAUDE.md). Chỉ khi KHÔNG chuyển tiếp được (lỗi mạng —
  * máy chủ chính offline/mất kết nối/chưa cấu hình `MAIN_SERVER_URL`) thì mới lưu file vào
  * Google Drive và ghi một dòng "chờ đồng bộ" vào Google Sheet gắn với script, để CDC đồng bộ
  * bù sau. `secondary_sync.py` (module Python) gọi `POST {action:"list_pending", key:...}` để
@@ -18,7 +18,7 @@
  * "da_chuyen_tiep", không kèm file Drive) chứ không chỉ các lượt đệm tạm — để tab "Tình hình
  * nộp" (doGet) phản ánh đầy đủ, không bỏ sót lượt đã chuyển thẳng vào máy chủ chính.
  *
- * Triển khai: xem google_apps_script/README.md.
+ * Triển khai: xem CLAUDE.md (mục Google Apps Script) hoặc docs/huong-dan/4-google-apps-script.pdf.
  */
 
 var SHEET_NAME = "HangDoiPhu";
@@ -47,7 +47,7 @@ var STATUS_LABELS = {
  * 2 đặc khu), theo Nghị quyết số 1669/NQ-UBTVQH15 ngày 16/6/2025 của Ủy ban Thường vụ Quốc hội,
  * hiệu lực từ 1/7/2025. Dùng làm danh sách chọn cố định (dropdown có tìm kiếm) thay cho ô nhập
  * tên xã tự do trước đây — tránh sai chính tả/không thống nhất tên đơn vị giữa các lần nộp (hạn
- * chế đã ghi nhận ở WEB_DEDUP_DESIGN.md mục 8, "communes... Chưa cài đặt").
+ * chế đã ghi nhận ở TASKS.md, mục "communes chuẩn hoá").
  */
 var COMMUNES = [
   "Phường Thủy Nguyên", "Phường Thiên Hương", "Phường Hòa Bình", "Phường Nam Triệu",
@@ -345,7 +345,7 @@ function listPending(key) {
 /**
  * Tình hình nộp của MỘT đơn vị (xã), lọc theo commune truyền lên — dùng cho tab "Tình hình
  * nộp" trên doGet. Yêu cầu cùng SHARED_KEY với việc nộp (xã nào cũng có key này, xem
- * "Giới hạn đã biết" trong google_apps_script/README.md — chưa có tài khoản riêng từng xã ở
+ * xem CLAUDE.md, mục Google Apps Script — chưa có tài khoản riêng từng xã ở
  * tầng GAS nên chưa tách được quyền xem theo xã).
  */
 function listStatus(key, commune) {

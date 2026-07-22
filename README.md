@@ -2,8 +2,8 @@
 
 Ứng dụng desktop Windows dùng **Python + SQLite + PyQt6** để quản lý ca bệnh, ổ dịch, lọc trùng và chia sẻ dữ liệu trong mạng LAN.
 
-Thiết kế giai đoạn kế tiếp (nộp dữ liệu qua Web theo xã, lọc trùng theo tiêu chí chọn, xuất
-Excel chia theo xã, hàng đợi nhập liệu hai tầng): xem [`WEB_DEDUP_DESIGN.md`](WEB_DEDUP_DESIGN.md).
+Kiến trúc đầy đủ, schema CSDL, vận hành Google Apps Script: xem [`CLAUDE.md`](CLAUDE.md).
+Việc còn lại/backlog: xem [`TASKS.md`](TASKS.md).
 
 ## Cài đặt
 
@@ -62,12 +62,9 @@ GitHub Actions từ chối phát hành nếu phát hiện `.db`, SQLite, Excel, 
 - Máy chủ mặc định nghe tại cổng `8765` trên mọi card mạng (`0.0.0.0`).
 - Bộ cài chế độ Máy chủ tạo quy tắc TCP `8765` và UDP tự dò `8766` cho **Private networks / Mạng riêng tư**; tab Server cũng có nút cấu hình lại.
 - Mặc định khuyến nghị **không** chuyển tiếp cổng server ra Internet — API hiện được thiết kế
-  cho mạng LAN tin cậy, chưa có TLS. Nếu cần Trạm Y tế xã ở xa nộp trực tiếp (không qua đệm
-  Google Apps Script), xem `google_apps_script/README.md` mục "Mở máy chủ chính ra Internet" —
-  **bắt buộc đặt mật khẩu máy chủ** trước khi làm việc này, và cân nhắc đặt sau reverse proxy
-  có HTTPS vì bản thân `lan_server.py` chưa hỗ trợ TLS.
-- Nếu không đặt mật khẩu, mọi máy biết IP và cổng đều có thể kết nối (trong LAN, hoặc từ
-  Internet nếu đã chuyển tiếp cổng).
+  cho mạng LAN tin cậy, chưa có TLS. Nếu không đặt mật khẩu, mọi máy biết IP và cổng đều có thể
+  kết nối. Chi tiết cách mở ra Internet an toàn hơn (bắt buộc mật khẩu + reverse proxy HTTPS):
+  xem `CLAUDE.md` mục "Mở máy chủ chính ra Internet".
 
 ## Phát hành
 
@@ -87,47 +84,18 @@ python -m pytest -q
 
 ## Cấu trúc
 
-```text
-app.py                 Giao diện, menu, lọc trùng, máy trạm và tab Server
-core.py                SQLite, nhập/xuất, chất lượng và thuật toán lọc trùng
-deployment_config.py   Cấu hình standalone/workstation/server
-lan_server.py          HTTP API, theo dõi client và khóa ghi khi sao lưu
-lan_discovery.py       Tự dò máy chủ trong mạng LAN
-remote_core.py         Lớp gọi API, retry và trạng thái kết nối máy trạm
-backup_manager.py      Chính sách, kiểm tra, lưu giữ và phục hồi sao lưu
-duplicate_config.py   Trọng số và ngưỡng lọc trùng
-update_manager.py      Cập nhật ứng dụng
-setup.iss              Bộ cài và trang chọn mô hình triển khai
-.github/workflows/     Kiểm thử, build và Release tự động
-tests/                  Kiểm thử lõi, lọc trùng, cấu hình và LAN
-secondary_sync.py      Đồng bộ hàng đợi từ máy chủ phụ (Google Apps Script) khi online lại
-google_apps_script/    Code.gs + hướng dẫn triển khai máy chủ phụ (Google Sheet/Drive)
-WEB_DEDUP_DESIGN.md    Thiết kế nền tảng Web, lọc trùng theo tiêu chí, hàng đợi hai tầng
-```
+Danh sách file chính và vai trò từng file: xem `CLAUDE.md` mục "File chính".
 
 ## Nộp dữ liệu qua Web và hàng đợi nhập liệu
 
-Theo mặc định, máy chủ chính chỉ nghe trong LAN nội bộ CDC (xem mục "Lưu ý mạng LAN"), nên
-**Trạm Y tế xã ở xa không vào thẳng được máy chủ chính** trừ khi CDC chủ động mở cổng ra
-Internet. Có 2 kênh nộp:
+Theo mặc định, máy chủ chính chỉ nghe trong LAN nội bộ CDC, nên **Trạm Y tế xã ở xa không vào
+thẳng được máy chủ chính**. Kênh nộp chính thức, cố định gửi cho các xã:
+**`https://cdc-hp.github.io/bcbtn/`** (trang GitHub Pages, iframe tới Google Apps Script — tự
+chuyển tiếp vào hàng đợi máy chủ chính nếu CDC đã mở máy chủ ra Internet, hoặc lưu tạm trên
+Google rồi CDC đồng bộ bù). Khi ở ngay trong LAN của CDC còn có thể vào thẳng
+`http://<địa-chỉ-máy-chủ>:<cổng>/xa` (yêu cầu tài khoản riêng của xã).
 
-- **Link chính mà xã lưu và dùng hằng tuần**: URL Web App của Google Apps Script (luôn chạy
-  trên hạ tầng công cộng của Google, xã nào cũng vào được). Nếu CDC đã mở máy chủ chính ra
-  Internet (domain/IP công khai + cấu hình `MAIN_SERVER_URL`), mỗi lần nộp qua link này được
-  Apps Script **chuyển tiếp thẳng** vào hàng đợi máy chủ chính ngay lập tức; nếu chưa mở hoặc
-  máy chủ chính tạm thời không phản hồi, dữ liệu tự lưu tạm trên Google và CDC đồng bộ bù sau.
-  Xem `google_apps_script/README.md` để triển khai và lấy link gửi cho các xã.
-- `http://<địa-chỉ-máy-chủ>:<cổng>/xa` — chỉ dùng được khi đang ở ngay trong LAN của CDC (ví dụ
-  xã ghé văn phòng CDC), yêu cầu đăng nhập bằng tài khoản riêng của xã.
+Khi chạy ở chế độ Máy chủ, còn có `http://<địa-chỉ-máy-chủ>:<cổng>/cdc/hang-doi` (CDC duyệt
+hàng đợi, nhập CSDL, đồng bộ máy chủ phụ, quản lý tài khoản xã, xem nhật ký kiểm toán).
 
-Khi chạy ở chế độ Máy chủ, máy chủ phục vụ thêm:
-
-- `http://<địa-chỉ-máy-chủ>:<cổng>/cdc/hang-doi` — CDC xem hàng đợi chia theo xã (gồm cả dữ
-  liệu đã đồng bộ từ Google Apps Script), nhập vào CSDL chính, bấm đồng bộ máy chủ phụ, quản lý
-  tài khoản xã (dùng cho `/xa`) và xem nhật ký kiểm toán. Xem `WEB_DEDUP_DESIGN.md` để biết
-  chi tiết kiến trúc.
-
-**Lưu ý khi bật tài khoản xã**: ngay khi CDC tạo tài khoản xã đầu tiên, trang `/xa` bắt buộc
-đăng nhập cho *mọi* xã (không còn chấp nhận nộp tự do). Tài khoản này chỉ áp dụng cho `/xa`
-trên máy chủ chính — Google Apps Script vẫn dùng một khóa `SHARED_KEY` chung cho mọi xã (xem
-`google_apps_script/README.md`).
+Kiến trúc đầy đủ (GAS, hàng đợi 2 tầng, `SHARED_KEY`, tài khoản xã/quản trị): xem `CLAUDE.md`.

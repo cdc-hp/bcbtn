@@ -1,5 +1,5 @@
 ; Bản cài đặt RIÊNG cho chế độ Máy chủ — cài duy nhất 1 lần trên máy đóng vai trò máy chủ
-; chính (xem README.md mục "Cài đặt" và google_apps_script/README.md). Không hỏi chọn mô hình
+; chính (xem README.md mục "Cài đặt" và CLAUDE.md). Không hỏi chọn mô hình
 ; như setup.iss (bản cài tổng hợp 3 chế độ) — luôn ghi thẳng mode="server" vào deployment.json.
 ; Dùng chung thư mục build dist\GiamSatDichBenh (ứng dụng giống hệt bản setup.iss, chỉ khác cấu
 ; hình mặc định do installer ghi ra).

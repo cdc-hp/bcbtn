@@ -1475,7 +1475,7 @@ class AuditLogDialog(QDialog):
 
 
 class QueueTab(QWidget):
-    """Hàng đợi nhập liệu do Trạm Y tế xã nộp qua Web (trang /xa) — xem thêm WEB_DEDUP_DESIGN.md."""
+    """Hàng đợi nhập liệu do Trạm Y tế xã nộp qua Web (trang /xa) — xem thêm CLAUDE.md."""
 
     STATUS_LABELS = {"cho_nhap": "Chờ nhập", "dang_nhap": "Đang nhập...", "da_nhap": "Đã nhập", "loi": "Lỗi"}
     SOURCE_LABELS = {"server_chinh": "Trực tiếp", "server_phu": "Qua máy chủ phụ"}
@@ -1700,7 +1700,7 @@ class ServerTab(QWidget):
         self.secondary_key.setPlaceholderText("Khóa bí mật đặt trong Script Properties (SHARED_KEY)")
         secondary_form.addRow("URL Web App:", self.secondary_url)
         secondary_form.addRow("Khóa chia sẻ:", self.secondary_key)
-        secondary_note = QLabel("Xem hướng dẫn triển khai trong google_apps_script/README.md.")
+        secondary_note = QLabel("Xem hướng dẫn triển khai trong CLAUDE.md (mục Google Apps Script) hoặc docs/huong-dan/4-google-apps-script.pdf.")
         secondary_note.setWordWrap(True); secondary_form.addRow("", secondary_note)
         root.addWidget(secondary_box)
         web_note = QLabel(
