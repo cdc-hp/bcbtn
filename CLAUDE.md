@@ -136,7 +136,14 @@ CSDL chính luôn là SQLite trên máy chủ chính.
 - **Đệm khi không chuyển tiếp được**: Sheet `HangDoiPhu` (bảng hàng đợi tạm) + file gốc lưu
   Google Drive `MayChuPhu_GSBTN/<xã>/<tuần>/<file>.xlsx` — **không chia sẻ công khai**.
 - **Đồng bộ bù** (`secondary_sync.pull_secondary_queue`): kéo các dòng `cho_dong_bo`, tạo bản
-  ghi `import_queue` (`source='server_phu'`), đánh dấu `da_dong_bo` (idempotent).
+  ghi `import_queue` (`source='server_phu'`), đánh dấu `da_dong_bo` (idempotent). **Tự động**
+  chạy theo chu kỳ (`MainWindow.run_auto_secondary_sync`, mặc định 20 phút, chỉnh ở tab Server
+  → "Tự động đồng bộ mỗi", 5-180 phút, lưu ở `secondary_sync_interval_minutes`) khi ứng dụng
+  đang chạy ở chế độ Máy đơn lẻ/Máy chủ (không chạy ở Máy trạm) và đã cấu hình URL + khóa máy
+  chủ phụ — không cần CDC bấm tay, nút "Đồng bộ máy chủ phụ" trên tab Hàng đợi vẫn còn để chạy
+  ngay khi cần. Sau khi kéo thành công, `Code.gs: handleMarkSynced` **xoá (Thùng rác Drive, tự
+  dọn hẳn sau ~30 ngày)** file Excel gốc tương ứng trên Drive — tránh Drive phình to theo thời
+  gian, vì dữ liệu đã nằm an toàn trong CSDL chính.
 - **Xác thực**: khóa `SHARED_KEY` dùng chung cho mọi xã trên GAS (khác với
   `commune_accounts`/`cdc_accounts` ở máy chủ chính — có chủ đích, GAS không tự nhiên hỗ trợ
   tốt việc đồng bộ danh sách tài khoản từ máy chủ chính sang). Chặng GAS → máy chủ chính dùng
@@ -153,7 +160,10 @@ CSDL chính luôn là SQLite trên máy chủ chính.
    `google_apps_script/appsscript.json` (phải có khối `webapp` với `executeAs: USER_DEPLOYING`,
    `access: ANYONE_ANONYMOUS`). Có thể dùng `clasp` (`gas_deploy/`) thay vì copy/dán thủ công.
 2. Project Settings → Script Properties → thêm `SHARED_KEY` (bắt buộc), tùy chọn
-   `ROOT_FOLDER_ID`, `MAIN_SERVER_URL`, `MAIN_SERVER_PASSWORD`.
+   `ROOT_FOLDER_ID`, `MAIN_SERVER_URL`, `MAIN_SERVER_PASSWORD`, `TRACKING_START_WEEK` (dạng
+   `YYYY-Www`, ví dụ `2026-W01` — mốc tuần CDC bắt đầu yêu cầu nộp báo cáo hằng tuần; dùng để
+   tính danh sách "Tuần chưa báo cáo" trên tab Tình hình nộp, xem `listStatus`/`getTrackingStartWeek`
+   trong `Code.gs`. Chưa cấu hình thì mục này chỉ hiện hướng dẫn thay vì đoán bừa mốc tuần).
 3. Deploy → New deployment → Web app, Execute as **Me**, Who has access **Anyone** → copy Web
    app URL. Lần đầu có thể cần vào lại Manage deployments, sửa và Deploy lại một lần nữa để
    kích hoạt đúng quyền "Anyone".

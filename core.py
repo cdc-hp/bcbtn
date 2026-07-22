@@ -27,7 +27,10 @@ import backup_manager
 from duplicate_config import CASE_CRITERIA_LABELS, CaseDuplicateCriteria, load_case_criteria, load_rules
 
 APP_NAME = "Giám sát dịch bệnh"
-VERSION = "0.5.0"
+# Không tự đồng bộ với VERSION.txt (dùng cho tên gói cài) — nhớ cập nhật cả 2 mỗi lần bump
+# phiên bản, nếu không update_manager.is_newer_version() so sánh sai (từng lệch: VERSION.txt
+# đã ở 0.6.0 nhưng hằng số này còn 0.5.0).
+VERSION = "0.7.0"
 
 
 def _base_dir() -> Path:

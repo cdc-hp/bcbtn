@@ -37,6 +37,7 @@ class DeploymentConfig:
     reconnect_delay_seconds: float = 1.0
     secondary_webapp_url: str = ""
     secondary_shared_key: str = ""
+    secondary_sync_interval_minutes: int = 20
     web_token_secret: str = ""
     admin_username: str = ""
     admin_token: str = ""
@@ -87,6 +88,7 @@ def load_config() -> DeploymentConfig:
         reconnect_delay_seconds=max(0.1, min(10.0, float(raw.get("reconnect_delay_seconds", 1.0) or 1.0))),
         secondary_webapp_url=str(raw.get("secondary_webapp_url", "") or "").strip(),
         secondary_shared_key=str(raw.get("secondary_shared_key", "") or ""),
+        secondary_sync_interval_minutes=max(5, min(180, int(raw.get("secondary_sync_interval_minutes", 20) or 20))),
         web_token_secret=str(raw.get("web_token_secret", "") or ""),
         admin_username=str(raw.get("admin_username", "") or ""),
         admin_token=str(raw.get("admin_token", "") or ""),
@@ -102,6 +104,7 @@ def save_config(config: DeploymentConfig) -> Path:
     config.server_name = (config.server_name or socket.gethostname()).strip()
     config.reconnect_attempts = max(1, min(10, int(config.reconnect_attempts)))
     config.reconnect_delay_seconds = max(0.1, min(10.0, float(config.reconnect_delay_seconds)))
+    config.secondary_sync_interval_minutes = max(5, min(180, int(config.secondary_sync_interval_minutes)))
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     temp = CONFIG_PATH.with_suffix(".tmp")
     temp.write_text(json.dumps(asdict(config), ensure_ascii=False, indent=2), encoding="utf-8")

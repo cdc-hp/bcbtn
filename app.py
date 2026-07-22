@@ -1698,9 +1698,15 @@ class ServerTab(QWidget):
         self.secondary_url.setPlaceholderText("https://script.google.com/macros/s/XXXX/exec")
         self.secondary_key = QLineEdit(config.secondary_shared_key); self.secondary_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.secondary_key.setPlaceholderText("Khóa bí mật đặt trong Script Properties (SHARED_KEY)")
+        self.secondary_interval = QSpinBox(); self.secondary_interval.setRange(5, 180); self.secondary_interval.setValue(config.secondary_sync_interval_minutes); self.secondary_interval.setSuffix(" phút")
         secondary_form.addRow("URL Web App:", self.secondary_url)
         secondary_form.addRow("Khóa chia sẻ:", self.secondary_key)
-        secondary_note = QLabel("Xem hướng dẫn triển khai trong CLAUDE.md (mục Google Apps Script) hoặc docs/huong-dan/4-google-apps-script.pdf.")
+        secondary_form.addRow("Tự động đồng bộ mỗi:", self.secondary_interval)
+        secondary_note = QLabel(
+            "Xem hướng dẫn triển khai trong CLAUDE.md (mục Google Apps Script) hoặc docs/huong-dan/4-google-apps-script.pdf. "
+            "Máy chủ tự kéo dữ liệu đang chờ trên máy chủ phụ theo chu kỳ trên khi đang chạy (không cần bấm tay); "
+            "đổi chu kỳ cần khởi động lại ứng dụng để áp dụng."
+        )
         secondary_note.setWordWrap(True); secondary_form.addRow("", secondary_note)
         root.addWidget(secondary_box)
         web_note = QLabel(
@@ -1731,6 +1737,7 @@ class ServerTab(QWidget):
         self.config.server_name = self.server_name.text().strip(); self.config.server_port = self.port.value(); self.config.password = self.password.text()
         self.config.auto_start_server = self.auto_start.isChecked(); self.config.discovery_enabled = self.discovery.isChecked()
         self.config.secondary_webapp_url = self.secondary_url.text().strip(); self.config.secondary_shared_key = self.secondary_key.text()
+        self.config.secondary_sync_interval_minutes = self.secondary_interval.value()
         save_config(self.config); self.controller.config = self.config
 
     def save_settings(self):
@@ -2098,6 +2105,12 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self.connection_label)
         self.statusBar().showMessage(f"Chế độ: {mode_label(config.mode)} — Dữ liệu: {core.DB_PATH}")
         QTimer.singleShot(1800, lambda: self.settings.check_update(silent=True))
+        # Server/máy trạm thường chạy liên tục nhiều ngày không khởi động lại — kiểm tra định kỳ
+        # thêm (silent=True vẫn hỏi xác nhận nếu có bản mới, chỉ bỏ qua thông báo "đã mới nhất"/
+        # lỗi kiểm tra) để không phải đợi tới lần mở ứng dụng tiếp theo mới biết có bản cập nhật.
+        self.update_check_timer = QTimer(self)
+        self.update_check_timer.timeout.connect(lambda: self.settings.check_update(silent=True))
+        self.update_check_timer.start(24 * 60 * 60 * 1000)
         if self.server_tab:
             QTimer.singleShot(500, self.server_tab.auto_start_server)
         if self.config.is_workstation:
@@ -2107,6 +2120,9 @@ class MainWindow(QMainWindow):
             self.connection_label.setText("CSDL cục bộ")
             self.backup_timer = QTimer(self); self.backup_timer.timeout.connect(self.run_auto_backup); self.backup_timer.start(10 * 60 * 1000)
             QTimer.singleShot(2500, self.run_auto_backup)
+            sync_interval_ms = max(5, self.config.secondary_sync_interval_minutes) * 60 * 1000
+            self.secondary_sync_timer = QTimer(self); self.secondary_sync_timer.timeout.connect(self.run_auto_secondary_sync); self.secondary_sync_timer.start(sync_interval_ms)
+            QTimer.singleShot(6000, self.run_auto_secondary_sync)
 
     def _build_menu(self):
         file_menu = self.menuBar().addMenu("&Tệp")
@@ -2180,6 +2196,26 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Sao lưu tự động lỗi: {exc}", 15000)
         finally:
             if server: server.backup_in_progress = False
+
+    def run_auto_secondary_sync(self):
+        """Tự động kéo dữ liệu đang chờ trên máy chủ phụ (GAS/Sheet/Drive) theo chu kỳ cấu hình
+        (mặc định 20 phút, xem tab Server) — không cần CDC bấm tay nút "Đồng bộ máy chủ phụ".
+        Bỏ qua im lặng nếu chưa cấu hình URL/khóa máy chủ phụ, hoặc đang chạy ở máy trạm (chỉ
+        máy sở hữu CSDL chính mới tự đồng bộ)."""
+        if self.config.is_workstation: return
+        if not (self.config.secondary_webapp_url and self.config.secondary_shared_key): return
+        try:
+            import secondary_sync
+            result = secondary_sync.pull_secondary_queue(
+                self.config.secondary_webapp_url, self.config.secondary_shared_key, db_path=local_core.DB_PATH,
+            )
+            if result.get("pulled_count"):
+                self.statusBar().showMessage(
+                    f"Đã tự động đồng bộ {result['pulled_count']}/{result['pending_count']} mục từ máy chủ phụ.", 10000
+                )
+                if self.queue_tab: self.queue_tab.refresh()
+        except Exception as exc:
+            self.statusBar().showMessage(f"Đồng bộ tự động máy chủ phụ lỗi: {exc}", 15000)
 
     def configure_workstation(self):
         dialog = WorkstationConnectionDialog(self.config, self)
