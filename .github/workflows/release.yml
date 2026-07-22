@@ -111,7 +111,12 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $files = @("setup_output/GiamSatDichBenh-Setup-v$version.exe", "GiamSatDichBenh-Portable-v$version.zip")
+          $files = @(
+            "setup_output/GiamSatDichBenh-Setup-v$version.exe",
+            "setup_output/GiamSatDichBenh-Server-Setup-v$version.exe",
+            "setup_output/GiamSatDichBenh-Admin-Setup-v$version.exe",
+            "GiamSatDichBenh-Portable-v$version.zip"
+          )
           foreach ($file in $files) { if (-not (Test-Path $file)) { throw "Missing release file: $file" } }
           $lines = foreach ($file in $files) {
             $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
@@ -133,6 +138,8 @@ jobs:
           git push origin $tag
           gh release create $tag `
             "setup_output/GiamSatDichBenh-Setup-v$version.exe" `
+            "setup_output/GiamSatDichBenh-Server-Setup-v$version.exe" `
+            "setup_output/GiamSatDichBenh-Admin-Setup-v$version.exe" `
             "GiamSatDichBenh-Portable-v$version.zip" `
             "SHA256SUMS.txt" `
             --title "Giám sát dịch bệnh $tag" `
@@ -145,5 +152,7 @@ jobs:
           name: GiamSatDichBenh-v${{ steps.version.outputs.version }}
           path: |
             setup_output/GiamSatDichBenh-Setup-v${{ steps.version.outputs.version }}.exe
+            setup_output/GiamSatDichBenh-Server-Setup-v${{ steps.version.outputs.version }}.exe
+            setup_output/GiamSatDichBenh-Admin-Setup-v${{ steps.version.outputs.version }}.exe
             GiamSatDichBenh-Portable-v${{ steps.version.outputs.version }}.zip
             SHA256SUMS.txt

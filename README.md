@@ -7,13 +7,17 @@ Excel chia theo xã, hàng đợi nhập liệu hai tầng): xem [`WEB_DEDUP_DES
 
 ## Cài đặt
 
-Tải `GiamSatDichBenh-Setup-v0.5.0.exe` trong GitHub Releases. Người dùng không cần cài Python hoặc tự build.
+3 bản cài trong GitHub Releases, dùng chung 1 ứng dụng — chỉ khác cấu hình mặc định do installer ghi ra. Người dùng không cần cài Python hoặc tự build.
 
-Bộ cài yêu cầu chọn một trong ba chế độ:
+- **`GiamSatDichBenh-Setup-vX.Y.Z.exe`** (bản tổng hợp): hỏi chọn 1 trong 3 chế độ — Máy đơn lẻ, Máy trạm, hoặc Máy chủ. Phù hợp dùng thử hoặc triển khai nhỏ/không tách vai trò.
+- **`GiamSatDichBenh-Server-Setup-vX.Y.Z.exe`**: luôn cài chế độ **Máy chủ** — cài **duy nhất 1 lần** trên máy đóng vai trò máy chủ chính. Có tính năng **Chuyển máy chủ** (tab Server) để đồng bộ toàn bộ dữ liệu sang máy chủ mới và tự đóng máy cũ khi cần thay đổi phần cứng.
+- **`GiamSatDichBenh-Admin-Setup-vX.Y.Z.exe`**: luôn cài chế độ **Máy trạm**, dùng cho từng quản trị viên kết nối tới máy chủ qua IP LAN. Sau khi cài, vào **Kết nối máy chủ LAN → Đăng nhập quản trị viên** để đăng nhập **tài khoản cá nhân riêng** (khác mật khẩu dùng chung của máy chủ) — CDC tạo tài khoản này ở tab **Hàng đợi → Tài khoản quản trị...** trên máy chủ.
 
-1. **Máy đơn lẻ**: ứng dụng và CSDL chạy trên một máy, không chia sẻ LAN.
-2. **Máy trạm**: nhập địa chỉ máy chủ dạng `http://192.168.1.10:8765` và mật khẩu nếu máy chủ có đặt.
-3. **Máy chủ**: tự tạo CSDL trên máy chủ, mở API HTTP trong LAN và hiện thêm tab **Server**. Mật khẩu để trống nghĩa là không yêu cầu mật khẩu.
+Bộ cài (cả 3 bản) hỏi:
+
+1. **Máy đơn lẻ** (chỉ bản tổng hợp): ứng dụng và CSDL chạy trên một máy, không chia sẻ LAN.
+2. **Máy trạm**: nhập địa chỉ máy chủ dạng `http://192.168.1.10:8765` và mật khẩu dùng chung nếu máy chủ có đặt.
+3. **Máy chủ**: tự tạo CSDL trên máy chủ, mở API HTTP trong LAN và hiện thêm tab **Server**. Mật khẩu để trống nghĩa là không yêu cầu mật khẩu dùng chung.
 
 Máy trạm không mở trực tiếp file SQLite. Mọi thao tác được gửi qua API của máy chủ để tránh nhiều máy cùng ghi trực tiếp vào một file `.db`.
 
