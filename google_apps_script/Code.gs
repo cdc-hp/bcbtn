@@ -36,6 +36,10 @@ var DEFAULT_ROOT_FOLDER_ID = "1Flis9O2NoobRPuhZewb_y762FEIEa_VP";
 // cùng repo với trang iframe (docs/Mau_Danh_sach_ca_benh.xlsx), tải công khai không cần xác thực.
 var TEMPLATE_URL = "https://cdc-hp.github.io/bcbtn/Mau_Danh_sach_ca_benh.xlsx";
 
+// Logo CDC Hải Phòng — cùng lưu tĩnh trên GitHub Pages (docs/logo.png) thay vì nhúng base64
+// vào Code.gs, để đổi logo sau này chỉ cần thay file, không cần deploy lại Apps Script.
+var LOGO_URL = "https://cdc-hp.github.io/bcbtn/logo.png";
+
 var STATUS_LABELS = {
   da_chuyen_tiep: "Đã chuyển tiếp trực tiếp vào máy chủ chính",
   cho_dong_bo: "Đang chờ đồng bộ (lưu tạm trên máy chủ phụ)",
@@ -448,8 +452,7 @@ function buildPageHtml(communes) {
   .page { max-width: 640px; margin: 0 auto; padding-bottom: 32px; }
   .app-header { background: linear-gradient(135deg, var(--blue-900), var(--blue-600)); color: #fff; padding: 20px 20px 44px; }
   .app-header-inner { display: flex; align-items: center; gap: 12px; }
-  .logo-badge { flex: none; width: 42px; height: 42px; border-radius: 12px; background: rgba(255,255,255,.16);
-    display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: .8rem; }
+  .logo-badge { flex: none; width: 42px; height: 42px; border-radius: 12px; object-fit: contain; background: rgba(255,255,255,.16); }
   .app-header h1 { font-size: 1.15rem; margin: 0; font-weight: 600; }
   .app-header p { margin: 2px 0 0; font-size: .85rem; opacity: .85; }
 
@@ -535,7 +538,7 @@ function buildPageHtml(communes) {
 <div class="page">
   <div class="app-header">
     <div class="app-header-inner">
-      <div class="logo-badge">CDC</div>
+      <img class="logo-badge" src="${LOGO_URL}" alt="CDC Hải Phòng">
       <div>
         <h1>Nộp danh sách ca bệnh</h1>
         <p>CDC Hải Phòng — báo cáo hằng tuần</p>
