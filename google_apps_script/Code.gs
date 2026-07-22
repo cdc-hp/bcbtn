@@ -518,23 +518,12 @@ function buildPageHtml(communes) {
   .unit-box .unit-name b { display: block; font-size: 1rem; color: var(--slate-900); }
   .unit-box .unit-actions { display: flex; align-items: center; gap: 10px; flex: none; }
 
-  .status-grid { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 4px; }
-  .status-col { flex: 1 1 220px; min-width: 220px; }
   .status-col-title { font-size: .78rem; font-weight: 700; color: var(--slate-500);
     text-transform: uppercase; letter-spacing: .03em; margin: 0 0 8px; }
-  .status-table-wrap { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; font-size: .84rem; }
-  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--slate-200); white-space: nowrap; }
-  th { background: var(--slate-50); color: var(--slate-500); font-weight: 600; font-size: .76rem;
-    text-transform: uppercase; letter-spacing: .02em; }
-  tr:last-child td { border-bottom: none; }
 
-  .badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: .76rem; font-weight: 600; white-space: nowrap; }
-  .badge.st-da_chuyen_tiep { background: var(--green-50); color: var(--green-700); }
-  .badge.st-da_dong_bo { background: var(--blue-50); color: var(--blue-600h); }
-  .badge.st-cho_dong_bo { background: var(--amber-50); color: var(--amber-700); }
-
-  .missing-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .missing-weeks-panel { margin-top: 4px; }
+  .missing-weeks-panel .status-col-title { text-align: right; }
+  .missing-list { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
   .week-chip { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: .78rem;
     font-weight: 600; background: var(--red-50); color: var(--red-700); }
 
@@ -603,7 +592,7 @@ function buildPageHtml(communes) {
 
     <div id="panel-status" class="tab-panel">
       <div class="card">
-        <p class="lede">Tình hình nộp của đơn vị mình (tối đa 200 lượt gần nhất) — không cần chọn lại đơn vị nếu đã nộp báo cáo ít nhất 1 lần trên máy này.</p>
+        <p class="lede">Tình hình nộp của đơn vị mình — không cần chọn lại đơn vị nếu đã nộp báo cáo ít nhất 1 lần trên máy này.</p>
 
         <div class="unit-box" id="statusUnitBox">
           <div class="unit-name">Đơn vị<b id="statusUnitLabel"></b></div>
@@ -621,16 +610,10 @@ function buildPageHtml(communes) {
           <button type="submit">Lưu &amp; xem tình hình nộp</button>
         </form>
 
-        <div class="status-grid">
-          <div class="status-col">
-            <div class="status-col-title">Lượt nộp gần nhất</div>
-            <div id="statusMsg"></div>
-            <div class="status-table-wrap" id="statusTableWrap"></div>
-          </div>
-          <div class="status-col">
-            <div class="status-col-title">Tuần chưa báo cáo</div>
-            <div id="missingWeeksWrap"></div>
-          </div>
+        <div id="statusMsg"></div>
+        <div class="missing-weeks-panel">
+          <div class="status-col-title">Tuần chưa báo cáo</div>
+          <div id="missingWeeksWrap"></div>
         </div>
       </div>
     </div>
@@ -845,10 +828,6 @@ document.getElementById("f").addEventListener("submit", function (ev) {
   reader.readAsDataURL(file);
 });
 
-function statusBadge(status, label) {
-  return '<span class="badge st-' + status + '">' + label + '</span>';
-}
-
 // Liệt kê mọi tuần ISO từ startWeek đến endWeek (bao gồm cả 2 đầu). Trả về [] nếu startWeek
 // sai định dạng hoặc đã ở sau endWeek (cấu hình TRACKING_START_WEEK sai — không đoán bừa).
 function weeksBetween(startWeek, endWeek) {
@@ -894,9 +873,7 @@ function renderMissingWeeks(trackingStartWeek, submittedWeeksSet) {
 
 function fetchStatus(commune, key) {
   var msg = document.getElementById("statusMsg");
-  var wrap = document.getElementById("statusTableWrap");
   var missingWrap = document.getElementById("missingWeeksWrap");
-  wrap.innerHTML = "";
   missingWrap.innerHTML = "";
   msg.className = "";
   msg.textContent = "Đang tải...";
@@ -909,25 +886,11 @@ function fetchStatus(commune, key) {
       msg.className = "err"; msg.textContent = "Lỗi: " + data.error;
       return;
     }
+    msg.className = ""; msg.style.display = "none";
     var rows = data.result.rows;
     var submittedWeeksSet = {};
     rows.forEach(function (row) { submittedWeeksSet[row.week] = true; });
     renderMissingWeeks(data.result.tracking_start_week, submittedWeeksSet);
-
-    if (!rows.length) {
-      msg.className = ""; msg.style.display = "none";
-      wrap.innerHTML = '<div class="empty-state">Đơn vị "' + commune + '" chưa có lượt nộp nào được ghi nhận.</div>';
-      return;
-    }
-    msg.className = "ok"; msg.textContent = rows.length + " lượt nộp gần nhất:";
-    var html = "<table><thead><tr><th>Tuần</th><th>Thời điểm nộp</th><th>Người nộp</th><th>Trạng thái</th><th>File</th></tr></thead><tbody>";
-    rows.forEach(function (row) {
-      var t = new Date(row.received_at);
-      var tStr = isNaN(t.getTime()) ? row.received_at : t.toLocaleString("vi-VN");
-      html += "<tr><td>" + row.week + "</td><td>" + tStr + "</td><td>" + (row.submitted_by || "") + "</td><td>" + statusBadge(row.status, row.status_label) + "</td><td>" + row.file_name + "</td></tr>";
-    });
-    html += "</tbody></table>";
-    wrap.innerHTML = html;
   }).catch(function (e) { msg.className = "err"; msg.textContent = "Lỗi kết nối: " + e; });
 }
 
