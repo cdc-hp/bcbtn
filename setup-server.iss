@@ -4,7 +4,7 @@
 ; Dùng chung thư mục build dist\GiamSatDichBenh (ứng dụng giống hệt bản setup.iss, chỉ khác cấu
 ; hình mặc định do installer ghi ra).
 #ifndef MyAppVersion
-  #define MyAppVersion "0.5.0"
+  #define MyAppVersion "0.6.0"
 #endif
 
 #define MyAppName "Giám sát dịch bệnh — Máy chủ"

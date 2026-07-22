@@ -4,7 +4,7 @@
 ; chung) được nhập SAU khi cài, ngay trong ứng dụng (Kết nối máy chủ LAN → Đăng nhập quản trị
 ; viên) — xem README phần "Máy trạm quản trị". Dùng chung thư mục build dist\GiamSatDichBenh.
 #ifndef MyAppVersion
-  #define MyAppVersion "0.5.0"
+  #define MyAppVersion "0.6.0"
 #endif
 
 #define MyAppName "Giám sát dịch bệnh — Máy trạm quản trị"

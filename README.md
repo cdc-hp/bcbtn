@@ -1,4 +1,4 @@
-# Ứng dụng Giám sát dịch bệnh — phiên bản 0.5.0
+# Ứng dụng Giám sát dịch bệnh — phiên bản 0.6.0
 
 Ứng dụng desktop Windows dùng **Python + SQLite + PyQt6** để quản lý ca bệnh, ổ dịch, lọc trùng và chia sẻ dữ liệu trong mạng LAN.
 
