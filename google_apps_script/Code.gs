@@ -14,6 +14,10 @@
  * đã đồng bộ — tránh kéo trùng lần sau. Mọi hành động đều qua POST (không dùng query string)
  * để khóa SHARED_KEY không lộ qua log truy cập/lịch sử trình duyệt.
  *
+ * Sheet HangDoiPhu ghi nhận MỌI lượt nộp (kể cả chuyển tiếp trực tiếp thành công, status
+ * "da_chuyen_tiep", không kèm file Drive) chứ không chỉ các lượt đệm tạm — để tab "Tình hình
+ * nộp" (doGet) phản ánh đầy đủ, không bỏ sót lượt đã chuyển thẳng vào máy chủ chính.
+ *
  * Triển khai: xem google_apps_script/README.md.
  */
 
@@ -23,8 +27,19 @@ var ROOT_FOLDER_NAME = "MayChuPhu_GSBTN";
 var COL_STATUS = 7;
 var COL_SYNCED_AT = 8;
 
+// Folder Drive dùng làm hàng chờ mặc định (không chia sẻ công khai — chỉ tài khoản sở hữu
+// script và người CDC được cấp quyền mới xem được). Có thể ghi đè bằng Script Property
+// ROOT_FOLDER_ID nếu sau này đổi sang folder khác mà không cần sửa mã nguồn.
+var DEFAULT_ROOT_FOLDER_ID = "1Flis9O2NoobRPuhZewb_y762FEIEa_VP";
+
+var STATUS_LABELS = {
+  da_chuyen_tiep: "Đã chuyển tiếp trực tiếp vào máy chủ chính",
+  cho_dong_bo: "Đang chờ đồng bộ (lưu tạm trên máy chủ phụ)",
+  da_dong_bo: "Đã đồng bộ vào máy chủ chính",
+};
+
 function doGet(e) {
-  return HtmlService.createHtmlOutput(UPLOAD_FORM_HTML)
+  return HtmlService.createHtmlOutput(buildPageHtml(listCommunes()))
     .setTitle("Nộp danh sách ca bệnh — máy chủ phụ")
     .addMetaTag("viewport", "width=device-width, initial-scale=1");
 }
@@ -39,6 +54,8 @@ function doPost(e) {
       result = handleMarkSynced(payload);
     } else if (payload.action === "list_pending") {
       result = listPending(payload.key);
+    } else if (payload.action === "list_status") {
+      result = listStatus(payload.key, payload.commune);
     } else {
       throw new Error("Hành động không hợp lệ.");
     }
@@ -115,6 +132,12 @@ function hasXlsxSignature(bytes) {
   return true;
 }
 
+function logStatusRow(commune, week, fileName, driveFileId, submittedBy, status) {
+  var sheet = getSheet();
+  var now = new Date();
+  sheet.appendRow([commune, week, fileName, driveFileId, submittedBy, now, status, status === "da_chuyen_tiep" ? now : ""]);
+}
+
 function handleSubmit(payload) {
   checkKey(payload.key);
   var commune = String(payload.commune || "").trim();
@@ -134,7 +157,10 @@ function handleSubmit(payload) {
   }
 
   var forwarded = tryForwardToMainServer(commune, week, fileName, contentBase64, submittedBy);
-  if (forwarded) return forwarded;
+  if (forwarded) {
+    logStatusRow(commune, week, fileName, "", submittedBy, "da_chuyen_tiep");
+    return forwarded;
+  }
 
   // Không chuyển tiếp trực tiếp được (chưa cấu hình MAIN_SERVER_URL hoặc lỗi mạng) -> đệm tạm.
   var blob = Utilities.newBlob(bytes, MimeType.MICROSOFT_EXCEL, fileName);
@@ -227,41 +253,175 @@ function listPending(key) {
   return result;
 }
 
-var UPLOAD_FORM_HTML =
-  '<!doctype html><html lang="vi"><head><meta charset="utf-8">' +
-  '<style>body{font-family:system-ui,sans-serif;max-width:520px;margin:24px auto;padding:0 16px;color:#1f2937}' +
-  'label{display:block;margin-top:12px;font-weight:600}' +
-  'input{width:100%;padding:8px;margin-top:4px;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:6px}' +
-  'button{margin-top:18px;padding:10px 16px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer}' +
-  '#msg{margin-top:16px;padding:10px;border-radius:6px;display:none}' +
-  '#msg.ok{background:#dcfce7;color:#166534;display:block}#msg.err{background:#fee2e2;color:#991b1b;display:block}</style></head>' +
-  '<body><h1>Nộp danh sách ca bệnh hằng tuần</h1>' +
-  '<p>Đây là link cố định để nộp mỗi tuần. Hệ thống tự chuyển thẳng tới máy chủ chính; nếu máy chủ chính tạm thời không phản hồi được, dữ liệu sẽ lưu tạm và CDC đồng bộ bù sau.</p>' +
-  '<form id="f">' +
-  '<label>Xã / phường</label><input name="commune" required>' +
-  '<label>Tuần báo cáo</label><input name="week" required placeholder="2026-W29">' +
-  '<label>Người nộp</label><input name="submitted_by">' +
-  '<label>Khóa máy chủ phụ (do CDC cung cấp)</label><input name="key" type="password" required>' +
-  '<label>File Excel (.xlsx)</label><input name="file" type="file" accept=".xlsx,.xlsm" required>' +
-  '<button type="submit">Nộp tạm vào máy chủ phụ</button></form><div id="msg"></div>' +
-  '<script>' +
-  'document.getElementById("f").addEventListener("submit", function (ev) {' +
-  '  ev.preventDefault();' +
-  '  var form = ev.target, msg = document.getElementById("msg"), file = form.file.files[0];' +
-  '  if (!file) return;' +
-  '  var reader = new FileReader();' +
-  '  reader.onload = function () {' +
-  '    var base64 = reader.result.split(",")[1];' +
-  '    fetch(window.location.href, {' +
-  '      method: "POST",' +
-  '      body: JSON.stringify({ action: "submit", commune: form.commune.value, week: form.week.value,' +
-  '        submitted_by: form.submitted_by.value, key: form.key.value, file_name: file.name, content_base64: base64 }),' +
-  '    }).then(function (r) { return r.json(); }).then(function (data) {' +
-  '      if (data.ok && data.result.forwarded) { msg.className = "ok"; msg.textContent = "Đã nộp trực tiếp vào máy chủ chính, mã hàng đợi #" + data.result.queue_id + "."; form.reset(); }' +
-  '      else if (data.ok) { msg.className = "ok"; msg.textContent = "Máy chủ chính tạm thời không phản hồi — đã lưu tạm, dòng #" + data.result.row + ". CDC sẽ đồng bộ bù sau."; form.reset(); }' +
-  '      else { msg.className = "err"; msg.textContent = "Lỗi: " + data.error; }' +
-  '    }).catch(function (e) { msg.className = "err"; msg.textContent = "Lỗi kết nối: " + e; });' +
-  '  };' +
-  '  reader.readAsDataURL(file);' +
-  '});' +
-  "</script></body></html>";
+/**
+ * Tình hình nộp của MỘT đơn vị (xã), lọc theo commune truyền lên — dùng cho tab "Tình hình
+ * nộp" trên doGet. Yêu cầu cùng SHARED_KEY với việc nộp (xã nào cũng có key này, xem
+ * "Giới hạn đã biết" trong google_apps_script/README.md — chưa có tài khoản riêng từng xã ở
+ * tầng GAS nên chưa tách được quyền xem theo xã).
+ */
+function listStatus(key, commune) {
+  checkKey(key);
+  commune = String(commune || "").trim().toLowerCase();
+  if (!commune) throw new Error("Chưa chọn đơn vị.");
+  var sheet = getSheet();
+  var values = sheet.getDataRange().getValues();
+  var result = [];
+  for (var r = 1; r < values.length; r++) {
+    var row = values[r];
+    if (String(row[0] || "").trim().toLowerCase() === commune) {
+      var receivedAt = row[5];
+      result.push({
+        week: row[1],
+        file_name: row[2],
+        submitted_by: row[4],
+        received_at: receivedAt instanceof Date ? receivedAt.toISOString() : String(receivedAt),
+        status: row[6],
+        status_label: STATUS_LABELS[row[6]] || row[6],
+      });
+    }
+  }
+  result.sort(function (a, b) { return new Date(b.received_at) - new Date(a.received_at); });
+  return result.slice(0, 200);
+}
+
+function listCommunes() {
+  var sheet = getSheet();
+  var values = sheet.getDataRange().getValues();
+  var seen = {};
+  var list = [];
+  for (var r = 1; r < values.length; r++) {
+    var c = String(values[r][0] || "").trim();
+    if (c && !seen[c]) {
+      seen[c] = true;
+      list.push(c);
+    }
+  }
+  list.sort(function (a, b) { return a.localeCompare(b, "vi"); });
+  return list;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
+}
+
+function buildPageHtml(communes) {
+  var options = communes.map(function (c) {
+    return '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + "</option>";
+  }).join("");
+
+  return (
+    '<!doctype html><html lang="vi"><head><meta charset="utf-8">' +
+    '<style>' +
+    "body{font-family:system-ui,sans-serif;max-width:640px;margin:24px auto;padding:0 16px;color:#1f2937}" +
+    "h1{font-size:1.3rem}" +
+    ".tabs{display:flex;gap:8px;border-bottom:1px solid #e2e8f0;margin-bottom:16px}" +
+    ".tab-btn{padding:10px 14px;border:none;background:none;cursor:pointer;font-size:1rem;color:#64748b;border-bottom:2px solid transparent}" +
+    ".tab-btn.active{color:#2563eb;border-bottom-color:#2563eb;font-weight:600}" +
+    ".tab-panel{display:none}.tab-panel.active{display:block}" +
+    "label{display:block;margin-top:12px;font-weight:600}" +
+    "input,select{width:100%;padding:8px;margin-top:4px;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:6px;font-size:1rem}" +
+    "button{margin-top:18px;padding:10px 16px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:1rem}" +
+    "#msg,#statusMsg{margin-top:16px;padding:10px;border-radius:6px;display:none}" +
+    "#msg.ok,#statusMsg.ok{background:#dcfce7;color:#166534;display:block}" +
+    "#msg.err,#statusMsg.err{background:#fee2e2;color:#991b1b;display:block}" +
+    "table{width:100%;border-collapse:collapse;margin-top:16px;font-size:0.9rem}" +
+    "th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #e2e8f0}" +
+    "th{background:#f8fafc}" +
+    "</style></head><body>" +
+    "<h1>Nộp danh sách ca bệnh hằng tuần</h1>" +
+    '<div class="tabs">' +
+    '<button type="button" class="tab-btn active" data-tab="submit">Nộp báo cáo</button>' +
+    '<button type="button" class="tab-btn" data-tab="status">Tình hình nộp</button>' +
+    "</div>" +
+
+    '<div id="panel-submit" class="tab-panel active">' +
+    "<p>Đây là link cố định để nộp mỗi tuần. Hệ thống tự chuyển thẳng tới máy chủ chính; nếu máy chủ chính tạm thời không phản hồi được, dữ liệu sẽ lưu tạm và CDC đồng bộ bù sau.</p>" +
+    '<form id="f">' +
+    "<label>Xã / phường</label><input name=\"commune\" required>" +
+    '<label>Tuần báo cáo</label><input name="week" required placeholder="2026-W29">' +
+    "<label>Người nộp</label><input name=\"submitted_by\">" +
+    '<label>Khóa máy chủ phụ (do CDC cung cấp)</label><input name="key" type="password" required>' +
+    '<label>File Excel theo mẫu (.xlsx)</label><input name="file" type="file" accept=".xlsx,.xlsm" required>' +
+    '<button type="submit">Nộp báo cáo</button></form><div id="msg"></div>' +
+    "</div>" +
+
+    '<div id="panel-status" class="tab-panel">' +
+    "<p>Xem các lần nộp gần đây của đơn vị mình (tối đa 200 lượt gần nhất).</p>" +
+    '<form id="sf">' +
+    "<label>Đơn vị</label><select name=\"communeSelect\"><option value=\"\">-- Chọn đơn vị đã từng nộp --</option>" + options + "</select>" +
+    "<label>Hoặc nhập tên đơn vị khác</label><input name=\"communeOther\" placeholder=\"Để trống nếu đã chọn ở trên\">" +
+    '<label>Khóa máy chủ phụ (do CDC cung cấp)</label><input name="key" type="password" required>' +
+    '<button type="submit">Xem tình hình nộp</button></form><div id="statusMsg"></div>' +
+    '<div id="statusTableWrap"></div>' +
+    "</div>" +
+
+    "<script>" +
+    'document.querySelectorAll(".tab-btn").forEach(function (btn) {' +
+    '  btn.addEventListener("click", function () {' +
+    '    document.querySelectorAll(".tab-btn").forEach(function (b) { b.classList.remove("active"); });' +
+    '    document.querySelectorAll(".tab-panel").forEach(function (p) { p.classList.remove("active"); });' +
+    '    btn.classList.add("active");' +
+    '    document.getElementById("panel-" + btn.dataset.tab).classList.add("active");' +
+    "  });" +
+    "});" +
+
+    'document.getElementById("f").addEventListener("submit", function (ev) {' +
+    "  ev.preventDefault();" +
+    '  var form = ev.target, msg = document.getElementById("msg"), file = form.file.files[0];' +
+    "  if (!file) return;" +
+    "  var reader = new FileReader();" +
+    "  reader.onload = function () {" +
+    '    var base64 = reader.result.split(",")[1];' +
+    "    fetch(window.location.href, {" +
+    '      method: "POST",' +
+    '      body: JSON.stringify({ action: "submit", commune: form.commune.value, week: form.week.value,' +
+    "        submitted_by: form.submitted_by.value, key: form.key.value, file_name: file.name, content_base64: base64 })," +
+    "    }).then(function (r) { return r.json(); }).then(function (data) {" +
+    '      if (data.ok && data.result.forwarded) { msg.className = "ok"; msg.textContent = "Đã nộp trực tiếp vào máy chủ chính, mã hàng đợi #" + data.result.queue_id + "."; form.reset(); }' +
+    '      else if (data.ok) { msg.className = "ok"; msg.textContent = "Máy chủ chính tạm thời không phản hồi — đã lưu tạm, dòng #" + data.result.row + ". CDC sẽ đồng bộ bù sau."; form.reset(); }' +
+    '      else { msg.className = "err"; msg.textContent = "Lỗi: " + data.error; }' +
+    '    }).catch(function (e) { msg.className = "err"; msg.textContent = "Lỗi kết nối: " + e; });' +
+    "  };" +
+    "  reader.readAsDataURL(file);" +
+    "});" +
+
+    'document.getElementById("sf").addEventListener("submit", function (ev) {' +
+    "  ev.preventDefault();" +
+    "  var form = ev.target;" +
+    '  var msg = document.getElementById("statusMsg");' +
+    '  var wrap = document.getElementById("statusTableWrap");' +
+    '  var commune = (form.communeOther.value || form.communeSelect.value || "").trim();' +
+    "  wrap.innerHTML = '';" +
+    "  if (!commune) {" +
+    '    msg.className = "err"; msg.textContent = "Chọn hoặc nhập tên đơn vị trước.";' +
+    "    return;" +
+    "  }" +
+    "  fetch(window.location.href, {" +
+    '    method: "POST",' +
+    '    body: JSON.stringify({ action: "list_status", commune: commune, key: form.key.value }),' +
+    "  }).then(function (r) { return r.json(); }).then(function (data) {" +
+    "    if (!data.ok) {" +
+    '      msg.className = "err"; msg.textContent = "Lỗi: " + data.error;' +
+    "      return;" +
+    "    }" +
+    "    var rows = data.result;" +
+    "    if (!rows.length) {" +
+    '      msg.className = "ok"; msg.textContent = "Đơn vị \\"" + commune + "\\" chưa có lượt nộp nào được ghi nhận.";' +
+    "      return;" +
+    "    }" +
+    '    msg.className = "ok"; msg.textContent = rows.length + " lượt nộp gần nhất của \\"" + commune + "\\":";' +
+    '    var html = "<table><thead><tr><th>Tuần</th><th>Thời điểm nộp</th><th>Người nộp</th><th>Trạng thái</th><th>File</th></tr></thead><tbody>";' +
+    "    rows.forEach(function (row) {" +
+    '      var t = new Date(row.received_at);' +
+    '      var tStr = isNaN(t.getTime()) ? row.received_at : t.toLocaleString("vi-VN");' +
+    '      html += "<tr><td>" + row.week + "</td><td>" + tStr + "</td><td>" + (row.submitted_by || "") + "</td><td>" + row.status_label + "</td><td>" + row.file_name + "</td></tr>";' +
+    "    });" +
+    '    html += "</tbody></table>";' +
+    "    wrap.innerHTML = html;" +
+    "  }).catch(function (e) { msg.className = \"err\"; msg.textContent = \"Lỗi kết nối: \" + e; });" +
+    "});" +
+    "</script></body></html>"
+  );
+}

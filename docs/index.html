@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nộp danh sách ca bệnh — CDC Hải Phòng</title>
+<style>
+  html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; background: #f8fafc; }
+  header { padding: 10px 16px; background: #1e3a8a; color: #fff; font-size: 1rem; }
+  header strong { font-weight: 600; }
+  #frame-wrap { position: absolute; top: 44px; left: 0; right: 0; bottom: 0; }
+  iframe { width: 100%; height: 100%; border: none; }
+  #fallback { max-width: 560px; margin: 40px auto; padding: 16px; color: #991b1b; }
+</style>
+</head>
+<body>
+<header><strong>CDC Hải Phòng</strong> — Nộp danh sách ca bệnh hằng tuần</header>
+<div id="frame-wrap">
+  <iframe id="gasFrame" title="Nộp danh sách ca bệnh"></iframe>
+</div>
+<div id="fallback" style="display:none">
+  Chưa cấu hình được link nộp báo cáo. Vui lòng liên hệ CDC Hải Phòng để được hỗ trợ.
+</div>
+<script src="config.js"></script>
+<script>
+  if (typeof GAS_URL === "string" && GAS_URL.indexOf("https://script.google.com/") === 0) {
+    document.getElementById("gasFrame").src = GAS_URL;
+  } else {
+    document.getElementById("frame-wrap").style.display = "none";
+    document.getElementById("fallback").style.display = "block";
+  }
+</script>
+</body>
+</html>
