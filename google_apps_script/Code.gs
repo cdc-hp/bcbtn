@@ -38,8 +38,45 @@ var STATUS_LABELS = {
   da_dong_bo: "Đã đồng bộ vào máy chủ chính",
 };
 
+/**
+ * Danh mục chính thức 114 đơn vị hành chính cấp xã của thành phố Hải Phòng (67 xã, 45 phường,
+ * 2 đặc khu), theo Nghị quyết số 1669/NQ-UBTVQH15 ngày 16/6/2025 của Ủy ban Thường vụ Quốc hội,
+ * hiệu lực từ 1/7/2025. Dùng làm danh sách chọn cố định (dropdown) thay cho ô nhập tên xã tự
+ * do trước đây — tránh sai chính tả/không thống nhất tên đơn vị giữa các lần nộp (hạn chế đã
+ * ghi nhận ở WEB_DEDUP_DESIGN.md mục 8, "communes... Chưa cài đặt").
+ */
+var COMMUNES = [
+  "Phường Thủy Nguyên", "Phường Thiên Hương", "Phường Hòa Bình", "Phường Nam Triệu",
+  "Phường Bạch Đằng", "Phường Lưu Kiếm", "Phường Lê Ích Mộc", "Phường Hồng Bàng",
+  "Phường Hồng An", "Phường Ngô Quyền", "Phường Gia Viên", "Phường Lê Chân",
+  "Phường An Biên", "Phường Hải An", "Phường Đông Hải", "Phường Kiến An",
+  "Phường Phù Liễn", "Phường Nam Đồ Sơn", "Phường Đồ Sơn", "Phường Hưng Đạo",
+  "Phường Dương Kinh", "Phường An Dương", "Phường An Hải", "Phường An Phong",
+  "Phường Hải Dương", "Phường Lê Thanh Nghị", "Phường Việt Hòa", "Phường Thành Đông",
+  "Phường Nam Đồng", "Phường Tân Hưng", "Phường Thạch Khôi", "Phường Tứ Minh",
+  "Phường Ái Quốc", "Phường Chu Văn An", "Phường Chí Linh", "Phường Trần Hưng Đạo",
+  "Phường Nguyễn Trãi", "Phường Trần Nhân Tông", "Phường Lê Đại Hành", "Phường Kinh Môn",
+  "Phường Nguyễn Đại Năng", "Phường Trần Liễu", "Phường Bắc An Phụ", "Phường Phạm Sư Mạnh",
+  "Phường Nhị Chiểu",
+  "Xã An Hưng", "Xã An Khánh", "Xã An Quang", "Xã An Trường", "Xã An Lão",
+  "Xã Kiến Thụy", "Xã Kiến Minh", "Xã Kiến Hải", "Xã Kiến Hưng", "Xã Nghi Dương",
+  "Xã Quyết Thắng", "Xã Tiên Lãng", "Xã Tân Minh", "Xã Tiên Minh", "Xã Chấn Hưng",
+  "Xã Hùng Thắng", "Xã Vĩnh Bảo", "Xã Nguyễn Bỉnh Khiêm", "Xã Vĩnh Am", "Xã Vĩnh Hải",
+  "Xã Vĩnh Hòa", "Xã Vĩnh Thịnh", "Xã Vĩnh Thuận", "Xã Việt Khê", "Xã Nam An Phụ",
+  "Xã Nam Sách", "Xã Thái Tân", "Xã Trần Phú", "Xã Hợp Tiến", "Xã An Phú",
+  "Xã Thanh Hà", "Xã Hà Tây", "Xã Hà Bắc", "Xã Hà Nam", "Xã Hà Đông",
+  "Xã Mao Điền", "Xã Cẩm Giàng", "Xã Cẩm Giang", "Xã Tuệ Tĩnh", "Xã Kẻ Sặt",
+  "Xã Bình Giang", "Xã Đường An", "Xã Thượng Hồng", "Xã Gia Lộc", "Xã Yết Kiêu",
+  "Xã Gia Phúc", "Xã Trường Tân", "Xã Tứ Kỳ", "Xã Tân Kỳ", "Xã Đại Sơn",
+  "Xã Chí Minh", "Xã Lạc Phượng", "Xã Nguyên Giáp", "Xã Ninh Giang", "Xã Vĩnh Lại",
+  "Xã Khúc Thừa Dụ", "Xã Tân An", "Xã Hồng Châu", "Xã Thanh Miện", "Xã Bắc Thanh Miện",
+  "Xã Hải Hưng", "Xã Nguyễn Lương Bằng", "Xã Nam Thanh Miện", "Xã Phú Thái", "Xã Lai Khê",
+  "Xã An Thành", "Xã Kim Thành",
+  "Đặc khu Cát Hải", "Đặc khu Bạch Long Vĩ",
+];
+
 function doGet(e) {
-  return HtmlService.createHtmlOutput(buildPageHtml(listCommunes()))
+  return HtmlService.createHtmlOutput(buildPageHtml(COMMUNES))
     .setTitle("Nộp danh sách ca bệnh — máy chủ phụ")
     .addMetaTag("viewport", "width=device-width, initial-scale=1")
     // Mặc định Apps Script chặn nhúng iframe từ domain khác (X-Frame-Options: SAMEORIGIN) —
@@ -308,22 +345,6 @@ function listStatus(key, commune) {
   return result.slice(0, 200);
 }
 
-function listCommunes() {
-  var sheet = getSheet();
-  var values = sheet.getDataRange().getValues();
-  var seen = {};
-  var list = [];
-  for (var r = 1; r < values.length; r++) {
-    var c = String(values[r][0] || "").trim();
-    if (c && !seen[c]) {
-      seen[c] = true;
-      list.push(c);
-    }
-  }
-  list.sort(function (a, b) { return a.localeCompare(b, "vi"); });
-  return list;
-}
-
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, function (c) {
     return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
@@ -363,7 +384,7 @@ function buildPageHtml(communes) {
     '<div id="panel-submit" class="tab-panel active">' +
     "<p>Đây là link cố định để nộp mỗi tuần. Hệ thống tự chuyển thẳng tới máy chủ chính; nếu máy chủ chính tạm thời không phản hồi được, dữ liệu sẽ lưu tạm và CDC đồng bộ bù sau.</p>" +
     '<form id="f">' +
-    "<label>Xã / phường</label><input name=\"commune\" required>" +
+    "<label>Xã / phường / đặc khu</label><select name=\"commune\" required><option value=\"\">-- Chọn đơn vị --</option>" + options + "</select>" +
     '<label>Tuần báo cáo</label><input name="week" required placeholder="2026-W29">' +
     "<label>Người nộp</label><input name=\"submitted_by\">" +
     '<label>Khóa máy chủ phụ (do CDC cung cấp)</label><input name="key" type="password" required>' +
@@ -374,8 +395,7 @@ function buildPageHtml(communes) {
     '<div id="panel-status" class="tab-panel">' +
     "<p>Xem các lần nộp gần đây của đơn vị mình (tối đa 200 lượt gần nhất).</p>" +
     '<form id="sf">' +
-    "<label>Đơn vị</label><select name=\"communeSelect\"><option value=\"\">-- Chọn đơn vị đã từng nộp --</option>" + options + "</select>" +
-    "<label>Hoặc nhập tên đơn vị khác</label><input name=\"communeOther\" placeholder=\"Để trống nếu đã chọn ở trên\">" +
+    "<label>Đơn vị</label><select name=\"communeSelect\" required><option value=\"\">-- Chọn đơn vị --</option>" + options + "</select>" +
     '<label>Khóa máy chủ phụ (do CDC cung cấp)</label><input name="key" type="password" required>' +
     '<button type="submit">Xem tình hình nộp</button></form><div id="statusMsg"></div>' +
     '<div id="statusTableWrap"></div>' +
@@ -416,7 +436,7 @@ function buildPageHtml(communes) {
     "  var form = ev.target;" +
     '  var msg = document.getElementById("statusMsg");' +
     '  var wrap = document.getElementById("statusTableWrap");' +
-    '  var commune = (form.communeOther.value || form.communeSelect.value || "").trim();' +
+    '  var commune = (form.communeSelect.value || "").trim();' +
     "  wrap.innerHTML = '';" +
     "  if (!commune) {" +
     '    msg.className = "err"; msg.textContent = "Chọn hoặc nhập tên đơn vị trước.";' +
