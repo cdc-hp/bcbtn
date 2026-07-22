@@ -450,23 +450,22 @@ function buildPageHtml(communes) {
     margin: 0; background: var(--slate-50); color: var(--slate-900); -webkit-font-smoothing: antialiased;
   }
   .page { max-width: 640px; margin: 0 auto; padding-bottom: 32px; }
-  .app-header { background: linear-gradient(135deg, var(--blue-900), var(--blue-600)); color: #fff; padding: 20px 20px 44px; }
+  .app-header {
+    background: var(--blue-50); padding: 18px 20px 24px; border-radius: 0 0 22px 22px;
+    box-shadow: 0 3px 10px rgba(30,58,138,.10);
+  }
   .app-header-inner { display: flex; align-items: center; gap: 12px; }
-  .logo-badge { flex: none; width: 42px; height: 42px; border-radius: 12px; object-fit: contain; background: rgba(255,255,255,.16); }
-  .app-header h1 { font-size: 1.15rem; margin: 0; font-weight: 600; }
-  .app-header p { margin: 2px 0 0; font-size: .85rem; opacity: .85; }
+  .logo-badge { flex: none; width: 44px; height: 44px; border-radius: 12px; object-fit: contain;
+    box-shadow: 0 1px 4px rgba(30,58,138,.20); background: #fff; }
+  .app-header h1 { font-size: 1.15rem; margin: 0; font-weight: 700; color: var(--blue-900); }
+  .app-header p { margin: 2px 0 0; font-size: .85rem; color: var(--slate-500); }
 
-  .content { margin: -28px 16px 0; }
-  .tabs { display: flex; gap: 4px; background: var(--slate-200); border-radius: 12px; padding: 4px; margin-bottom: 16px; }
-  .tab-btn { flex: 1; padding: 10px 8px; border: none; background: none; cursor: pointer; font-size: .9rem;
-    font-weight: 600; color: var(--slate-500); border-radius: 9px; transition: background .15s, color .15s; }
-  .tab-btn.active { background: #fff; color: var(--blue-600); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
-  .tab-panel { display: none; }
-  .tab-panel.active { display: block; }
+  .content { margin: 16px 16px 0; }
 
   .card { background: #fff; border-radius: 14px; padding: 20px; border: 1px solid var(--slate-200);
     box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04); }
   .lede { font-size: .88rem; color: var(--slate-500); margin: 0 0 16px; line-height: 1.5; }
+  .missing-notice { color: var(--red-600); font-weight: 600; font-size: .88rem; line-height: 1.6; margin: 0 0 16px; }
 
   label { display: block; margin-top: 14px; font-weight: 600; font-size: .88rem; }
   label:first-of-type { margin-top: 0; }
@@ -511,26 +510,10 @@ function buildPageHtml(communes) {
     border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -3px; margin-right: 7px; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  #msg, #statusMsg { margin-top: 16px; padding: 12px 14px; border-radius: 10px; display: none; font-size: .88rem; line-height: 1.5; }
-  #msg.ok, #statusMsg.ok { background: var(--green-50); color: var(--green-700); display: block; }
-  #msg.err, #statusMsg.err { background: var(--red-50); color: var(--red-700); display: block; }
+  #msg { margin-top: 16px; padding: 12px 14px; border-radius: 10px; display: none; font-size: .88rem; line-height: 1.5; }
+  #msg.ok { background: var(--green-50); color: var(--green-700); display: block; }
+  #msg.err { background: var(--red-50); color: var(--red-700); display: block; }
 
-  .unit-box { display: none; align-items: center; justify-content: space-between; gap: 10px;
-    padding: 12px 14px; background: var(--blue-50); border: 1px solid #bfdbfe; border-radius: 10px; margin-bottom: 14px; }
-  .unit-box .unit-name { font-size: .82rem; color: var(--slate-500); }
-  .unit-box .unit-name b { display: block; font-size: 1rem; color: var(--slate-900); }
-  .unit-box .unit-actions { display: flex; align-items: center; gap: 10px; flex: none; }
-
-  .status-col-title { font-size: .78rem; font-weight: 700; color: var(--slate-500);
-    text-transform: uppercase; letter-spacing: .03em; margin: 0 0 8px; }
-
-  .missing-weeks-panel { margin-top: 4px; }
-  .missing-weeks-panel .status-col-title { text-align: right; }
-  .missing-list { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
-  .week-chip { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: .78rem;
-    font-weight: 600; background: var(--red-50); color: var(--red-700); }
-
-  .empty-state { padding: 12px 0; color: var(--slate-500); font-size: .86rem; }
   .footer-note { text-align: center; font-size: .76rem; color: var(--slate-500); margin-top: 20px; }
 </style>
 </head>
@@ -547,78 +530,44 @@ function buildPageHtml(communes) {
   </div>
 
   <div class="content">
-    <div class="tabs">
-      <button type="button" class="tab-btn active" data-tab="submit">📤 Nộp báo cáo</button>
-      <button type="button" class="tab-btn" data-tab="status">📊 Tình hình nộp</button>
-    </div>
-
     <datalist id="communeList">${options}</datalist>
 
-    <div id="panel-submit" class="tab-panel active">
-      <div class="card">
-        <p class="lede">Đây là link cố định để nộp mỗi tuần. Hệ thống tự chuyển thẳng tới máy chủ chính; nếu máy chủ chính tạm thời không phản hồi được, dữ liệu sẽ lưu tạm và CDC đồng bộ bù sau.</p>
-        <form id="f">
-          <label>Xã / phường / đặc khu <span class="req">*</span></label>
-          <input name="commune" list="communeList" autocomplete="off" placeholder="Gõ để tìm..." required>
+    <div class="card">
+      <p class="lede">Đây là link cố định để nộp mỗi tuần. Hệ thống tự chuyển thẳng tới máy chủ chính; nếu máy chủ chính tạm thời không phản hồi được, dữ liệu sẽ lưu tạm và CDC đồng bộ bù sau.</p>
+      <div id="missingWeeksNotice" class="missing-notice" style="display:none"></div>
+      <form id="f">
+        <label>Xã / phường / đặc khu <span class="req">*</span></label>
+        <input name="commune" list="communeList" autocomplete="off" placeholder="Gõ để tìm..." required>
 
-          <label>Tuần báo cáo <span class="req">*</span></label>
-          <input name="week" type="week" id="weekInput" required>
-          <div class="hint" id="weekRangeInfo"></div>
+        <label>Tuần báo cáo <span class="req">*</span></label>
+        <input name="week" type="week" id="weekInput" required>
+        <div class="hint" id="weekRangeInfo"></div>
 
-          <label>Người nộp</label>
-          <input name="submitted_by" placeholder="Họ tên (không bắt buộc)">
+        <label>Người nộp</label>
+        <input name="submitted_by" placeholder="Họ tên (không bắt buộc)">
 
-          <label>Khóa máy chủ phụ (do CDC cung cấp) <span class="req">*</span></label>
-          <input name="key" type="password" required>
+        <label>Khóa máy chủ phụ (do CDC cung cấp) <span class="req">*</span></label>
+        <input name="key" type="password" required>
 
-          <label>File Excel theo mẫu (.xlsx) <span class="req">*</span></label>
-          <div class="hint"><a href="${TEMPLATE_URL}" target="_blank" rel="noopener">⬇ Tải file mẫu Excel (48 trường)</a></div>
+        <label>File Excel theo mẫu (.xlsx) <span class="req">*</span></label>
+        <div class="hint"><a href="${TEMPLATE_URL}" target="_blank" rel="noopener">⬇ Tải file mẫu Excel (48 trường)</a></div>
 
-          <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Chọn file Excel">
-            <div class="dropzone-icon">📄</div>
-            <div class="dropzone-text">Kéo thả file vào đây, hoặc <b>chọn file</b></div>
-            <div class="dropzone-hint">Chỉ nhận .xlsx / .xlsm theo mẫu</div>
-          </div>
-          <input name="file" id="fileInput" type="file" accept=".xlsx,.xlsm" required hidden>
-          <div class="file-chip" id="fileChip" style="display:none">
-            <span>📄</span>
-            <div class="file-info"><div class="fname" id="fileName"></div><div class="fsize" id="fileSize"></div></div>
-            <button type="button" id="removeFile" title="Bỏ chọn file">✕</button>
-          </div>
-
-          <button type="submit" id="submitBtn">Nộp báo cáo</button>
-          <button type="button" class="link-btn" id="clearCacheLink">Xoá thông tin đã lưu (đổi đơn vị/người nộp)</button>
-        </form>
-        <div id="msg"></div>
-      </div>
-    </div>
-
-    <div id="panel-status" class="tab-panel">
-      <div class="card">
-        <p class="lede">Tình hình nộp của đơn vị mình — không cần chọn lại đơn vị nếu đã nộp báo cáo ít nhất 1 lần trên máy này.</p>
-
-        <div class="unit-box" id="statusUnitBox">
-          <div class="unit-name">Đơn vị<b id="statusUnitLabel"></b></div>
-          <div class="unit-actions">
-            <button type="button" class="btn-secondary" id="refreshStatusBtn">↻ Làm mới</button>
-            <button type="button" class="link-btn" id="changeUnitLink" style="margin-top:0">đổi</button>
-          </div>
+        <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Chọn file Excel">
+          <div class="dropzone-icon">📄</div>
+          <div class="dropzone-text">Kéo thả file vào đây, hoặc <b>chọn file</b></div>
+          <div class="dropzone-hint">Chỉ nhận .xlsx / .xlsm theo mẫu</div>
+        </div>
+        <input name="file" id="fileInput" type="file" accept=".xlsx,.xlsm" required hidden>
+        <div class="file-chip" id="fileChip" style="display:none">
+          <span>📄</span>
+          <div class="file-info"><div class="fname" id="fileName"></div><div class="fsize" id="fileSize"></div></div>
+          <button type="button" id="removeFile" title="Bỏ chọn file">✕</button>
         </div>
 
-        <form id="sf" style="display:none">
-          <label>Đơn vị <span class="req">*</span></label>
-          <input name="commune" list="communeList" autocomplete="off" placeholder="Gõ để tìm..." required>
-          <label>Khóa máy chủ phụ (do CDC cung cấp) <span class="req">*</span></label>
-          <input name="key" type="password" required>
-          <button type="submit">Lưu &amp; xem tình hình nộp</button>
-        </form>
-
-        <div id="statusMsg"></div>
-        <div class="missing-weeks-panel">
-          <div class="status-col-title">Tuần chưa báo cáo</div>
-          <div id="missingWeeksWrap"></div>
-        </div>
-      </div>
+        <button type="submit" id="submitBtn">Nộp báo cáo</button>
+        <button type="button" class="link-btn" id="clearCacheLink">Xoá thông tin đã lưu (đổi đơn vị/người nộp)</button>
+      </form>
+      <div id="msg"></div>
     </div>
 
     <div class="footer-note">CDC Hải Phòng · Ứng dụng Giám sát dịch bệnh</div>
@@ -706,24 +655,16 @@ function updateWeekRangeInfo() {
     form[field].addEventListener("change", function () {
       var patch = {}; patch[field] = form[field].value;
       saveCache(patch);
+      if (field === "commune" || field === "key") refreshMissingWeeksNotice();
     });
   });
   document.getElementById("clearCacheLink").addEventListener("click", function () {
     clearCache();
     form.commune.value = ""; form.key.value = ""; form.submitted_by.value = "";
-    refreshStatusUnitBox();
+    refreshMissingWeeksNotice();
   });
+  refreshMissingWeeksNotice();
 })();
-
-document.querySelectorAll(".tab-btn").forEach(function (btn) {
-  btn.addEventListener("click", function () {
-    document.querySelectorAll(".tab-btn").forEach(function (b) { b.classList.remove("active"); });
-    document.querySelectorAll(".tab-panel").forEach(function (p) { p.classList.remove("active"); });
-    btn.classList.add("active");
-    document.getElementById("panel-" + btn.dataset.tab).classList.add("active");
-    if (btn.dataset.tab === "status") refreshStatusUnitBox();
-  });
-});
 
 // --- Dropzone / chọn file ---
 function formatFileSize(bytes) {
@@ -818,7 +759,7 @@ document.getElementById("f").addEventListener("submit", function (ev) {
       submitBtn.disabled = false; submitBtn.textContent = "Nộp báo cáo";
       if (data.ok) {
         saveCache({ commune: form.commune.value, key: form.key.value, submitted_by: form.submitted_by.value });
-        refreshStatusUnitBox();
+        refreshMissingWeeksNotice();
       }
       if (data.ok && data.result.forwarded) { msg.className = "ok"; msg.textContent = "✓ Đã nộp trực tiếp vào máy chủ chính, mã hàng đợi #" + data.result.queue_id + "."; clearFileChip(); }
       else if (data.ok) { msg.className = "ok"; msg.textContent = "✓ Máy chủ chính tạm thời không phản hồi — đã lưu tạm, dòng #" + data.result.row + ". CDC sẽ đồng bộ bù sau."; clearFileChip(); }
@@ -850,93 +791,38 @@ function weeksBetween(startWeek, endWeek) {
 }
 
 // Tuần chưa báo cáo = mọi tuần từ TRACKING_START_WEEK (Script Property, CDC tự cấu hình) tới
-// tuần hiện tại mà đơn vị chưa có lượt nộp nào (bất kể trạng thái đã đồng bộ hay chưa).
+// tuần hiện tại mà đơn vị chưa có lượt nộp nào (bất kể trạng thái đã đồng bộ hay chưa). Hiện
+// dưới dạng 1 dòng chữ đỏ ngay trên form nộp — không phải trang/tab riêng — im lặng ẩn đi nếu
+// CDC chưa cấu hình TRACKING_START_WEEK hoặc chưa xác định được đơn vị (không có gì để xã xử lý).
 function renderMissingWeeks(trackingStartWeek, submittedWeeksSet) {
-  var wrap = document.getElementById("missingWeeksWrap");
-  if (!trackingStartWeek) {
-    wrap.innerHTML = '<div class="hint">CDC chưa cấu hình mốc tuần bắt đầu theo dõi (Script Property <b>TRACKING_START_WEEK</b>, dạng YYYY-Www) nên chưa tính được tuần thiếu.</div>';
-    return;
-  }
+  var notice = document.getElementById("missingWeeksNotice");
+  if (!trackingStartWeek) { notice.style.display = "none"; return; }
   var currentWeek = isoWeekString(new Date());
   var allWeeks = weeksBetween(trackingStartWeek, currentWeek);
-  if (!allWeeks.length) {
-    wrap.innerHTML = '<div class="hint">Giá trị TRACKING_START_WEEK ("' + trackingStartWeek + '") không hợp lệ (cần dạng YYYY-Www, ví dụ 2026-W01, và không được ở sau tuần hiện tại).</div>';
-    return;
-  }
+  if (!allWeeks.length) { notice.style.display = "none"; return; }
   var missing = allWeeks.filter(function (w) { return !submittedWeeksSet[w]; });
-  if (!missing.length) {
-    wrap.innerHTML = '<div class="empty-state">Đã nộp đầy đủ các tuần từ ' + trackingStartWeek + ' đến nay.</div>';
-    return;
-  }
-  var html = '<div class="missing-list">';
-  missing.forEach(function (w) { html += '<span class="week-chip">' + w + '</span>'; });
-  html += '</div>';
-  wrap.innerHTML = html;
+  if (!missing.length) { notice.style.display = "none"; return; }
+  notice.textContent = "⚠ Chưa nộp báo cáo các tuần: " + missing.join(", ") + ".";
+  notice.style.display = "block";
 }
 
-function fetchStatus(commune, key) {
-  var msg = document.getElementById("statusMsg");
-  var missingWrap = document.getElementById("missingWeeksWrap");
-  missingWrap.innerHTML = "";
-  msg.className = "";
-  msg.textContent = "Đang tải...";
-  msg.style.display = "block";
+// Tự động chạy khi tải trang (nếu đã có đơn vị/khóa trong cache) và mỗi khi đổi đơn vị/khóa
+// trên chính form nộp — không cần màn hình/tab riêng để xem tình hình nộp.
+function refreshMissingWeeksNotice() {
+  var form = document.getElementById("f");
+  var commune = form.commune.value, key = form.key.value;
+  var notice = document.getElementById("missingWeeksNotice");
+  if (!COMMUNE_SET[commune] || !key) { notice.style.display = "none"; return; }
   fetch(window.location.href, {
     method: "POST",
     body: JSON.stringify({ action: "list_status", commune: commune, key: key }),
   }).then(function (r) { return r.json(); }).then(function (data) {
-    if (!data.ok) {
-      msg.className = "err"; msg.textContent = "Lỗi: " + data.error;
-      return;
-    }
-    msg.className = ""; msg.style.display = "none";
-    var rows = data.result.rows;
+    if (!data.ok) { notice.style.display = "none"; return; }
     var submittedWeeksSet = {};
-    rows.forEach(function (row) { submittedWeeksSet[row.week] = true; });
+    data.result.rows.forEach(function (row) { submittedWeeksSet[row.week] = true; });
     renderMissingWeeks(data.result.tracking_start_week, submittedWeeksSet);
-  }).catch(function (e) { msg.className = "err"; msg.textContent = "Lỗi kết nối: " + e; });
+  }).catch(function () { notice.style.display = "none"; });
 }
-
-// Item 2: tab "Tình hình nộp" không bắt chọn lại đơn vị nếu đã có trong cache — chỉ hiện
-// form chọn đơn vị khi chưa từng nộp trên máy này, hoặc khi bấm "đổi".
-function refreshStatusUnitBox() {
-  var cache = loadCache();
-  var box = document.getElementById("statusUnitBox");
-  var setupForm = document.getElementById("sf");
-  if (cache.commune && cache.key) {
-    document.getElementById("statusUnitLabel").textContent = cache.commune;
-    box.style.display = "flex";
-    setupForm.style.display = "none";
-    fetchStatus(cache.commune, cache.key);
-  } else {
-    box.style.display = "none";
-    setupForm.style.display = "block";
-    if (cache.commune) setupForm.commune.value = cache.commune;
-  }
-}
-
-document.getElementById("refreshStatusBtn").addEventListener("click", function () {
-  var cache = loadCache();
-  if (cache.commune && cache.key) fetchStatus(cache.commune, cache.key);
-});
-document.getElementById("changeUnitLink").addEventListener("click", function () {
-  document.getElementById("statusUnitBox").style.display = "none";
-  var setupForm = document.getElementById("sf");
-  setupForm.style.display = "block";
-  var cache = loadCache();
-  if (cache.commune) setupForm.commune.value = cache.commune;
-});
-document.getElementById("sf").addEventListener("submit", function (ev) {
-  ev.preventDefault();
-  var form = ev.target;
-  var msg = document.getElementById("statusMsg");
-  if (!COMMUNE_SET[form.commune.value]) {
-    msg.className = "err"; msg.style.display = "block"; msg.textContent = "Vui lòng chọn đúng tên đơn vị từ danh sách gợi ý.";
-    return;
-  }
-  saveCache({ commune: form.commune.value, key: form.key.value });
-  refreshStatusUnitBox();
-});
 </script>
 </body>
 </html>`;
