@@ -29,11 +29,13 @@ READ_FUNCTIONS = {
     "list_filter_values", "query_records", "get_record", "list_quality_issues",
     "list_import_batches", "execute_select", "find_duplicate_groups", "list_duplicate_actions",
     "list_backups", "list_import_queue", "list_commune_accounts", "list_audit_log",
+    "list_cdc_accounts",
 }
 WRITE_FUNCTIONS = {
     "save_outbreak", "delete_record", "remove_duplicate_records", "merge_duplicate_records",
     "restore_duplicate_action", "create_backup", "import_queue_item", "archive_old_queue_files",
     "create_commune_account", "set_commune_account_active", "reset_commune_account_password",
+    "create_cdc_account", "set_cdc_account_active", "reset_cdc_account_password",
 }
 # Các hàm ghi có tham số actor — máy chủ tự điền actor mặc định theo IP nếu người gọi chưa cung cấp,
 # để nhật ký kiểm toán luôn có "ai" thực hiện ngay cả khi gọi qua Máy trạm.
@@ -41,6 +43,7 @@ AUDITED_FUNCTIONS = {
     "remove_duplicate_records", "merge_duplicate_records", "restore_duplicate_action",
     "import_queue_item", "archive_old_queue_files", "create_commune_account",
     "set_commune_account_active", "reset_commune_account_password",
+    "create_cdc_account", "set_cdc_account_active", "reset_cdc_account_password",
 }
 
 DB_FUNCTIONS = {
@@ -51,6 +54,7 @@ DB_FUNCTIONS = {
     "restore_duplicate_action", "create_backup", "list_import_queue", "import_queue_item",
     "archive_old_queue_files", "list_commune_accounts", "list_audit_log",
     "create_commune_account", "set_commune_account_active", "reset_commune_account_password",
+    "list_cdc_accounts", "create_cdc_account", "set_cdc_account_active", "reset_cdc_account_password",
 }
 
 
@@ -536,6 +540,19 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _authorized(self) -> bool:
+        """Chấp nhận HAI đường song song, không loại trừ nhau (cùng nguyên tắc với
+        ``_handle_queue_submit``): token đăng nhập cá nhân của quản trị viên
+        (``X-GSBTN-Admin-Token``, từ ``POST /cdc/login``) HOẶC mật khẩu máy chủ dùng chung
+        (``X-GSBTN-Password``, để không phá vỡ các máy trạm/tích hợp cũ chưa tạo tài khoản
+        riêng). Khi xác thực qua token, ghi lại danh tính vào ``self._admin_actor`` để
+        ``_handle_rpc`` dùng làm actor trong nhật ký kiểm toán thay vì chỉ có địa chỉ IP."""
+        self._admin_actor = None
+        admin_token = self.headers.get("X-GSBTN-Admin-Token", "")
+        if admin_token:
+            claims = core.verify_admin_token(admin_token, self.server.config.web_token_secret)
+            if claims:
+                self._admin_actor = claims["username"]
+                return True
         expected = self.server.config.password
         return not expected or self.headers.get("X-GSBTN-Password", "") == expected
 
@@ -589,7 +606,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         # mật khẩu máy chủ dùng chung (không "chỉ dùng token khi đã có tài khoản" như trước),
         # vì Google Apps Script khi chuyển tiếp trực tiếp chỉ biết mật khẩu dùng chung, không có
         # token của từng xã — hai đường xác thực cần cùng tồn tại song song thay vì loại trừ nhau.
-        exempt_from_shared_password = path in ("/xa/login", "/queue/submit")
+        exempt_from_shared_password = path in ("/xa/login", "/queue/submit", "/cdc/login")
         if not exempt_from_shared_password and not self._authorized():
             self._drain_body(max(length, 0))
             self._reject_auth(); return
@@ -617,6 +634,8 @@ class ApiHandler(BaseHTTPRequestHandler):
                 result = self._handle_import(payload)
             elif path == "/xa/login":
                 result = self._handle_commune_login(payload)
+            elif path == "/cdc/login":
+                result = self._handle_cdc_login(payload)
             elif path == "/queue/submit":
                 if self.server.backup_in_progress:
                     raise RuntimeError("Máy chủ đang sao lưu; tạm thời chỉ cho phép đọc dữ liệu.")
@@ -648,7 +667,9 @@ class ApiHandler(BaseHTTPRequestHandler):
         if function_name in WRITE_FUNCTIONS and function_name != "create_backup" and self.server.backup_in_progress:
             raise RuntimeError("Máy chủ đang sao lưu; tạm thời chỉ cho phép đọc dữ liệu.")
         if function_name in AUDITED_FUNCTIONS and not kwargs.get("actor"):
-            kwargs["actor"] = f"LAN:{self.client_ip}"
+            # Ưu tiên danh tính quản trị viên đã đăng nhập cá nhân (xem _authorized); nếu máy
+            # trạm vẫn dùng mật khẩu dùng chung (chưa có tài khoản riêng) thì trở lại ghi theo IP.
+            kwargs["actor"] = self._admin_actor or f"LAN:{self.client_ip}"
         function = getattr(core, function_name, None)
         if not callable(function):
             raise ValueError(f"Máy chủ chưa hỗ trợ hàm {function_name}.")
@@ -693,6 +714,18 @@ class ApiHandler(BaseHTTPRequestHandler):
             "token": token, "commune": account["commune"], "username": account["username"],
             "display_name": account["display_name"],
         }
+
+    def _handle_cdc_login(self, payload: dict[str, Any]) -> Any:
+        """Đăng nhập cá nhân cho quản trị viên (máy trạm quản trị) — cấp X-GSBTN-Admin-Token
+        dùng song song với mật khẩu máy chủ dùng chung, xem _authorized()."""
+        username = str(payload.get("username", ""))
+        password = str(payload.get("password", ""))
+        account = core.verify_cdc_account(username, password, db_path=core.DB_PATH)
+        if not account:
+            raise ValueError("Sai tên đăng nhập hoặc mật khẩu.")
+        config = ensure_web_token_secret(self.server.config)
+        token = core.issue_admin_token(account["id"], account["username"], config.web_token_secret)
+        return {"token": token, "username": account["username"], "display_name": account["display_name"]}
 
     def _handle_queue_submit(self, payload: dict[str, Any]) -> Any:
         """Xác thực nộp hàng đợi — chấp nhận HAI đường song song, không loại trừ nhau:

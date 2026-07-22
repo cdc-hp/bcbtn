@@ -38,6 +38,8 @@ class DeploymentConfig:
     secondary_webapp_url: str = ""
     secondary_shared_key: str = ""
     web_token_secret: str = ""
+    admin_username: str = ""
+    admin_token: str = ""
 
     @property
     def is_standalone(self) -> bool:
@@ -83,6 +85,8 @@ def load_config() -> DeploymentConfig:
         secondary_webapp_url=str(raw.get("secondary_webapp_url", "") or "").strip(),
         secondary_shared_key=str(raw.get("secondary_shared_key", "") or ""),
         web_token_secret=str(raw.get("web_token_secret", "") or ""),
+        admin_username=str(raw.get("admin_username", "") or ""),
+        admin_token=str(raw.get("admin_token", "") or ""),
     )
 
 

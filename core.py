@@ -372,6 +372,16 @@ def init_db(db_path: Path | str = DB_PATH) -> None:
                     last_login_at TEXT
                 );
 
+                CREATE TABLE IF NOT EXISTS cdc_accounts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    display_name TEXT,
+                    active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    last_login_at TEXT
+                );
+
                 CREATE TABLE IF NOT EXISTS audit_log (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     created_at TEXT NOT NULL,
@@ -1799,6 +1809,126 @@ def verify_commune_token(token: str, secret: str) -> dict[str, Any] | None:
         if int(expires_str) < int(time.time()):
             return None
         return {"account_id": int(account_id_str), "commune": commune, "username": username}
+    except Exception:
+        return None
+
+
+def has_cdc_accounts(db_path: Path | str = DB_PATH) -> bool:
+    """Đã có ít nhất 1 tài khoản quản trị viên riêng chưa — dùng để quyết định máy trạm có bắt
+    đăng nhập cá nhân hay còn dùng mật khẩu máy chủ dùng chung (giai đoạn chuyển tiếp)."""
+    init_db(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute("SELECT 1 FROM cdc_accounts WHERE active=1 LIMIT 1").fetchone()
+        return row is not None
+
+
+def create_cdc_account(
+    username: str, password: str, display_name: str = "", db_path: Path | str = DB_PATH, actor: str = "",
+) -> dict[str, Any]:
+    init_db(db_path)
+    username = strip_text(username).lower()
+    if not username:
+        raise ValueError("Thiếu tên đăng nhập.")
+    if len(password or "") < 8:
+        raise ValueError("Mật khẩu phải có ít nhất 8 ký tự.")
+    now = datetime.now().isoformat(sep=" ", timespec="seconds")
+    with _connect(db_path) as conn:
+        try:
+            cur = conn.execute(
+                """INSERT INTO cdc_accounts (username, password_hash, display_name, active, created_at)
+                   VALUES (?, ?, ?, 1, ?)""",
+                (username, _hash_password(password), display_name or username, now),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("Tên đăng nhập này đã có tài khoản.") from exc
+        account_id = int(cur.lastrowid)
+    log_audit("create_cdc_account", actor=actor, detail=f"username={username}", db_path=db_path)
+    return {"id": account_id, "username": username}
+
+
+def list_cdc_accounts(db_path: Path | str = DB_PATH) -> list[dict[str, Any]]:
+    init_db(db_path)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT id, username, display_name, active, created_at, last_login_at "
+            "FROM cdc_accounts ORDER BY username"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def set_cdc_account_active(account_id: int, active: bool, db_path: Path | str = DB_PATH, actor: str = "") -> None:
+    init_db(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute("SELECT username FROM cdc_accounts WHERE id=?", (int(account_id),)).fetchone()
+        if not row:
+            raise ValueError("Không tìm thấy tài khoản.")
+        conn.execute("UPDATE cdc_accounts SET active=? WHERE id=?", (1 if active else 0, int(account_id)))
+    log_audit(
+        "enable_cdc_account" if active else "disable_cdc_account",
+        actor=actor, detail=f"username={row['username']}", db_path=db_path,
+    )
+
+
+def reset_cdc_account_password(
+    account_id: int, new_password: str, db_path: Path | str = DB_PATH, actor: str = "",
+) -> None:
+    init_db(db_path)
+    if len(new_password or "") < 8:
+        raise ValueError("Mật khẩu phải có ít nhất 8 ký tự.")
+    with _connect(db_path) as conn:
+        row = conn.execute("SELECT username FROM cdc_accounts WHERE id=?", (int(account_id),)).fetchone()
+        if not row:
+            raise ValueError("Không tìm thấy tài khoản.")
+        conn.execute(
+            "UPDATE cdc_accounts SET password_hash=? WHERE id=?", (_hash_password(new_password), int(account_id))
+        )
+    log_audit("reset_cdc_account_password", actor=actor, detail=f"username={row['username']}", db_path=db_path)
+
+
+def verify_cdc_account(username: str, password: str, db_path: Path | str = DB_PATH) -> dict[str, Any] | None:
+    """Kiểm tra tên đăng nhập/mật khẩu tài khoản quản trị viên; ghi nhật ký cả khi thành công
+    lẫn thất bại — dùng cho máy trạm quản trị đăng nhập cá nhân (POST /cdc/login)."""
+    init_db(db_path)
+    username_norm = strip_text(username).lower()
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM cdc_accounts WHERE username=? AND active=1", (username_norm,)
+        ).fetchone()
+        if not row or not _verify_password(password or "", row["password_hash"]):
+            log_audit("login_failed", actor=username or "khong_ro", db_path=db_path)
+            return None
+        now = datetime.now().isoformat(sep=" ", timespec="seconds")
+        conn.execute("UPDATE cdc_accounts SET last_login_at=? WHERE id=?", (now, row["id"]))
+    log_audit("login", actor=row["username"], db_path=db_path)
+    return {
+        "id": int(row["id"]), "username": row["username"], "display_name": row["display_name"] or row["username"],
+    }
+
+
+def issue_admin_token(account_id: int, username: str, secret: str, ttl_seconds: int = 8 * 3600) -> str:
+    """Token đăng nhập quản trị viên tự chứa (stateless), ký HMAC — cùng cơ chế
+    issue_commune_token nhưng không gắn với xã nào (payload không có trường commune)."""
+    if not secret:
+        raise ValueError("Máy chủ chưa có khóa ký phiên đăng nhập (web_token_secret).")
+    expires = int(time.time()) + max(1, int(ttl_seconds))
+    payload = f"{account_id}:{username}:{expires}"
+    signature = hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    return base64.urlsafe_b64encode(f"{payload}:{signature}".encode("utf-8")).decode("ascii")
+
+
+def verify_admin_token(token: str, secret: str) -> dict[str, Any] | None:
+    if not token or not secret:
+        return None
+    try:
+        raw = base64.urlsafe_b64decode(token.encode("ascii")).decode("utf-8")
+        account_id_str, username, expires_str, signature = raw.split(":", 3)
+        payload = f"{account_id_str}:{username}:{expires_str}"
+        expected = hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            return None
+        if int(expires_str) < int(time.time()):
+            return None
+        return {"account_id": int(account_id_str), "username": username}
     except Exception:
         return None
 

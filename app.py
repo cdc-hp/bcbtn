@@ -74,8 +74,18 @@ APP_TITLE = f"{core.APP_NAME} {core.VERSION} — {mode_label(DEPLOYMENT_CONFIG.m
 
 
 def _current_actor() -> str:
-    """Định danh người dùng cho nhật ký kiểm toán — dùng tên đăng nhập hệ điều hành vì ứng dụng
-    desktop chưa có tài khoản CDC riêng (chỉ Trạm Y tế xã có tài khoản)."""
+    """Định danh người dùng cho nhật ký kiểm toán. Ưu tiên tài khoản quản trị viên đã đăng nhập
+    cá nhân trên máy trạm (POST /cdc/login, xem CdcAccountsDialog); nếu chưa đăng nhập (còn dùng
+    mật khẩu máy chủ dùng chung) hoặc đang chạy Máy chủ/Máy đơn lẻ thì dùng tên đăng nhập hệ điều
+    hành như trước."""
+    if DEPLOYMENT_CONFIG.is_workstation:
+        try:
+            import remote_core
+            username = remote_core.current_admin_username()
+            if username:
+                return username
+        except Exception:
+            pass
     try:
         return getpass.getuser() or "khong_ro"
     except Exception:
@@ -1119,6 +1129,26 @@ class WorkstationConnectionDialog(QDialog):
         row = QHBoxLayout(); discover = QPushButton("Tìm máy chủ tự động"); discover.clicked.connect(self.discover)
         test = QPushButton("Kiểm tra kết nối"); test.clicked.connect(self.test_connection)
         row.addWidget(discover); row.addWidget(test); row.addStretch(); root.addLayout(row)
+
+        login_box = QGroupBox("Đăng nhập quản trị viên (tuỳ chọn — mỗi người một tài khoản riêng)")
+        login_form = QFormLayout(login_box)
+        self.admin_username = QLineEdit(config.admin_username)
+        self.admin_password = QLineEdit(); self.admin_password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.admin_status = QLabel(
+            f"Đã đăng nhập: {config.admin_username}" if config.admin_username else
+            "Chưa đăng nhập — nhật ký kiểm toán sẽ ghi theo mật khẩu máy chủ dùng chung."
+        )
+        self.admin_status.setWordWrap(True)
+        login_form.addRow("Tên đăng nhập:", self.admin_username)
+        login_form.addRow("Mật khẩu:", self.admin_password)
+        login_btn_row = QHBoxLayout()
+        login_btn = QPushButton("Đăng nhập"); login_btn.clicked.connect(self.admin_login)
+        logout_btn = QPushButton("Đăng xuất"); logout_btn.setObjectName("secondary"); logout_btn.clicked.connect(self.admin_logout)
+        login_btn_row.addWidget(login_btn); login_btn_row.addWidget(logout_btn); login_btn_row.addStretch()
+        login_form.addRow("", login_btn_row)
+        login_form.addRow(self.admin_status)
+        root.addWidget(login_box)
+
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
 
@@ -1147,6 +1177,28 @@ class WorkstationConnectionDialog(QDialog):
             self._save_values(); import remote_core; info = remote_core.health()
             self.status.setText(f"Kết nối thành công: {info.get('server_name') or info.get('app')} {info.get('version')} — cổng {info.get('port')}")
         except Exception as exc: self.status.setText(f"Kết nối thất bại: {exc}")
+
+    def admin_login(self):
+        username, password = self.admin_username.text().strip(), self.admin_password.text()
+        if not username or not password:
+            QMessageBox.information(self, "Thiếu thông tin", "Nhập tên đăng nhập và mật khẩu quản trị viên.")
+            return
+        try:
+            self._save_values()
+            import remote_core
+            result = remote_core.login(username, password)
+            self.config = load_config()
+            self.admin_password.clear()
+            self.admin_status.setText(f"Đã đăng nhập: {result['display_name']} ({result['username']})")
+        except Exception as exc:
+            QMessageBox.critical(self, "Đăng nhập thất bại", str(exc))
+
+    def admin_logout(self):
+        import remote_core
+        remote_core.logout()
+        self.config = load_config()
+        self.admin_username.clear()
+        self.admin_status.setText("Chưa đăng nhập — nhật ký kiểm toán sẽ ghi theo mật khẩu máy chủ dùng chung.")
 
     def accept(self):
         try: self._save_values()
@@ -1267,6 +1319,115 @@ class CommuneAccountsDialog(QDialog):
             QMessageBox.critical(self, "Không thể đặt lại", str(exc))
 
 
+class CdcAccountFormDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Tạo tài khoản quản trị viên")
+        self.resize(380, 220)
+        root = QVBoxLayout(self); form = QFormLayout()
+        self.username = QLineEdit()
+        self.password = QLineEdit(); self.password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.display_name = QLineEdit()
+        form.addRow("Tên đăng nhập:", self.username)
+        form.addRow("Mật khẩu (≥ 8 ký tự):", self.password)
+        form.addRow("Tên hiển thị:", self.display_name)
+        root.addLayout(form)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
+
+    @property
+    def values(self) -> tuple[str, str, str]:
+        return (self.username.text().strip(), self.password.text(), self.display_name.text().strip())
+
+
+class CdcAccountsDialog(QDialog):
+    """Quản lý tài khoản đăng nhập RIÊNG cho từng quản trị viên (máy trạm quản trị kết nối qua
+    IP LAN dùng tài khoản này thay vì mật khẩu máy chủ dùng chung — xem POST /cdc/login)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Quản lý tài khoản quản trị viên")
+        self.resize(700, 420)
+        self.accounts: list[dict[str, Any]] = []
+        root = QVBoxLayout(self)
+        row = QHBoxLayout()
+        add_btn = QPushButton("Thêm tài khoản..."); add_btn.clicked.connect(self.add_account)
+        refresh_btn = QPushButton("Làm mới"); refresh_btn.clicked.connect(self.refresh)
+        row.addWidget(add_btn); row.addWidget(refresh_btn); row.addStretch()
+        root.addLayout(row)
+        self.table = QTableView(); self.table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableView.SelectionMode.SingleSelection)
+        self.model = DictTableModel(columns=[
+            ("username", "Tên đăng nhập"), ("display_name", "Tên hiển thị"),
+            ("active_label", "Trạng thái"), ("last_login_at", "Đăng nhập gần nhất"),
+        ])
+        self.table.setModel(self.model)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        root.addWidget(self.table, 1)
+        action_row = QHBoxLayout()
+        toggle_btn = QPushButton("Khoá/Mở khoá"); toggle_btn.clicked.connect(self.toggle_active)
+        reset_btn = QPushButton("Đặt lại mật khẩu..."); reset_btn.clicked.connect(self.reset_password)
+        action_row.addWidget(toggle_btn); action_row.addWidget(reset_btn); action_row.addStretch()
+        root.addLayout(action_row)
+        close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close); close.rejected.connect(self.reject)
+        root.addWidget(close)
+        self.refresh()
+
+    def refresh(self):
+        try:
+            self.accounts = core.list_cdc_accounts()
+            rows = []
+            for account in self.accounts:
+                row = dict(account)
+                row["active_label"] = "Đang hoạt động" if account.get("active") else "Đã khoá"
+                row["last_login_at"] = account.get("last_login_at") or "Chưa đăng nhập"
+                rows.append(row)
+            self.model.set_data(rows)
+        except Exception as exc:
+            QMessageBox.critical(self, "Không thể tải danh sách", str(exc))
+
+    def selected_account(self):
+        indexes = self.table.selectionModel().selectedRows()
+        if not indexes:
+            QMessageBox.information(self, "Chưa chọn", "Hãy chọn một tài khoản.")
+            return None
+        row = indexes[0].row()
+        return self.accounts[row] if 0 <= row < len(self.accounts) else None
+
+    def add_account(self):
+        dialog = CdcAccountFormDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted: return
+        username, password, display_name = dialog.values
+        try:
+            core.create_cdc_account(username, password, display_name, actor=_current_actor())
+            self.refresh()
+        except Exception as exc:
+            QMessageBox.critical(self, "Không thể tạo tài khoản", str(exc))
+
+    def toggle_active(self):
+        account = self.selected_account()
+        if not account: return
+        try:
+            core.set_cdc_account_active(account["id"], not account.get("active"), actor=_current_actor())
+            self.refresh()
+        except Exception as exc:
+            QMessageBox.critical(self, "Không thể cập nhật", str(exc))
+
+    def reset_password(self):
+        account = self.selected_account()
+        if not account: return
+        password, ok = QInputDialog.getText(
+            self, "Đặt lại mật khẩu", f"Mật khẩu mới cho {account['username']} (≥ 8 ký tự):",
+            QLineEdit.EchoMode.Password,
+        )
+        if not ok or not password: return
+        try:
+            core.reset_cdc_account_password(account["id"], password, actor=_current_actor())
+            QMessageBox.information(self, "Đã đặt lại", "Đã đặt lại mật khẩu.")
+        except Exception as exc:
+            QMessageBox.critical(self, "Không thể đặt lại", str(exc))
+
+
 class AuditLogDialog(QDialog):
     ACTION_LABELS = {
         "login": "Đăng nhập", "login_failed": "Đăng nhập thất bại", "queue_submit": "Nộp vào hàng đợi",
@@ -1275,6 +1436,8 @@ class AuditLogDialog(QDialog):
         "export_cases_by_commune": "Xuất theo xã", "archive_old_queue_files": "Dọn dẹp hàng đợi",
         "create_commune_account": "Tạo tài khoản xã", "enable_commune_account": "Mở khoá tài khoản xã",
         "disable_commune_account": "Khoá tài khoản xã", "reset_commune_account_password": "Đặt lại mật khẩu xã",
+        "create_cdc_account": "Tạo tài khoản quản trị viên", "enable_cdc_account": "Mở khoá tài khoản quản trị viên",
+        "disable_cdc_account": "Khoá tài khoản quản trị viên", "reset_cdc_account_password": "Đặt lại mật khẩu quản trị viên",
     }
 
     def __init__(self, parent=None):
@@ -1338,10 +1501,11 @@ class QueueTab(QWidget):
         sync_btn = QPushButton("Đồng bộ máy chủ phụ"); sync_btn.setObjectName("secondary"); sync_btn.clicked.connect(self.sync_secondary)
         cleanup_btn = QPushButton("Dọn dẹp hàng đợi cũ..."); cleanup_btn.setObjectName("secondary"); cleanup_btn.clicked.connect(self.archive_old_files)
         accounts_btn = QPushButton("Tài khoản xã..."); accounts_btn.setObjectName("secondary"); accounts_btn.clicked.connect(self.open_accounts)
+        admin_accounts_btn = QPushButton("Tài khoản quản trị..."); admin_accounts_btn.setObjectName("secondary"); admin_accounts_btn.clicked.connect(self.open_admin_accounts)
         audit_btn = QPushButton("Nhật ký kiểm toán..."); audit_btn.setObjectName("secondary"); audit_btn.clicked.connect(self.open_audit_log)
         title_row.addWidget(title); title_row.addStretch()
         title_row.addWidget(QLabel("Trạng thái:")); title_row.addWidget(self.status_filter); title_row.addWidget(self.commune_filter)
-        for widget in (refresh_btn, import_btn, sync_btn, cleanup_btn, accounts_btn, audit_btn): title_row.addWidget(widget)
+        for widget in (refresh_btn, import_btn, sync_btn, cleanup_btn, accounts_btn, admin_accounts_btn, audit_btn): title_row.addWidget(widget)
         root.addLayout(title_row)
         info = QLabel(
             "Danh sách các lần Trạm Y tế xã nộp qua Web (trang /xa) đang chờ CDC nhập vào CSDL chính. "
@@ -1442,6 +1606,9 @@ class QueueTab(QWidget):
 
     def open_accounts(self):
         CommuneAccountsDialog(self).exec()
+
+    def open_admin_accounts(self):
+        CdcAccountsDialog(self).exec()
 
     def open_audit_log(self):
         AuditLogDialog(self).exec()

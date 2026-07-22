@@ -11,7 +11,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import core as local_core
-from deployment_config import load_config
+from deployment_config import load_config, save_config
 from lan_discovery import discover_servers as _discover_servers
 
 APP_NAME = local_core.APP_NAME
@@ -63,6 +63,8 @@ def _request(path: str, payload: dict[str, Any] | None = None, timeout: int = 12
         headers["Content-Type"] = "application/json; charset=utf-8"
     if config.password:
         headers["X-GSBTN-Password"] = config.password
+    if config.admin_token:
+        headers["X-GSBTN-Admin-Token"] = config.admin_token
     attempts = config.reconnect_attempts if config.auto_reconnect else 1
     last_exc: Exception | None = None
     for attempt in range(1, max(1, attempts) + 1):
@@ -190,6 +192,45 @@ def reset_commune_account_password(account_id: int, new_password: str, *args: An
 
 def list_audit_log(limit: int = 200, action: str = "", commune: str = "", *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
     return _rpc("list_audit_log", limit=limit, action=action, commune=commune)
+
+
+def login(username: str, password: str) -> dict[str, Any]:
+    """Đăng nhập cá nhân cho quản trị viên trên máy trạm — lưu token vào deployment.json để các
+    lần gọi RPC tiếp theo tự gửi kèm X-GSBTN-Admin-Token (song song với mật khẩu máy chủ dùng
+    chung, không loại trừ nhau — xem lan_server._authorized)."""
+    result = _request("/cdc/login", {"username": username, "password": password}, timeout=15)
+    config = load_config()
+    config.admin_username = result["username"]
+    config.admin_token = result["token"]
+    save_config(config)
+    return result
+
+
+def logout() -> None:
+    config = load_config()
+    config.admin_username = ""
+    config.admin_token = ""
+    save_config(config)
+
+
+def current_admin_username() -> str:
+    return load_config().admin_username
+
+
+def create_cdc_account(username: str, password: str, display_name: str = "", *args: Any, **kwargs: Any) -> dict[str, Any]:
+    return _rpc("create_cdc_account", username, password, display_name, actor=kwargs.get("actor", ""))
+
+
+def list_cdc_accounts(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    return _rpc("list_cdc_accounts")
+
+
+def set_cdc_account_active(account_id: int, active: bool, *args: Any, **kwargs: Any) -> None:
+    _rpc("set_cdc_account_active", int(account_id), bool(active), actor=kwargs.get("actor", ""))
+
+
+def reset_cdc_account_password(account_id: int, new_password: str, *args: Any, **kwargs: Any) -> None:
+    _rpc("reset_cdc_account_password", int(account_id), new_password, actor=kwargs.get("actor", ""))
 
 
 def sync_secondary_queue(*args: Any, **kwargs: Any) -> dict[str, Any]:
