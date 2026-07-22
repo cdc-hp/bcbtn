@@ -41,7 +41,10 @@ var STATUS_LABELS = {
 function doGet(e) {
   return HtmlService.createHtmlOutput(buildPageHtml(listCommunes()))
     .setTitle("Nộp danh sách ca bệnh — máy chủ phụ")
-    .addMetaTag("viewport", "width=device-width, initial-scale=1");
+    .addMetaTag("viewport", "width=device-width, initial-scale=1")
+    // Mặc định Apps Script chặn nhúng iframe từ domain khác (X-Frame-Options: SAMEORIGIN) —
+    // cần mở rõ để trang GitHub Pages (docs/index.html) nhúng được trang này trong <iframe>.
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 function doPost(e) {
@@ -98,8 +101,29 @@ function checkKey(key) {
   }
 }
 
+/**
+ * Script này là standalone (không gắn sẵn vào 1 Google Sheet cụ thể), nên không dùng
+ * SpreadsheetApp.getActiveSpreadsheet() (luôn null ngoài ngữ cảnh container-bound). Thay vào
+ * đó, tự tạo 1 Spreadsheet ở lần chạy đầu tiên và ghi nhớ ID trong Script Properties để các lần
+ * sau dùng lại đúng file đó.
+ */
+function getOrCreateSpreadsheet() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty("SPREADSHEET_ID");
+  if (id) {
+    try {
+      return SpreadsheetApp.openById(id);
+    } catch (err) {
+      // ID cũ không còn hợp lệ (bị xoá/mất quyền) -> tạo lại bên dưới.
+    }
+  }
+  var ss = SpreadsheetApp.create("GSBTN - Hang doi phu");
+  props.setProperty("SPREADSHEET_ID", ss.getId());
+  return ss;
+}
+
 function getSheet() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getOrCreateSpreadsheet();
   var sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(SHEET_NAME);
