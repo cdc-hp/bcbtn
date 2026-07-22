@@ -15,10 +15,13 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
+import backup_manager
 import core
 import secondary_sync
-from deployment_config import DeploymentConfig, ensure_web_token_secret, load_config
+from deployment_config import DeploymentConfig, ensure_web_token_secret, load_config, save_config
 from lan_discovery import DiscoveryResponder, get_lan_ip
 
 MAX_REQUEST_BYTES = 110 * 1024 * 1024
@@ -505,6 +508,7 @@ class ApiServer(ThreadingHTTPServer):
             "server_name": self.config.server_name or socket.gethostname(),
             "password_required": bool(self.config.password),
             "backup_in_progress": self.backup_in_progress,
+            "retired_redirect_url": self.config.retired_redirect_url,
             "client_count": len(clients),
             "clients": clients,
             "logs": logs,
@@ -560,8 +564,21 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.server.register_request(self.client_ip, self.path, self.command, False)
         self._write_json(HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "Sai mật khẩu máy chủ."})
 
+    def _retired_response(self) -> None:
+        """Máy chủ đã "Chuyển máy chủ" thành công — không phục vụ dữ liệu nữa, chỉ báo địa chỉ
+        mới cho MỌI request (kể cả chưa xác thực), để máy trạm/Apps Script/tích hợp cũ biết
+        đường cập nhật thay vì âm thầm lỗi kết nối."""
+        url = self.server.config.retired_redirect_url
+        self.server.register_request(self.client_ip, self.path, self.command, False)
+        self._write_json(HTTPStatus.GONE, {
+            "ok": False, "retired": True, "new_server_url": url,
+            "error": f"Máy chủ này đã ngừng phục vụ — dữ liệu đã chuyển sang máy chủ mới: {url}",
+        })
+
     def do_GET(self) -> None:  # noqa: N802
         path = self.path.split("?", 1)[0].rstrip("/") or "/"
+        if self.server.config.retired_redirect_url:
+            self._retired_response(); return
         if path in PUBLIC_HTML_PAGES:
             self.server.register_request(self.client_ip, path, "GET", True)
             html = XA_UPLOAD_PAGE_HTML if path == "/xa" else CDC_QUEUE_PAGE_HTML
@@ -575,6 +592,8 @@ class ApiHandler(BaseHTTPRequestHandler):
                 "lan_ip": get_lan_ip(), "port": self.server.server_port,
                 "password_required": bool(self.server.config.password),
                 "read_only": self.server.backup_in_progress,
+                "retired": bool(self.server.config.retired_redirect_url),
+                "new_server_url": self.server.config.retired_redirect_url,
             }
         elif path == "/status":
             payload = {"ok": True, "result": self.server.status_payload()}
@@ -601,6 +620,9 @@ class ApiHandler(BaseHTTPRequestHandler):
         except ValueError:
             length = -1
         path = self.path.rstrip("/")
+        if self.server.config.retired_redirect_url:
+            self._drain_body(max(length, 0))
+            self._retired_response(); return
         # "/xa/login" luôn công khai (đăng nhập không thể đòi hỏi đã đăng nhập). "/queue/submit"
         # tự xử lý xác thực bên trong _handle_queue_submit — chấp nhận CẢ token đăng nhập xã LẪN
         # mật khẩu máy chủ dùng chung (không "chỉ dùng token khi đã có tài khoản" như trước),
@@ -646,6 +668,10 @@ class ApiHandler(BaseHTTPRequestHandler):
                 result = secondary_sync.pull_secondary_queue(
                     self.server.config.secondary_webapp_url, self.server.config.secondary_shared_key, db_path=core.DB_PATH,
                 )
+            elif path == "/admin/receive-full-backup":
+                if self.server.backup_in_progress:
+                    raise RuntimeError("Máy chủ đang bận (sao lưu/di chuyển khác); thử lại sau.")
+                result = self._handle_receive_full_backup(payload)
             else:
                 self._write_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Không tìm thấy endpoint."}); return
             self.server.register_request(self.client_ip, log_path, "POST", True)
@@ -699,6 +725,30 @@ class ApiHandler(BaseHTTPRequestHandler):
             path = Path(tmp) / name
             path.write_bytes(data)
             return core.import_excel(path, core.DB_PATH)
+
+    def _handle_receive_full_backup(self, payload: dict[str, Any]) -> Any:
+        """Nhận 1 bản sao lưu CSDL đầy đủ từ máy chủ khác đang "Chuyển máy chủ" sang máy này
+        (xem LanServerController.migrate_to_new_server). Mặc định từ chối nếu máy này đã có dữ
+        liệu thật — chỉ nhận khi còn trống, hoặc khi payload gửi kèm force=true (CDC chủ động
+        xác nhận ghi đè, ví dụ chuyển lại lần 2 sau khi thử hụt)."""
+        content = payload.get("content_base64")
+        if not isinstance(content, str) or not content:
+            raise ValueError("Thiếu nội dung sao lưu.")
+        force = bool(payload.get("force"))
+        if not force and core.has_any_data(core.DB_PATH):
+            raise ValueError(
+                "Máy chủ này đã có dữ liệu — chỉ nhận di chuyển vào máy chủ còn trống. "
+                "Nếu chắc chắn muốn ghi đè, xác nhận lại thao tác với force=true."
+            )
+        data = base64.b64decode(content.encode("ascii"), validate=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            incoming = Path(tmp) / "incoming.db"
+            incoming.write_bytes(data)
+            check = backup_manager.verify_backup(incoming)
+            if not check["ok"]:
+                raise ValueError(f"File nhận được không hợp lệ: {check['message']}")
+            result = backup_manager.restore_backup(incoming, core.DB_PATH)
+        return {"restored": True, "database": result["database"], "safety_backup": result["safety_backup"]}
 
     def _handle_commune_login(self, payload: dict[str, Any]) -> Any:
         username = str(payload.get("username", ""))
@@ -808,6 +858,60 @@ class LanServerController:
             self.httpd = None; self.thread = None; self.last_error = str(exc)
             raise
 
+    def migrate_to_new_server(
+        self, new_server_url: str, *, new_server_password: str = "", force: bool = False, timeout: int = 300,
+    ) -> dict[str, Any]:
+        """"Chuyển máy chủ": chốt CSDL hiện tại thành 1 bản sao lưu đầy đủ, đẩy sang máy chủ mới
+        (đã cài đặt sẵn, còn trống — xem README release Máy chủ), rồi ĐÓNG máy chủ này (chuyển
+        sang chế độ chỉ báo địa chỉ mới cho mọi request, xem ApiHandler._retired_response) chứ
+        không tắt tiến trình đột ngột — tránh tình huống chuyển lỗi giữa chừng làm mất khả năng
+        phục vụ mà chưa xác nhận máy mới đã nhận đủ dữ liệu.
+
+        Trong lúc chuyển, máy chủ này tạm thời CHỈ ĐỌC (dùng lại đúng cờ backup_in_progress của
+        cơ chế sao lưu thường, không cần khoá riêng) để đảm bảo bản sao lưu cuối cùng là bản mới
+        nhất, không bỏ sót thao tác ghi xảy ra giữa lúc tạo bản sao lưu và lúc đóng máy chủ.
+        """
+        if not self.httpd:
+            raise RuntimeError("Máy chủ chưa chạy — chỉ có thể chuyển máy chủ khi đang ở chế độ Máy chủ và đang chạy.")
+        new_server_url = new_server_url.strip().rstrip("/")
+        if not (new_server_url.startswith("http://") or new_server_url.startswith("https://")):
+            raise ValueError("Địa chỉ máy chủ mới phải bắt đầu bằng http:// hoặc https://")
+        with self.httpd.state_lock:
+            if self.httpd.backup_in_progress:
+                raise RuntimeError("Máy chủ đang bận (sao lưu/di chuyển khác đang chạy).")
+            self.httpd.backup_in_progress = True
+        try:
+            backup_path = backup_manager.create_backup(core.DB_PATH, kind="migrate", update_schedule=False)
+            content = backup_path.read_bytes()
+            body = json.dumps({
+                "content_base64": base64.b64encode(content).decode("ascii"), "force": force,
+            }).encode("utf-8")
+            headers = {"Content-Type": "application/json"}
+            if new_server_password:
+                headers["X-GSBTN-Password"] = new_server_password
+            request = Request(f"{new_server_url}/admin/receive-full-backup", data=body, headers=headers, method="POST")
+            try:
+                with urlopen(request, timeout=timeout) as response:
+                    reply = json.loads(response.read().decode("utf-8"))
+            except HTTPError as exc:
+                try:
+                    detail = json.loads(exc.read().decode("utf-8")).get("error")
+                except Exception:
+                    detail = str(exc)
+                raise RuntimeError(f"Máy chủ mới từ chối tiếp nhận: {detail or exc}") from exc
+            except (URLError, TimeoutError, OSError) as exc:
+                raise RuntimeError(f"Không kết nối được máy chủ mới {new_server_url}: {exc}") from exc
+            if not reply.get("ok"):
+                raise RuntimeError(reply.get("error") or "Máy chủ mới trả về lỗi không xác định.")
+            # Máy mới đã xác nhận nhận đủ dữ liệu -> đóng máy chủ này, không xoá gì cả (giữ
+            # nguyên CSDL cục bộ làm bản sao dự phòng, chỉ ngừng phục vụ).
+            self.config.retired_redirect_url = new_server_url
+            save_config(self.config)
+            return {"new_server_url": new_server_url, "backup_file": str(backup_path), "result": reply.get("result")}
+        finally:
+            with self.httpd.state_lock:
+                self.httpd.backup_in_progress = False
+
     def stop(self) -> None:
         if self.discovery:
             self.discovery.stop()
@@ -828,6 +932,7 @@ class LanServerController:
             "running": False, "address": self.address, "port": self.config.server_port,
             "server_name": self.config.server_name or socket.gethostname(),
             "password_required": bool(self.config.password), "backup_in_progress": False,
+            "retired_redirect_url": self.config.retired_redirect_url,
             "client_count": 0, "clients": [], "logs": [], "discovery_running": False,
             "last_error": self.last_error,
         }

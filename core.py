@@ -1813,6 +1813,18 @@ def verify_commune_token(token: str, secret: str) -> dict[str, Any] | None:
         return None
 
 
+def has_any_data(db_path: Path | str = DB_PATH) -> bool:
+    """Máy chủ đã có dữ liệu thật (ca bệnh, ổ dịch, hoặc tài khoản) hay còn hoàn toàn trống —
+    dùng làm lớp bảo vệ trước khi nhận 1 bản sao lưu đầy đủ từ máy chủ khác (di chuyển máy chủ,
+    xem lan_server._handle_receive_full_backup), tránh ghi đè nhầm dữ liệu đang hoạt động."""
+    init_db(db_path)
+    with _connect(db_path) as conn:
+        for table in ("cases", "outbreaks", "commune_accounts", "cdc_accounts"):
+            if conn.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone():
+                return True
+    return False
+
+
 def has_cdc_accounts(db_path: Path | str = DB_PATH) -> bool:
     """Đã có ít nhất 1 tài khoản quản trị viên riêng chưa — dùng để quyết định máy trạm có bắt
     đăng nhập cá nhân hay còn dùng mật khẩu máy chủ dùng chung (giai đoạn chuyển tiếp)."""

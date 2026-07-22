@@ -1614,6 +1614,70 @@ class QueueTab(QWidget):
         AuditLogDialog(self).exec()
 
 
+class MigrateServerDialog(QDialog):
+    """"Chuyển máy chủ": đẩy toàn bộ CSDL sang máy chủ mới đã cài đặt sẵn (còn trống), rồi đóng
+    máy chủ này lại — xem LanServerController.migrate_to_new_server()."""
+
+    def __init__(self, controller: LanServerController, parent=None):
+        super().__init__(parent); self.controller = controller
+        self.setWindowTitle("Chuyển máy chủ")
+        self.resize(560, 320)
+        root = QVBoxLayout(self)
+        warning = QLabel(
+            "Thao tác này sẽ: (1) tạm khoá ghi trên máy chủ này, (2) tạo 1 bản sao lưu đầy đủ CSDL "
+            "hiện tại, (3) gửi sang máy chủ mới bên dưới, (4) nếu máy mới xác nhận nhận thành công, "
+            "ĐÓNG máy chủ này — từ đó mọi máy trạm/Apps Script gõ tới đây sẽ chỉ nhận được thông báo "
+            "địa chỉ máy chủ mới, không phục vụ dữ liệu nữa. Máy chủ mới phải được cài đặt sẵn (bản "
+            "release Máy chủ) và còn trống trước khi làm bước này."
+        )
+        warning.setWordWrap(True); root.addWidget(warning)
+        form = QFormLayout()
+        self.url = QLineEdit(); self.url.setPlaceholderText("http://192.168.1.20:8765 hoặc https://...")
+        self.password = QLineEdit(); self.password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.password.setPlaceholderText("Để trống nếu máy chủ mới chưa đặt mật khẩu")
+        self.force = QCheckBox("Ghi đè dù máy chủ mới đã có dữ liệu (chỉ dùng khi chắc chắn)")
+        form.addRow("Địa chỉ máy chủ mới:", self.url)
+        form.addRow("Mật khẩu máy chủ mới:", self.password)
+        form.addRow("", self.force)
+        root.addLayout(form)
+        self.status = QLabel(); self.status.setWordWrap(True); root.addWidget(self.status)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
+        self.migrate_btn = QPushButton("Bắt đầu chuyển máy chủ"); self.migrate_btn.setObjectName("danger")
+        self.migrate_btn.clicked.connect(self.run_migration)
+        buttons.addButton(self.migrate_btn, QDialogButtonBox.ButtonRole.ActionRole)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+    def run_migration(self):
+        url = self.url.text().strip()
+        if not url:
+            QMessageBox.information(self, "Thiếu địa chỉ", "Nhập địa chỉ máy chủ mới.")
+            return
+        if QMessageBox.question(
+            self, "Xác nhận chuyển máy chủ",
+            f"Chuyển toàn bộ dữ liệu sang {url} và đóng máy chủ này? Không thể tự hoàn tác qua giao diện.",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        self.migrate_btn.setEnabled(False)
+        self.status.setText("Đang tạo bản sao lưu và gửi sang máy chủ mới (có thể mất vài phút tuỳ dung lượng CSDL)...")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor); QApplication.processEvents()
+        try:
+            result = self.controller.migrate_to_new_server(
+                url, new_server_password=self.password.text(), force=self.force.isChecked(),
+            )
+            QMessageBox.information(
+                self, "Đã chuyển máy chủ",
+                f"Đã chuyển dữ liệu sang {result['new_server_url']} và đóng máy chủ này.\n"
+                f"Bản sao lưu dùng để chuyển: {result['backup_file']}",
+            )
+            self.accept()
+        except Exception as exc:
+            self.status.setText(f"Chuyển máy chủ thất bại: {exc}")
+            self.migrate_btn.setEnabled(True)
+        finally:
+            QApplication.restoreOverrideCursor()
+
+
 class ServerTab(QWidget):
     def __init__(self, controller: LanServerController, config: DeploymentConfig):
         super().__init__(); self.controller = controller; self.config = config
@@ -1649,7 +1713,8 @@ class ServerTab(QWidget):
         self.start_button = QPushButton("Khởi động server"); self.start_button.clicked.connect(self.start_server)
         self.stop_button = QPushButton("Dừng server"); self.stop_button.setObjectName("danger"); self.stop_button.clicked.connect(self.stop_server)
         firewall = QPushButton("Cấu hình Windows Firewall"); firewall.setObjectName("secondary"); firewall.clicked.connect(self.configure_firewall)
-        for widget in (save, self.start_button, self.stop_button, firewall): row.addWidget(widget)
+        migrate = QPushButton("Chuyển máy chủ..."); migrate.setObjectName("secondary"); migrate.clicked.connect(self.open_migrate_dialog)
+        for widget in (save, self.start_button, self.stop_button, firewall, migrate): row.addWidget(widget)
         row.addStretch(); root.addLayout(row)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         client_box = QGroupBox("Máy trạm đã kết nối"); cl = QVBoxLayout(client_box)
@@ -1688,6 +1753,19 @@ class ServerTab(QWidget):
         if self.config.auto_start_server and not self.controller.running: self.start_server()
     def refresh_buttons(self): self.start_button.setEnabled(not self.controller.running); self.stop_button.setEnabled(self.controller.running)
 
+    def open_migrate_dialog(self):
+        if self.config.retired_redirect_url:
+            QMessageBox.information(
+                self, "Máy chủ đã đóng",
+                f"Máy chủ này đã chuyển sang {self.config.retired_redirect_url} trước đó, không thể chuyển tiếp lần nữa từ đây.",
+            )
+            return
+        if not self.controller.running:
+            QMessageBox.information(self, "Server chưa chạy", "Khởi động server trước khi chuyển máy chủ.")
+            return
+        MigrateServerDialog(self.controller, self).exec()
+        self.refresh()
+
     def configure_firewall(self):
         answer = QMessageBox.question(self, "Windows Firewall", "Tạo quy tắc cho TCP server và UDP tự dò trên mạng Riêng tư? Có thể cần mở ứng dụng bằng quyền quản trị.")
         if answer != QMessageBox.StandardButton.Yes: return
@@ -1696,7 +1774,12 @@ class ServerTab(QWidget):
 
     def refresh(self):
         status = self.controller.status()
-        if status["running"]:
+        if status.get("retired_redirect_url"):
+            self.status.setText(
+                f"<b style='color:#dc2626'>Máy chủ này ĐÃ ĐÓNG</b> — dữ liệu đã chuyển sang "
+                f"{status['retired_redirect_url']}. Mọi request đều bị từ chối kèm địa chỉ mới."
+            )
+        elif status["running"]:
             auth = "có mật khẩu" if status["password_required"] else "không mật khẩu"
             readonly = " — ĐANG SAO LƯU, CHỈ ĐỌC" if status.get("backup_in_progress") else ""
             discover = "tự dò LAN bật" if status.get("discovery_running") else "tự dò LAN tắt"

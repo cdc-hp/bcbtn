@@ -40,6 +40,9 @@ class DeploymentConfig:
     web_token_secret: str = ""
     admin_username: str = ""
     admin_token: str = ""
+    # Đặt khi máy chủ này đã "Chuyển máy chủ" thành công sang địa chỉ mới — từ đó máy chủ chỉ
+    # còn báo địa chỉ mới cho mọi request thay vì phục vụ dữ liệu (xem migrate_to_new_server).
+    retired_redirect_url: str = ""
 
     @property
     def is_standalone(self) -> bool:
@@ -87,6 +90,7 @@ def load_config() -> DeploymentConfig:
         web_token_secret=str(raw.get("web_token_secret", "") or ""),
         admin_username=str(raw.get("admin_username", "") or ""),
         admin_token=str(raw.get("admin_token", "") or ""),
+        retired_redirect_url=str(raw.get("retired_redirect_url", "") or ""),
     )
 
 
