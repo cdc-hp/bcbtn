@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Hướng dẫn triển khai Google Apps Script</title>
+<style>
+  @page { size: A4; margin: 20mm 18mm; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: #1f2937; line-height: 1.5; font-size: 12.5px; }
+  .cover { text-align: center; padding-top: 60mm; page-break-after: always; }
+  .cover .badge { display: inline-block; background: #1e3a8a; color: #fff; padding: 6px 16px; border-radius: 20px; font-size: 13px; letter-spacing: 0.5px; }
+  .cover h1 { font-size: 26px; margin-top: 24px; color: #1e3a8a; }
+  .cover p.subtitle { font-size: 14px; color: #64748b; margin-top: 8px; }
+  h2 { color: #1e3a8a; border-bottom: 2px solid #dbeafe; padding-bottom: 4px; margin-top: 28px; font-size: 17px; }
+  h3 { color: #1e40af; font-size: 14px; margin-top: 18px; }
+  .step { display: flex; gap: 12px; margin: 14px 0; }
+  .step .num { flex: 0 0 26px; height: 26px; border-radius: 50%; background: #2563eb; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
+  .step .content { flex: 1; }
+  code, .mono { font-family: Consolas, "Courier New", monospace; background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+  .box { border-radius: 8px; padding: 10px 14px; margin: 14px 0; }
+  .box.info { background: #eff6ff; border-left: 4px solid #2563eb; }
+  .box.warn { background: #fef2f2; border-left: 4px solid #dc2626; }
+  .box.tip { background: #f0fdf4; border-left: 4px solid #16a34a; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 11.5px; }
+  th, td { border: 1px solid #e2e8f0; padding: 5px 8px; text-align: left; }
+  th { background: #f8fafc; }
+  .footer-note { margin-top: 40px; font-size: 10.5px; color: #94a3b8; }
+  ul { margin: 6px 0; padding-left: 20px; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <span class="badge">CDC HẢI PHÒNG</span>
+  <h1>Hướng dẫn triển khai Google Apps Script</h1>
+  <p class="subtitle">Máy chủ phụ + trang GitHub Pages cho các xã nộp báo cáo</p>
+  <p class="subtitle">Tài liệu 4/4 — Ứng dụng Giám sát dịch bệnh</p>
+</div>
+
+<h2>1. Vai trò của Google Apps Script trong hệ thống</h2>
+<p>Máy chủ chính chỉ nghe trong LAN nội bộ CDC nên các xã ở xa không vào thẳng được. Google Apps Script đóng vai trò "cửa sổ online" công khai: xã nộp Excel qua đó, script tự <b>chuyển tiếp thẳng</b> vào máy chủ chính nếu có thể, hoặc <b>lưu tạm</b> vào Google Sheet/Drive (không chia sẻ công khai) khi máy chủ chính tạm thời không phản hồi. Toàn bộ mã nguồn nằm ở <span class="mono">google_apps_script/Code.gs</span> trong repo.</p>
+
+<h2>2. Việc cần làm 1 lần khi thiết lập mới</h2>
+
+<h3>2.1 Tạo project Apps Script</h3>
+<div class="step"><div class="num">1</div><div class="content">Vào <span class="mono">script.google.com</span> (bằng tài khoản Google của CDC) → <b>New project</b>.</div></div>
+<div class="step"><div class="num">2</div><div class="content">Xoá nội dung file mặc định, dán toàn bộ nội dung <span class="mono">google_apps_script/Code.gs</span> từ repo vào.</div></div>
+<div class="step"><div class="num">3</div><div class="content">Mở <b>Project Settings</b> (biểu tượng bánh răng bên trái) → tick <b>"Show appsscript.json manifest file in editor"</b> → dán nội dung <span class="mono">google_apps_script/appsscript.json</span> từ repo vào file đó (đảm bảo có sẵn khối <span class="mono">"webapp"</span> với <span class="mono">executeAs: USER_DEPLOYING</span>, <span class="mono">access: ANYONE_ANONYMOUS</span> — thiếu phần này sẽ không nhúng được vào GitHub Pages).</div></div>
+<div class="box info">Kỹ thuật viên có thể dùng công cụ dòng lệnh <span class="mono">clasp</span> (<span class="mono">clasp clone-script &lt;scriptId&gt;</span>, <span class="mono">clasp push</span>, <span class="mono">clasp deploy</span>) để làm nhanh hơn thay vì copy/dán thủ công — xem thêm tài liệu clasp chính thức của Google nếu cần.</div>
+
+<h3>2.2 Cấu hình Script Properties</h3>
+<p>Vào <b>Project Settings → Script Properties → Add script property</b>, thêm:</p>
+<table>
+<tr><th>Thuộc tính</th><th>Bắt buộc?</th><th>Ý nghĩa</th></tr>
+<tr><td><span class="mono">SHARED_KEY</span></td><td>Có</td><td>Khoá bí mật các xã nhập khi nộp báo cáo. CDC tự đặt (chuỗi ký tự bất kỳ, đủ dài).</td></tr>
+<tr><td><span class="mono">ROOT_FOLDER_ID</span></td><td>Không</td><td>Ghi đè folder Drive lưu hàng chờ (mặc định script tự tạo folder mới trong Drive của tài khoản sở hữu nếu bỏ trống).</td></tr>
+<tr><td><span class="mono">MAIN_SERVER_URL</span></td><td>Không</td><td>Chỉ đặt nếu máy chủ chính đã có địa chỉ Internet thật (đã mở cổng — xem cảnh báo Mục 4). Ví dụ: <span class="mono">https://cdc-haiphong.example.com:8765</span>.</td></tr>
+<tr><td><span class="mono">MAIN_SERVER_PASSWORD</span></td><td>Không</td><td>Đi kèm MAIN_SERVER_URL — mật khẩu dùng chung của máy chủ chính.</td></tr>
+</table>
+
+<h3>2.3 Deploy dưới dạng Web App</h3>
+<div class="step"><div class="num">1</div><div class="content">Bấm <b>Deploy → New deployment</b>.</div></div>
+<div class="step"><div class="num">2</div><div class="content">Loại: <b>Web app</b>. Execute as: <b>Me</b>. Who has access: <b>Anyone</b>.</div></div>
+<div class="step"><div class="num">3</div><div class="content">Bấm <b>Deploy</b>, cấp quyền khi được hỏi (chấp nhận cảnh báo "app chưa được Google xác minh" — đây là script của chính CDC).</div></div>
+<div class="step"><div class="num">4</div><div class="content">Sao chép <b>Web app URL</b> dạng <span class="mono">https://script.google.com/macros/s/XXXXXXXX/exec</span>.</div></div>
+<div class="box warn">Lần deploy ĐẦU TIÊN có thể vẫn báo lỗi truy cập công khai dù đã chọn "Anyone" — vào lại <b>Deploy → Manage deployments</b>, bấm sửa (biểu tượng bút chì), xác nhận lại "Who has access: Anyone" rồi Save/Deploy một lần nữa để kích hoạt đúng.</div>
+
+<h2>3. Kết nối với GitHub Pages (link cố định cho các xã)</h2>
+<div class="step"><div class="num">1</div><div class="content">Mở file <span class="mono">docs/config.js</span> trong repo <span class="mono">cdc-hp/bcbtn</span>.</div></div>
+<div class="step"><div class="num">2</div><div class="content">Sửa giá trị <span class="mono">GAS_URL</span> thành đúng Web app URL vừa sao chép ở Mục 2.3.</div></div>
+<div class="step"><div class="num">3</div><div class="content">Commit &amp; push thay đổi lên nhánh <span class="mono">main</span> — GitHub Pages tự build lại sau khoảng 1 phút.</div></div>
+<div class="step"><div class="num">4</div><div class="content">Kiểm tra lại bằng cách mở <span class="mono">https://cdc-hp.github.io/bcbtn/</span> — phải thấy đúng form nộp báo cáo hiện ra trong khung trang.</div></div>
+<div class="box tip">Chỉ cần sửa <span class="mono">config.js</span> khi tạo <i>deployment mới</i> (URL đổi). Nếu chỉ cập nhật code rồi <b>Deploy lại đúng deployment cũ</b> (Manage deployments → Edit → New version), URL giữ nguyên, không cần sửa gì trên GitHub Pages.</div>
+
+<h2>4. Mở máy chủ chính ra Internet (tuỳ chọn nâng cao)</h2>
+<p>Mặc định, mọi báo cáo nộp qua Apps Script đều lưu tạm vào Sheet/Drive rồi CDC đồng bộ bù thủ công. Nếu muốn báo cáo vào thẳng máy chủ chính ngay khi nộp (không cần đồng bộ bù), cần:</p>
+<ul>
+  <li>Domain hoặc IP công khai trỏ về máy chủ chính (khuyến nghị Dynamic DNS nếu IP động), và port forward cổng LAN của máy chủ (mặc định 8765) trên router CDC.</li>
+  <li><b>Bắt buộc đặt mật khẩu máy chủ</b> trước khi làm bước này — đây là lớp xác thực duy nhất cho request từ Internet.</li>
+  <li>Khuyến nghị đặt máy chủ sau 1 reverse proxy có HTTPS (ví dụ Caddy/Nginx + Let's Encrypt) vì bản thân máy chủ chưa hỗ trợ TLS trực tiếp, rồi trỏ <span class="mono">MAIN_SERVER_URL</span> vào địa chỉ HTTPS đó.</li>
+</ul>
+<div class="box warn">Đây là thay đổi có rủi ro bảo mật (máy chủ nhận request từ Internet công khai) — chỉ nên bật khi đã cân nhắc kỹ, và luôn đi kèm mật khẩu máy chủ.</div>
+
+<h2>5. Vận hành hằng ngày</h2>
+<ul>
+  <li>CDC vào <span class="mono">/cdc/hang-doi</span> trên máy chủ chính (hoặc tab Hàng đợi trên máy trạm) để xem báo cáo đã nộp, nhập vào CSDL.</li>
+  <li>Bấm <b>"Đồng bộ máy chủ phụ"</b> định kỳ (vài lần/ngày) để kéo các báo cáo đang ở trạng thái "chờ đồng bộ" từ Google Sheet/Drive vào hàng đợi chính — kể cả khi đã bật chuyển tiếp trực tiếp, vẫn nên làm để vét các lần chuyển tiếp lỡ thất bại.</li>
+  <li>Nếu đổi máy chủ chính (xem Tài liệu 2/4, Mục 6), nhớ cập nhật lại <span class="mono">MAIN_SERVER_URL</span>/<span class="mono">MAIN_SERVER_PASSWORD</span> trong Script Properties nếu đang dùng chuyển tiếp trực tiếp.</li>
+</ul>
+
+<p class="footer-note">Ứng dụng Giám sát dịch bệnh — CDC Hải Phòng — Tài liệu 4/4</p>
+</body>
+</html>

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Hướng dẫn nộp báo cáo — Trạm Y tế xã/phường</title>
+<style>
+  @page { size: A4; margin: 20mm 18mm; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: #1f2937; line-height: 1.5; font-size: 12.5px; }
+  .cover { text-align: center; padding-top: 60mm; page-break-after: always; }
+  .cover .badge { display: inline-block; background: #1e3a8a; color: #fff; padding: 6px 16px; border-radius: 20px; font-size: 13px; letter-spacing: 0.5px; }
+  .cover h1 { font-size: 26px; margin-top: 24px; color: #1e3a8a; }
+  .cover p.subtitle { font-size: 14px; color: #64748b; margin-top: 8px; }
+  h2 { color: #1e3a8a; border-bottom: 2px solid #dbeafe; padding-bottom: 4px; margin-top: 28px; font-size: 17px; }
+  h3 { color: #1e40af; font-size: 14px; margin-top: 18px; }
+  .step { display: flex; gap: 12px; margin: 14px 0; }
+  .step .num { flex: 0 0 26px; height: 26px; border-radius: 50%; background: #2563eb; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
+  .step .content { flex: 1; }
+  code, .mono { font-family: Consolas, "Courier New", monospace; background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+  .box { border-radius: 8px; padding: 10px 14px; margin: 14px 0; }
+  .box.info { background: #eff6ff; border-left: 4px solid #2563eb; }
+  .box.warn { background: #fef2f2; border-left: 4px solid #dc2626; }
+  .box.tip { background: #f0fdf4; border-left: 4px solid #16a34a; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 11.5px; }
+  th, td { border: 1px solid #e2e8f0; padding: 5px 8px; text-align: left; }
+  th { background: #f8fafc; }
+  .link-box { background: #1e3a8a; color: #fff; padding: 12px 16px; border-radius: 8px; text-align: center; font-size: 14px; margin: 12px 0; }
+  .footer-note { margin-top: 40px; font-size: 10.5px; color: #94a3b8; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <span class="badge">CDC HẢI PHÒNG</span>
+  <h1>Hướng dẫn nộp báo cáo danh sách ca bệnh</h1>
+  <p class="subtitle">Dành cho Trạm Y tế xã / phường / đặc khu</p>
+  <p class="subtitle">Tài liệu 1/4 — Ứng dụng Giám sát dịch bệnh</p>
+</div>
+
+<h2>1. Link nộp báo cáo cố định</h2>
+<p>Đây là link duy nhất Trạm Y tế xã cần lưu lại — dùng để nộp báo cáo <b>hằng tuần</b>. Link này không đổi kể cả khi CDC nâng cấp hệ thống phía sau.</p>
+<div class="link-box">https://cdc-hp.github.io/bcbtn/</div>
+<div class="box tip">Nên lưu link này vào <b>Bookmark/Yêu thích</b> trên trình duyệt của trạm để dùng lại mỗi tuần, không cần tìm lại.</div>
+
+<h2>2. Chuẩn bị trước khi nộp</h2>
+<div class="step"><div class="num">1</div><div class="content">
+  Tải <b>file mẫu Excel</b> (48 trường) ngay trên trang nộp báo cáo — nút "Tải file mẫu Excel" nằm phía trên ô chọn file.
+</div></div>
+<div class="step"><div class="num">2</div><div class="content">
+  Điền danh sách ca bệnh trong tuần vào đúng các cột có sẵn trong file mẫu. Không đổi tên sheet ("Disease Cases"), không thêm/xoá cột.
+</div></div>
+<div class="step"><div class="num">3</div><div class="content">
+  Lưu file lại (giữ định dạng <span class="mono">.xlsx</span>).
+</div></div>
+
+<h2>3. Các bước nộp báo cáo</h2>
+<div class="step"><div class="num">1</div><div class="content">Mở link ở Mục 1 bằng trình duyệt (Chrome, Edge, Cốc Cốc...).</div></div>
+<div class="step"><div class="num">2</div><div class="content">Ở tab <b>"Nộp báo cáo"</b>, gõ vài chữ cái để tìm và chọn đúng <b>xã/phường/đặc khu</b> của mình trong danh sách gợi ý.</div></div>
+<div class="step"><div class="num">3</div><div class="content">Chọn <b>tuần báo cáo</b> — hệ thống tự hiển thị "Từ ngày ... đến ngày ..." để xác nhận đúng tuần. Không chọn được tuần trong tương lai.</div></div>
+<div class="step"><div class="num">4</div><div class="content">Nhập tên <b>người nộp</b> (không bắt buộc, nhưng nên điền để dễ tra cứu sau này).</div></div>
+<div class="step"><div class="num">5</div><div class="content">Nhập <b>khóa máy chủ phụ</b> do CDC cung cấp cho đơn vị (liên hệ CDC nếu chưa có).</div></div>
+<div class="step"><div class="num">6</div><div class="content">Bấm chọn <b>file Excel</b> đã điền ở Mục 2, sau đó bấm <b>"Nộp báo cáo"</b>.</div></div>
+<div class="step"><div class="num">7</div><div class="content">Chờ thông báo xanh xác nhận đã nộp thành công. Nếu báo lỗi (đỏ), đọc kỹ nội dung lỗi và thử lại.</div></div>
+
+<div class="box info">
+  <b>Lưu ý:</b> Từ lần nộp thứ 2 trở đi, hệ thống <b>tự nhớ</b> đơn vị / khóa / người nộp đã dùng trên máy này — chỉ cần chọn lại file Excel mới rồi bấm Nộp, không cần nhập lại thông tin từ đầu. Nếu đổi máy tính hoặc đổi người phụ trách, bấm <span class="mono">"Xoá thông tin đã lưu"</span> ở cuối form để nhập lại.
+</div>
+
+<h2>4. Xem tình hình nộp của đơn vị mình</h2>
+<div class="step"><div class="num">1</div><div class="content">Bấm sang tab <b>"Tình hình nộp"</b>.</div></div>
+<div class="step"><div class="num">2</div><div class="content">Nếu đã từng nộp trên máy này, hệ thống tự hiển thị luôn danh sách các lần nộp gần đây — không cần chọn lại đơn vị.</div></div>
+<div class="step"><div class="num">3</div><div class="content">Nếu là lần đầu dùng máy này, chọn đơn vị + nhập khóa rồi bấm "Lưu & xem tình hình nộp".</div></div>
+
+<table>
+<tr><th>Trạng thái hiển thị</th><th>Ý nghĩa</th></tr>
+<tr><td>Đã chuyển tiếp trực tiếp vào máy chủ chính</td><td>Báo cáo đã vào hệ thống ngay, CDC nhìn thấy ngay lập tức.</td></tr>
+<tr><td>Đang chờ đồng bộ (lưu tạm trên máy chủ phụ)</td><td>Máy chủ chính tạm thời không phản hồi được lúc nộp — dữ liệu đã lưu an toàn, CDC sẽ đồng bộ bù sau, không cần nộp lại.</td></tr>
+<tr><td>Đã đồng bộ vào máy chủ chính</td><td>Lượt nộp trước đó (từng ở trạng thái chờ) nay đã được CDC đồng bộ vào hệ thống chính.</td></tr>
+</table>
+
+<h2>5. Xử lý một số lỗi thường gặp</h2>
+<table>
+<tr><th>Thông báo lỗi</th><th>Cách xử lý</th></tr>
+<tr><td>"Đơn vị không hợp lệ — vui lòng chọn đúng tên từ danh sách gợi ý"</td><td>Gõ lại tên xã và chọn đúng dòng gợi ý hiện ra, không tự gõ tên khác với danh sách.</td></tr>
+<tr><td>"Không được chọn tuần báo cáo trong tương lai"</td><td>Chọn lại đúng tuần đã qua hoặc tuần hiện tại.</td></tr>
+<tr><td>"Sai khóa xác thực máy chủ phụ"</td><td>Liên hệ CDC Hải Phòng để được cấp/xác nhận lại khóa.</td></tr>
+<tr><td>"Nội dung không đúng định dạng file Excel"</td><td>Kiểm tra file đã lưu đúng định dạng .xlsx (không phải .xls cũ hoặc .csv).</td></tr>
+</table>
+
+<div class="box warn">Nếu vẫn không nộp được sau khi đã thử các cách trên, liên hệ trực tiếp CDC Hải Phòng để được hỗ trợ, không nên nộp trùng nhiều lần bằng cách thử đi thử lại liên tục.</div>
+
+<p class="footer-note">Ứng dụng Giám sát dịch bệnh — CDC Hải Phòng — Tài liệu 1/4</p>
+</body>
+</html>

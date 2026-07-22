@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Hướng dẫn cài đặt & vận hành Máy chủ</title>
+<style>
+  @page { size: A4; margin: 20mm 18mm; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: #1f2937; line-height: 1.5; font-size: 12.5px; }
+  .cover { text-align: center; padding-top: 60mm; page-break-after: always; }
+  .cover .badge { display: inline-block; background: #1e3a8a; color: #fff; padding: 6px 16px; border-radius: 20px; font-size: 13px; letter-spacing: 0.5px; }
+  .cover h1 { font-size: 26px; margin-top: 24px; color: #1e3a8a; }
+  .cover p.subtitle { font-size: 14px; color: #64748b; margin-top: 8px; }
+  h2 { color: #1e3a8a; border-bottom: 2px solid #dbeafe; padding-bottom: 4px; margin-top: 28px; font-size: 17px; }
+  h3 { color: #1e40af; font-size: 14px; margin-top: 18px; }
+  .step { display: flex; gap: 12px; margin: 14px 0; }
+  .step .num { flex: 0 0 26px; height: 26px; border-radius: 50%; background: #2563eb; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
+  .step .content { flex: 1; }
+  code, .mono { font-family: Consolas, "Courier New", monospace; background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+  .box { border-radius: 8px; padding: 10px 14px; margin: 14px 0; }
+  .box.info { background: #eff6ff; border-left: 4px solid #2563eb; }
+  .box.warn { background: #fef2f2; border-left: 4px solid #dc2626; }
+  .box.tip { background: #f0fdf4; border-left: 4px solid #16a34a; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 11.5px; }
+  th, td { border: 1px solid #e2e8f0; padding: 5px 8px; text-align: left; }
+  th { background: #f8fafc; }
+  .footer-note { margin-top: 40px; font-size: 10.5px; color: #94a3b8; }
+  ul { margin: 6px 0; padding-left: 20px; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <span class="badge">CDC HẢI PHÒNG</span>
+  <h1>Hướng dẫn cài đặt &amp; vận hành Máy chủ</h1>
+  <p class="subtitle">Bản release: GiamSatDichBenh-Server-Setup-vX.Y.Z.exe</p>
+  <p class="subtitle">Tài liệu 2/4 — Ứng dụng Giám sát dịch bệnh</p>
+</div>
+
+<h2>1. Trước khi cài đặt</h2>
+<div class="box warn">
+  Máy chủ chỉ nên <b>cài đặt duy nhất 1 lần</b>, trên 1 máy tính cố định trong mạng LAN của CDC (khuyến nghị luôn bật, không tắt máy thường xuyên vì các xã và máy trạm quản trị đều phụ thuộc vào máy này). Nếu sau này cần đổi sang máy khác, dùng tính năng <b>"Chuyển máy chủ"</b> ở Mục 6 — không cài đè 2 máy chủ song song.
+</div>
+<ul>
+  <li>Máy tính chạy Windows 10/11, có địa chỉ IP LAN cố định (đặt IP tĩnh hoặc đặt DHCP reservation trên router để IP không đổi).</li>
+  <li>Ghi nhớ IP LAN của máy này — các máy trạm quản trị và cấu hình Apps Script sẽ cần dùng.</li>
+</ul>
+
+<h2>2. Cài đặt</h2>
+<div class="step"><div class="num">1</div><div class="content">Tải <span class="mono">GiamSatDichBenh-Server-Setup-vX.Y.Z.exe</span> từ GitHub Releases của repo <span class="mono">cdc-hp/bcbtn</span>.</div></div>
+<div class="step"><div class="num">2</div><div class="content">Chạy file cài đặt, làm theo các bước wizard.</div></div>
+<div class="step"><div class="num">3</div><div class="content">Ở màn hình "Cấu hình máy chủ": nhập <b>Tên máy chủ hiển thị</b> (để các máy trạm nhận diện khi tự dò LAN), <b>Cổng LAN</b> (mặc định 8765, có thể giữ nguyên), và <b>Mật khẩu dùng chung</b> (có thể để trống, xem lưu ý ở Mục 4).</div></div>
+<div class="step"><div class="num">4</div><div class="content">Windows có thể hỏi xác nhận quyền quản trị để mở tường lửa (Windows Firewall) cho cổng LAN — bấm Có/Yes.</div></div>
+<div class="step"><div class="num">5</div><div class="content">Hoàn tất — ứng dụng tự mở, tab <b>Server</b> hiển thị địa chỉ máy chủ dạng <span class="mono">http://&lt;IP-LAN&gt;:8765</span>.</div></div>
+
+<h2>3. Sử dụng tab Server</h2>
+<ul>
+  <li><b>Khởi động/Dừng server</b>: bật/tắt việc phục vụ máy trạm (thường để bật liên tục).</li>
+  <li><b>Máy trạm đã kết nối</b>: danh sách IP các máy đang truy cập.</li>
+  <li><b>Nhật ký truy cập</b>: lịch sử request gần đây, hữu ích khi cần kiểm tra sự cố.</li>
+  <li><b>Cấu hình Windows Firewall</b>: bấm lại nếu quy tắc tường lửa bị mất sau khi cập nhật Windows.</li>
+</ul>
+
+<h2>4. Quản lý tài khoản</h2>
+<h3>4.1 Tài khoản quản trị viên (khuyến nghị dùng thay mật khẩu dùng chung)</h3>
+<p>Mỗi quản trị viên nên có <b>tài khoản đăng nhập riêng</b> thay vì tất cả cùng dùng chung 1 mật khẩu máy chủ — giúp nhật ký kiểm toán ghi đúng người thực hiện thao tác.</p>
+<div class="step"><div class="num">1</div><div class="content">Vào tab <b>Hàng đợi</b> → bấm <b>"Tài khoản quản trị..."</b>.</div></div>
+<div class="step"><div class="num">2</div><div class="content">Bấm <b>"Thêm tài khoản..."</b>, nhập tên đăng nhập, mật khẩu (tối thiểu 8 ký tự), tên hiển thị.</div></div>
+<div class="step"><div class="num">3</div><div class="content">Gửi tên đăng nhập + mật khẩu cho quản trị viên tương ứng để họ tự đăng nhập trên máy trạm (xem Tài liệu 3/4).</div></div>
+<div class="box tip">Có thể khoá/mở khoá hoặc đặt lại mật khẩu bất kỳ lúc nào từ cùng màn hình này, không cần cài lại gì.</div>
+
+<h3>4.2 Tài khoản xã/phường</h3>
+<p>Vào tab <b>Hàng đợi</b> → <b>"Tài khoản xã..."</b> nếu muốn cấp tài khoản riêng cho từng xã đăng nhập trực tiếp qua trang <span class="mono">/xa</span> trong LAN (khác với luồng nộp qua GitHub Pages/Apps Script ở Tài liệu 1/4 — luồng đó dùng chung 1 khoá, không cần tài khoản riêng từng xã).</p>
+
+<h2>5. Sao lưu dữ liệu</h2>
+<p>Vào tab <b>Sao lưu &amp; cập nhật</b> để cấu hình lịch sao lưu tự động (ngày/tuần/tháng) và nơi lưu (khuyến nghị chọn thêm 1 thư mục NAS/OneDrive/Google Drive for Desktop làm bản sao dự phòng thứ 2, tách biệt hạ tầng chính).</p>
+
+<h2>6. Chuyển máy chủ (khi cần đổi phần cứng)</h2>
+<div class="box warn">Chỉ thực hiện khi máy chủ MỚI đã cài đặt sẵn (cùng bản Server release này) và còn <b>trống</b> (chưa có dữ liệu thật).</div>
+<div class="step"><div class="num">1</div><div class="content">Trên máy chủ mới: cài đặt xong, ghi nhớ địa chỉ IP LAN của máy mới.</div></div>
+<div class="step"><div class="num">2</div><div class="content">Trên máy chủ CŨ (đang có dữ liệu): tab Server → bấm <b>"Chuyển máy chủ..."</b>.</div></div>
+<div class="step"><div class="num">3</div><div class="content">Nhập địa chỉ + mật khẩu của máy chủ mới, bấm <b>"Bắt đầu chuyển máy chủ"</b>.</div></div>
+<div class="step"><div class="num">4</div><div class="content">Hệ thống tự: tạm khoá ghi → tạo bản sao lưu đầy đủ → gửi sang máy mới → xác nhận thành công → <b>đóng máy chủ cũ</b>.</div></div>
+<div class="step"><div class="num">5</div><div class="content">Sau khi đóng, máy chủ cũ không phục vụ dữ liệu nữa — mọi request (kể cả từ Apps Script/máy trạm cũ) đều nhận thông báo địa chỉ máy chủ mới. Cập nhật lại địa chỉ này trên: các máy trạm quản trị, và Script Property <span class="mono">MAIN_SERVER_URL</span> trong Apps Script nếu có dùng (xem Tài liệu 4/4).</div></div>
+
+<p class="footer-note">Ứng dụng Giám sát dịch bệnh — CDC Hải Phòng — Tài liệu 2/4</p>
+</body>
+</html>

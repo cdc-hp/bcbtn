@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Hướng dẫn Máy trạm quản trị</title>
+<style>
+  @page { size: A4; margin: 20mm 18mm; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: #1f2937; line-height: 1.5; font-size: 12.5px; }
+  .cover { text-align: center; padding-top: 60mm; page-break-after: always; }
+  .cover .badge { display: inline-block; background: #1e3a8a; color: #fff; padding: 6px 16px; border-radius: 20px; font-size: 13px; letter-spacing: 0.5px; }
+  .cover h1 { font-size: 26px; margin-top: 24px; color: #1e3a8a; }
+  .cover p.subtitle { font-size: 14px; color: #64748b; margin-top: 8px; }
+  h2 { color: #1e3a8a; border-bottom: 2px solid #dbeafe; padding-bottom: 4px; margin-top: 28px; font-size: 17px; }
+  h3 { color: #1e40af; font-size: 14px; margin-top: 18px; }
+  .step { display: flex; gap: 12px; margin: 14px 0; }
+  .step .num { flex: 0 0 26px; height: 26px; border-radius: 50%; background: #2563eb; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
+  .step .content { flex: 1; }
+  code, .mono { font-family: Consolas, "Courier New", monospace; background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+  .box { border-radius: 8px; padding: 10px 14px; margin: 14px 0; }
+  .box.info { background: #eff6ff; border-left: 4px solid #2563eb; }
+  .box.warn { background: #fef2f2; border-left: 4px solid #dc2626; }
+  .box.tip { background: #f0fdf4; border-left: 4px solid #16a34a; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 11.5px; }
+  th, td { border: 1px solid #e2e8f0; padding: 5px 8px; text-align: left; }
+  th { background: #f8fafc; }
+  .footer-note { margin-top: 40px; font-size: 10.5px; color: #94a3b8; }
+  ul { margin: 6px 0; padding-left: 20px; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <span class="badge">CDC HẢI PHÒNG</span>
+  <h1>Hướng dẫn Máy trạm quản trị</h1>
+  <p class="subtitle">Bản release: GiamSatDichBenh-Admin-Setup-vX.Y.Z.exe</p>
+  <p class="subtitle">Tài liệu 3/4 — Ứng dụng Giám sát dịch bệnh</p>
+</div>
+
+<h2>1. Trước khi cài đặt</h2>
+<ul>
+  <li>Máy tính phải cùng mạng LAN với Máy chủ (xem Tài liệu 2/4), hoặc kết nối được tới máy chủ qua địa chỉ IP đã cấu hình.</li>
+  <li>Hỏi CDC quản trị máy chủ (hoặc tự xem tab Server trên máy chủ) để lấy: <b>địa chỉ máy chủ</b> (dạng <span class="mono">http://192.168.1.10:8765</span>) và <b>mật khẩu dùng chung</b> (nếu máy chủ có đặt).</li>
+  <li>Đề nghị CDC quản trị máy chủ <b>tạo sẵn tài khoản cá nhân</b> cho bạn (xem Tài liệu 2/4, mục 4.1) trước khi cài — bạn sẽ dùng tài khoản này để đăng nhập ở Mục 3.</li>
+</ul>
+
+<h2>2. Cài đặt</h2>
+<div class="step"><div class="num">1</div><div class="content">Tải <span class="mono">GiamSatDichBenh-Admin-Setup-vX.Y.Z.exe</span> từ GitHub Releases của repo <span class="mono">cdc-hp/bcbtn</span>.</div></div>
+<div class="step"><div class="num">2</div><div class="content">Chạy file cài đặt, làm theo các bước wizard.</div></div>
+<div class="step"><div class="num">3</div><div class="content">Ở màn hình "Cấu hình máy trạm quản trị": nhập <b>Địa chỉ máy chủ</b> và <b>Mật khẩu dùng chung</b> đã được cấp ở Mục 1.</div></div>
+<div class="step"><div class="num">4</div><div class="content">Hoàn tất — ứng dụng tự mở, nếu kết nối máy chủ thành công sẽ thấy dữ liệu ca bệnh/ổ dịch hiện lên bình thường.</div></div>
+
+<h2>3. Đăng nhập tài khoản cá nhân (khuyến nghị)</h2>
+<p>Mật khẩu dùng chung nhập lúc cài chỉ để <i>kết nối được</i> tới máy chủ. Để nhật ký kiểm toán ghi đúng tên bạn (thay vì chỉ ghi địa chỉ IP máy), hãy đăng nhập tài khoản cá nhân:</p>
+<div class="step"><div class="num">1</div><div class="content">Trong ứng dụng, mở màn hình <b>"Kết nối máy chủ LAN"</b> (từ menu cấu hình).</div></div>
+<div class="step"><div class="num">2</div><div class="content">Ở khung <b>"Đăng nhập quản trị viên"</b>, nhập tên đăng nhập + mật khẩu cá nhân CDC đã cấp cho bạn.</div></div>
+<div class="step"><div class="num">3</div><div class="content">Bấm <b>"Đăng nhập"</b>. Trạng thái chuyển thành "Đã đăng nhập: &lt;tên hiển thị&gt;".</div></div>
+<div class="step"><div class="num">4</div><div class="content">Bấm <b>Save</b> để đóng màn hình cấu hình.</div></div>
+<div class="box tip">Từ giờ, mọi thao tác (lọc trùng, nhập hàng đợi, xuất Excel...) trong nhật ký kiểm toán sẽ ghi theo đúng tên đăng nhập của bạn. Nếu đổi người phụ trách máy này, đăng nhập lại bằng tài khoản của người mới hoặc bấm "Đăng xuất".</div>
+
+<h2>4. Các chức năng chính trên máy trạm</h2>
+<table>
+<tr><th>Tab</th><th>Chức năng</th></tr>
+<tr><td>Tổng quan</td><td>Thống kê nhanh ca bệnh, ổ dịch, cảnh báo chất lượng dữ liệu.</td></tr>
+<tr><td>Ca bệnh / Ổ dịch</td><td>Tìm kiếm, lọc, xem chi tiết, sửa/xoá bản ghi.</td></tr>
+<tr><td>Lọc trùng</td><td>Rà soát và hợp nhất các bản ghi trùng lặp.</td></tr>
+<tr><td>Nhập Excel</td><td>Nhập file Excel trực tiếp vào CSDL (qua máy chủ).</td></tr>
+<tr><td>Hàng đợi</td><td>Xem/nhập các báo cáo xã đã nộp qua Web, quản lý tài khoản xã/quản trị viên, nhật ký kiểm toán.</td></tr>
+<tr><td>Chất lượng dữ liệu</td><td>Danh sách các bản ghi thiếu/sai thông tin cần rà soát.</td></tr>
+<tr><td>Truy vấn SQL</td><td>Chạy truy vấn chỉ đọc cho các yêu cầu báo cáo đặc thù.</td></tr>
+</table>
+
+<h2>5. Xử lý sự cố kết nối</h2>
+<table>
+<tr><th>Tình huống</th><th>Cách xử lý</th></tr>
+<tr><td>"Không kết nối được máy chủ"</td><td>Kiểm tra máy chủ có đang bật/chạy không; kiểm tra cùng mạng LAN; thử "Tìm máy chủ tự động" trong màn hình Kết nối.</td></tr>
+<tr><td>"Sai mật khẩu máy chủ"</td><td>Xác nhận lại mật khẩu dùng chung với CDC quản trị máy chủ.</td></tr>
+<tr><td>Đăng nhập cá nhân báo "Sai tên đăng nhập hoặc mật khẩu"</td><td>Nhờ CDC quản trị máy chủ kiểm tra/đặt lại mật khẩu tài khoản của bạn (tab Hàng đợi → Tài khoản quản trị...).</td></tr>
+<tr><td>Máy chủ báo "đã ngừng phục vụ, đã chuyển sang máy chủ mới"</td><td>Máy chủ vừa được CDC "Chuyển máy chủ" sang địa chỉ mới — cập nhật lại Địa chỉ máy chủ trong màn hình Kết nối theo địa chỉ được thông báo.</td></tr>
+</table>
+
+<p class="footer-note">Ứng dụng Giám sát dịch bệnh — CDC Hải Phòng — Tài liệu 3/4</p>
+</body>
+</html>
