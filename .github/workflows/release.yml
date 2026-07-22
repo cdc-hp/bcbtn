@@ -53,8 +53,15 @@ jobs:
         run: |
           $forbiddenExtensions = @('.db', '.sqlite', '.sqlite3', '.xlsx', '.xls', '.xlsm', '.csv')
           $forbiddenDirectories = @('data', 'backups', 'update_cache')
+          # File mẫu Excel công khai qua GitHub Pages cho các xã tải — chỉ có 48 cột tiêu đề
+          # (khớp CASE_FIELDS trong core.py), không chứa dữ liệu ca bệnh thật. Loại trừ tường
+          # minh khỏi kiểm tra "không có dữ liệu người dùng" thay vì nới lỏng phần mở rộng .xlsx
+          # nói chung (vẫn phải chặn mọi file .xlsx khác không nằm trong allowlist này).
+          $allowedDataFiles = @('docs/Mau_Danh_sach_ca_benh.xlsx')
           $tracked = git ls-files
-          $forbiddenFiles = $tracked | Where-Object { $forbiddenExtensions -contains [IO.Path]::GetExtension($_).ToLower() }
+          $forbiddenFiles = $tracked | Where-Object {
+            ($forbiddenExtensions -contains [IO.Path]::GetExtension($_).ToLower()) -and ($allowedDataFiles -notcontains $_)
+          }
           $forbiddenDirs = $tracked | Where-Object {
             $parts = $_ -split '[/\\]'
             @($parts | Where-Object { $forbiddenDirectories -contains $_.ToLower() }).Count -gt 0
