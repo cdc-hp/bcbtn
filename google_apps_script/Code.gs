@@ -447,7 +447,7 @@ function buildPageHtml(communes) {
   * { box-sizing: border-box; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-    margin: 0; background: var(--slate-50); color: var(--slate-900); -webkit-font-smoothing: antialiased;
+    margin: 0; background: var(--slate-200); color: var(--slate-900); -webkit-font-smoothing: antialiased;
   }
   .page { max-width: 640px; margin: 0 auto; padding-bottom: 32px; }
   .app-header {
