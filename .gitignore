@@ -24,3 +24,6 @@ update_cache/
 app_password.hash
 update_config.json
 gas_deploy/
+
+# File mẫu (chỉ header, không có dữ liệu thật) — cố ý công khai qua GitHub Pages để các xã tải.
+!docs/Mau_Danh_sach_ca_benh.xlsx
