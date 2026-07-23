@@ -63,6 +63,20 @@ begin
   StringChangeEx(Result, '"', '\"', True);
 end;
 
+function ReadExistingMode(ConfigPath: String): String;
+var
+  Contents: AnsiString;
+  Text: String;
+begin
+  Result := '';
+  if not FileExists(ConfigPath) then Exit;
+  if not LoadStringFromFile(ConfigPath, Contents) then Exit;
+  Text := String(Contents);
+  if Pos('"mode": "standalone"', Text) > 0 then Result := 'standalone'
+  else if Pos('"mode": "workstation"', Text) > 0 then Result := 'workstation'
+  else if Pos('"mode": "server"', Text) > 0 then Result := 'server';
+end;
+
 procedure InitializeWizard;
 begin
   WorkstationPage := CreateInputQueryPage(
@@ -126,10 +140,11 @@ var
 begin
   if CurStep = ssPostInstall then
   begin
-    // Cài lại/cập nhật lên bản mới không được ghi đè deployment.json đã có — sẽ xóa mất địa chỉ
-    // máy chủ/mật khẩu đang dùng. Chỉ hỏi và ghi cấu hình khi đây thực sự là lần cài đầu.
+    // Chỉ giữ nguyên deployment.json khi máy này ĐÃ từng là máy trạm quản trị (nâng cấp lên bản
+    // mới) — không được xóa mất địa chỉ máy chủ/mật khẩu đang dùng. Nếu trước đó là vai trò khác
+    // (vd. từng cài thử Máy chủ/Máy đơn lẻ trên cùng máy), phải ghi lại đúng cho vai trò này.
     ConfigPath := ExpandConstant('{localappdata}\CDC_HaiPhong\GiamSatDichBenh\deployment.json');
-    if not FileExists(ConfigPath) then
+    if ReadExistingMode(ConfigPath) <> 'workstation' then
       WriteDeploymentConfig;
   end;
 end;

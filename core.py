@@ -27,10 +27,6 @@ import backup_manager
 from duplicate_config import CASE_CRITERIA_LABELS, CaseDuplicateCriteria, load_case_criteria, load_rules
 
 APP_NAME = "Giám sát dịch bệnh"
-# Không tự đồng bộ với VERSION.txt (dùng cho tên gói cài) — nhớ cập nhật cả 2 mỗi lần bump
-# phiên bản, nếu không update_manager.is_newer_version() so sánh sai (từng lệch: VERSION.txt
-# đã ở 0.6.0 nhưng hằng số này còn 0.5.0).
-VERSION = "0.7.0"
 
 
 def _base_dir() -> Path:
@@ -40,6 +36,20 @@ def _base_dir() -> Path:
 
 
 BASE_DIR = _base_dir()
+
+
+def _load_version() -> str:
+    """VERSION.txt là nguồn duy nhất cho số phiên bản — build.bat copy nó vào cạnh exe (cùng
+    BASE_DIR), và khi chạy từ mã nguồn nó đã nằm cạnh core.py. Trước đây từng có thêm một hằng
+    số VERSION hardcode riêng, hay bị quên cập nhật mỗi lần bump khiến so sánh cập nhật sai."""
+    try:
+        text = (BASE_DIR / "VERSION.txt").read_text(encoding="utf-8").strip()
+    except OSError:
+        text = ""
+    return text if re.fullmatch(r"\d+\.\d+\.\d+", text) else "0.0.0"
+
+
+VERSION = _load_version()
 
 
 def _user_data_root() -> Path:
