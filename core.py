@@ -423,6 +423,12 @@ def init_db(db_path: Path | str = DB_PATH) -> None:
             _ensure_column(conn, "duplicate_actions", "merged_values_json", "TEXT")
             _ensure_column(conn, "duplicate_actions", "restored_at", "TEXT")
             _ensure_column(conn, "import_queue", "archived_at", "TEXT")
+            # Web App (Giai đoạn chuyển sang FastAPI tập trung, xem TASKS.md): phân quyền theo
+            # vai trò + khoá tài khoản sau nhiều lần đăng nhập sai + bắt đổi mật khẩu lần đầu.
+            _ensure_column(conn, "cdc_accounts", "role", f"TEXT NOT NULL DEFAULT '{CDC_ROLE_ADMIN}'")
+            _ensure_column(conn, "cdc_accounts", "must_change_password", "INTEGER NOT NULL DEFAULT 0")
+            _ensure_column(conn, "cdc_accounts", "failed_login_count", "INTEGER NOT NULL DEFAULT 0")
+            _ensure_column(conn, "cdc_accounts", "locked_until", "TEXT")
 
 def strip_text(value: Any) -> str:
     if value is None:
@@ -1820,6 +1826,20 @@ def verify_commune_token(token: str, secret: str) -> dict[str, Any] | None:
         return None
 
 
+# Vai trò tài khoản quản trị viên CDC (Web App, xem TASKS.md mục 5). Thứ tự trong tuple không
+# mang ý nghĩa phân cấp — kiểm tra quyền luôn so sánh giá trị cụ thể, không so sánh vị trí.
+CDC_ROLE_SUPER_ADMIN = "super_admin"
+CDC_ROLE_ADMIN = "admin"
+CDC_ROLE_DATA_OPERATOR = "data_operator"
+CDC_ROLE_VIEWER = "viewer"
+CDC_ROLES = (CDC_ROLE_SUPER_ADMIN, CDC_ROLE_ADMIN, CDC_ROLE_DATA_OPERATOR, CDC_ROLE_VIEWER)
+
+# Khoá tài khoản sau nhiều lần đăng nhập sai liên tiếp — áp dụng cho cả cdc_accounts và
+# commune_accounts (TASKS.md, mục backlog "Khoá tài khoản sau nhiều lần đăng nhập sai").
+ACCOUNT_LOCKOUT_THRESHOLD = 5
+ACCOUNT_LOCKOUT_MINUTES = 15
+
+
 def has_any_data(db_path: Path | str = DB_PATH) -> bool:
     """Máy chủ đã có dữ liệu thật (ca bệnh, ổ dịch, hoặc tài khoản) hay còn hoàn toàn trống —
     dùng làm lớp bảo vệ trước khi nhận 1 bản sao lưu đầy đủ từ máy chủ khác (di chuyển máy chủ,
@@ -1842,7 +1862,8 @@ def has_cdc_accounts(db_path: Path | str = DB_PATH) -> bool:
 
 
 def create_cdc_account(
-    username: str, password: str, display_name: str = "", db_path: Path | str = DB_PATH, actor: str = "",
+    username: str, password: str, display_name: str = "", role: str = CDC_ROLE_ADMIN,
+    must_change_password: bool = True, db_path: Path | str = DB_PATH, actor: str = "",
 ) -> dict[str, Any]:
     init_db(db_path)
     username = strip_text(username).lower()
@@ -1850,26 +1871,31 @@ def create_cdc_account(
         raise ValueError("Thiếu tên đăng nhập.")
     if len(password or "") < 8:
         raise ValueError("Mật khẩu phải có ít nhất 8 ký tự.")
+    if role not in CDC_ROLES:
+        raise ValueError(f"Vai trò không hợp lệ: {role}")
     now = datetime.now().isoformat(sep=" ", timespec="seconds")
     with _connect(db_path) as conn:
         try:
             cur = conn.execute(
-                """INSERT INTO cdc_accounts (username, password_hash, display_name, active, created_at)
-                   VALUES (?, ?, ?, 1, ?)""",
-                (username, _hash_password(password), display_name or username, now),
+                """INSERT INTO cdc_accounts
+                   (username, password_hash, display_name, role, must_change_password, active, created_at)
+                   VALUES (?, ?, ?, ?, ?, 1, ?)""",
+                (username, _hash_password(password), display_name or username, role,
+                 1 if must_change_password else 0, now),
             )
         except sqlite3.IntegrityError as exc:
             raise ValueError("Tên đăng nhập này đã có tài khoản.") from exc
         account_id = int(cur.lastrowid)
-    log_audit("create_cdc_account", actor=actor, detail=f"username={username}", db_path=db_path)
-    return {"id": account_id, "username": username}
+    log_audit("create_cdc_account", actor=actor, detail=f"username={username} role={role}", db_path=db_path)
+    return {"id": account_id, "username": username, "role": role}
 
 
 def list_cdc_accounts(db_path: Path | str = DB_PATH) -> list[dict[str, Any]]:
     init_db(db_path)
     with _connect(db_path) as conn:
         rows = conn.execute(
-            "SELECT id, username, display_name, active, created_at, last_login_at "
+            "SELECT id, username, display_name, role, active, must_change_password, "
+            "failed_login_count, locked_until, created_at, last_login_at "
             "FROM cdc_accounts ORDER BY username"
         ).fetchall()
         return [dict(r) for r in rows]
@@ -1881,16 +1907,35 @@ def set_cdc_account_active(account_id: int, active: bool, db_path: Path | str = 
         row = conn.execute("SELECT username FROM cdc_accounts WHERE id=?", (int(account_id),)).fetchone()
         if not row:
             raise ValueError("Không tìm thấy tài khoản.")
-        conn.execute("UPDATE cdc_accounts SET active=? WHERE id=?", (1 if active else 0, int(account_id)))
+        conn.execute(
+            "UPDATE cdc_accounts SET active=?, failed_login_count=0, locked_until=NULL WHERE id=?",
+            (1 if active else 0, int(account_id)),
+        )
     log_audit(
         "enable_cdc_account" if active else "disable_cdc_account",
         actor=actor, detail=f"username={row['username']}", db_path=db_path,
     )
 
 
+def set_cdc_account_role(account_id: int, role: str, db_path: Path | str = DB_PATH, actor: str = "") -> None:
+    """Đổi vai trò tài khoản — chỉ super_admin được phép gọi, kiểm tra quyền ở tầng route
+    (webapp/dependencies.py), core.py chỉ thao tác dữ liệu, không tự kiểm tra người gọi."""
+    init_db(db_path)
+    if role not in CDC_ROLES:
+        raise ValueError(f"Vai trò không hợp lệ: {role}")
+    with _connect(db_path) as conn:
+        row = conn.execute("SELECT username FROM cdc_accounts WHERE id=?", (int(account_id),)).fetchone()
+        if not row:
+            raise ValueError("Không tìm thấy tài khoản.")
+        conn.execute("UPDATE cdc_accounts SET role=? WHERE id=?", (role, int(account_id)))
+    log_audit("set_cdc_account_role", actor=actor, detail=f"username={row['username']} role={role}", db_path=db_path)
+
+
 def reset_cdc_account_password(
     account_id: int, new_password: str, db_path: Path | str = DB_PATH, actor: str = "",
 ) -> None:
+    """Quản trị viên (super_admin) đặt lại mật khẩu cho người khác — luôn buộc đổi lại ngay ở
+    lần đăng nhập tới vì mật khẩu này đã bị lộ cho người đặt hộ. Cũng mở khoá nếu đang bị khoá."""
     init_db(db_path)
     if len(new_password or "") < 8:
         raise ValueError("Mật khẩu phải có ít nhất 8 ký tự.")
@@ -1899,29 +1944,108 @@ def reset_cdc_account_password(
         if not row:
             raise ValueError("Không tìm thấy tài khoản.")
         conn.execute(
-            "UPDATE cdc_accounts SET password_hash=? WHERE id=?", (_hash_password(new_password), int(account_id))
+            "UPDATE cdc_accounts SET password_hash=?, must_change_password=1, failed_login_count=0, "
+            "locked_until=NULL WHERE id=?",
+            (_hash_password(new_password), int(account_id)),
         )
     log_audit("reset_cdc_account_password", actor=actor, detail=f"username={row['username']}", db_path=db_path)
 
 
-def verify_cdc_account(username: str, password: str, db_path: Path | str = DB_PATH) -> dict[str, Any] | None:
-    """Kiểm tra tên đăng nhập/mật khẩu tài khoản quản trị viên; ghi nhật ký cả khi thành công
-    lẫn thất bại — dùng cho máy trạm quản trị đăng nhập cá nhân (POST /cdc/login)."""
+def change_cdc_account_password(
+    account_id: int, current_password: str, new_password: str, db_path: Path | str = DB_PATH,
+) -> None:
+    """Tự đổi mật khẩu (yêu cầu đúng mật khẩu hiện tại) — dùng cho cả đổi mật khẩu lần đầu bắt
+    buộc và đổi tự nguyện sau này. Khác `reset_cdc_account_password` (quản trị viên đặt hộ,
+    không cần biết mật khẩu cũ)."""
+    init_db(db_path)
+    if len(new_password or "") < 8:
+        raise ValueError("Mật khẩu mới phải có ít nhất 8 ký tự.")
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT username, password_hash FROM cdc_accounts WHERE id=?", (int(account_id),)
+        ).fetchone()
+        if not row:
+            raise ValueError("Không tìm thấy tài khoản.")
+        if not _verify_password(current_password or "", row["password_hash"]):
+            raise ValueError("Mật khẩu hiện tại không đúng.")
+        conn.execute(
+            "UPDATE cdc_accounts SET password_hash=?, must_change_password=0 WHERE id=?",
+            (_hash_password(new_password), int(account_id)),
+        )
+    log_audit("change_cdc_account_password", actor=row["username"], db_path=db_path)
+
+
+def get_cdc_account_lock_status(username: str, db_path: Path | str = DB_PATH) -> dict[str, Any] | None:
+    """Tra riêng trạng thái khoá (không kiểm tra mật khẩu) — dùng ở route đăng nhập Web để báo
+    đúng "tài khoản đang bị khoá, thử lại sau X phút" thay vì lẫn chung với "sai mật khẩu"."""
     init_db(db_path)
     username_norm = strip_text(username).lower()
     with _connect(db_path) as conn:
         row = conn.execute(
+            "SELECT locked_until FROM cdc_accounts WHERE username=? AND active=1", (username_norm,)
+        ).fetchone()
+    if not row or not row["locked_until"]:
+        return None
+    now = datetime.now().isoformat(sep=" ", timespec="seconds")
+    if row["locked_until"] <= now:
+        return None
+    return {"locked_until": row["locked_until"]}
+
+
+def verify_cdc_account(username: str, password: str, db_path: Path | str = DB_PATH) -> dict[str, Any] | None:
+    """Kiểm tra tên đăng nhập/mật khẩu tài khoản quản trị viên; ghi nhật ký cả khi thành công
+    lẫn thất bại — dùng cho đăng nhập cá nhân (POST /cdc/login). Khoá tài khoản
+    ACCOUNT_LOCKOUT_MINUTES phút sau ACCOUNT_LOCKOUT_THRESHOLD lần sai liên tiếp; gọi
+    get_cdc_account_lock_status() trước nếu cần phân biệt "sai mật khẩu" với "đang bị khoá" khi
+    hiển thị thông báo."""
+    init_db(db_path)
+    username_norm = strip_text(username).lower()
+    now_dt = datetime.now()
+    now = now_dt.isoformat(sep=" ", timespec="seconds")
+    # Toàn bộ ghi CSDL diễn ra trong khối with dưới đây; log_audit() (tự mở kết nối riêng) chỉ
+    # được gọi SAU KHI khối with đã đóng/commit — gọi log_audit khi connection này còn giữ một
+    # UPDATE chưa commit sẽ tự khoá chính nó (2 connection cùng chờ nhau, tới khi hết
+    # busy_timeout mới báo "database is locked").
+    result: dict[str, Any] | None = None
+    audit_action = "login_failed"
+    audit_detail = ""
+    audit_actor = username or "khong_ro"
+    with _connect(db_path) as conn:
+        row = conn.execute(
             "SELECT * FROM cdc_accounts WHERE username=? AND active=1", (username_norm,)
         ).fetchone()
-        if not row or not _verify_password(password or "", row["password_hash"]):
-            log_audit("login_failed", actor=username or "khong_ro", db_path=db_path)
-            return None
-        now = datetime.now().isoformat(sep=" ", timespec="seconds")
-        conn.execute("UPDATE cdc_accounts SET last_login_at=? WHERE id=?", (now, row["id"]))
-    log_audit("login", actor=row["username"], db_path=db_path)
-    return {
-        "id": int(row["id"]), "username": row["username"], "display_name": row["display_name"] or row["username"],
-    }
+        if not row:
+            pass
+        elif row["locked_until"] and row["locked_until"] > now:
+            audit_action = "login_blocked_locked"
+            audit_actor = row["username"]
+        elif not _verify_password(password or "", row["password_hash"]):
+            audit_actor = row["username"]
+            fail_count = int(row["failed_login_count"] or 0) + 1
+            if fail_count >= ACCOUNT_LOCKOUT_THRESHOLD:
+                lock_until = (now_dt + timedelta(minutes=ACCOUNT_LOCKOUT_MINUTES)).isoformat(sep=" ", timespec="seconds")
+                conn.execute(
+                    "UPDATE cdc_accounts SET failed_login_count=?, locked_until=? WHERE id=?",
+                    (fail_count, lock_until, row["id"]),
+                )
+                audit_action = "account_locked"
+                audit_detail = f"sau {fail_count} lần sai"
+            else:
+                conn.execute("UPDATE cdc_accounts SET failed_login_count=? WHERE id=?", (fail_count, row["id"]))
+        else:
+            conn.execute(
+                "UPDATE cdc_accounts SET last_login_at=?, failed_login_count=0, locked_until=NULL WHERE id=?",
+                (now, row["id"]),
+            )
+            result = {
+                "id": int(row["id"]), "username": row["username"],
+                "display_name": row["display_name"] or row["username"],
+                "role": row["role"] or CDC_ROLE_ADMIN, "must_change_password": bool(row["must_change_password"]),
+            }
+            audit_action = "login"
+            audit_actor = row["username"]
+    log_audit(audit_action, actor=audit_actor, detail=audit_detail, db_path=db_path)
+    return result
 
 
 def issue_admin_token(account_id: int, username: str, secret: str, ttl_seconds: int = 8 * 3600) -> str:
