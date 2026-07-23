@@ -17,6 +17,17 @@ MANIFEST_FILE_ID = "1gEk9LH7k40FgN7Ry68m0SHih-CwcF4l9"
 DRIVE_DOWNLOAD_URL = "https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm=t"
 USER_AGENT = "GiamSatDichBenh-Updater/1.0"
 
+GITHUB_REPO = "cdc-hp/bcbtn"
+GITHUB_LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+GITHUB_RELEASES_PAGE = f"https://github.com/{GITHUB_REPO}/releases"
+# Tên tệp cài đặt ứng với từng chế độ triển khai, khớp OutputBaseFilename trong setup*.iss
+# và tên tệp release.yml đóng gói — xem CLAUDE.md mục "File chính".
+GITHUB_ASSET_NAME_BY_MODE = {
+    "standalone": "GiamSatDichBenh-Setup-v{version}.exe",
+    "server": "GiamSatDichBenh-Server-Setup-v{version}.exe",
+    "workstation": "GiamSatDichBenh-Admin-Setup-v{version}.exe",
+}
+
 
 class UpdateError(RuntimeError):
     """Lỗi có thể hiển thị trực tiếp cho người dùng."""
@@ -50,6 +61,124 @@ class UpdateInfo:
             published_at=str(data.get("published_at", "")).strip(),
             package_root=str(data.get("package_root", "")).strip(),
         )
+
+
+@dataclass(frozen=True)
+class GithubReleaseInfo:
+    version: str
+    notes: str
+    asset_name: str
+    download_url: str
+    sha256: str
+
+
+def _parse_sha256sums(text: str, file_name: str) -> str:
+    """Đọc tệp SHA256SUMS.txt (định dạng `<hash>  <tên tệp>`) và trả mã hash của đúng tệp."""
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(None, 1)
+        if len(parts) == 2 and parts[1].strip().lstrip("*") == file_name:
+            return parts[0].strip().lower()
+    return ""
+
+
+def fetch_github_release(mode: str, timeout: int = 15) -> GithubReleaseInfo:
+    """Đọc bản phát hành mới nhất trên GitHub Releases ứng với chế độ triển khai hiện tại."""
+    template = GITHUB_ASSET_NAME_BY_MODE.get(mode)
+    if not template:
+        raise UpdateError(f"Không có gói cài đặt GitHub cho chế độ triển khai '{mode}'.")
+    request = urllib.request.Request(
+        GITHUB_LATEST_RELEASE_API,
+        headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise UpdateError(f"GitHub từ chối yêu cầu kiểm tra bản phát hành (HTTP {exc.code}).") from exc
+    except urllib.error.URLError as exc:
+        raise UpdateError(f"Không kết nối được GitHub: {exc.reason}") from exc
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise UpdateError("Không đọc được thông tin bản phát hành từ GitHub.") from exc
+    if not isinstance(data, dict):
+        raise UpdateError("Nội dung bản phát hành GitHub không hợp lệ.")
+    version = str(data.get("tag_name", "")).strip().lstrip("vV")
+    if not version:
+        raise UpdateError("Bản phát hành trên GitHub thiếu số phiên bản.")
+    assets = {str(a.get("name", "")): str(a.get("browser_download_url", "")) for a in data.get("assets", []) if isinstance(a, dict)}
+    asset_name = template.format(version=version)
+    download_url = assets.get(asset_name)
+    if not download_url:
+        raise UpdateError(f"Không tìm thấy tệp {asset_name} trong bản phát hành GitHub mới nhất ({GITHUB_RELEASES_PAGE}).")
+    sha256 = ""
+    sums_url = assets.get("SHA256SUMS.txt")
+    if sums_url:
+        try:
+            sums_text = download_url_to_bytes(sums_url, timeout=timeout).decode("utf-8", errors="ignore")
+            sha256 = _parse_sha256sums(sums_text, asset_name)
+        except UpdateError:
+            sha256 = ""
+    return GithubReleaseInfo(
+        version=version,
+        notes=str(data.get("body", "") or "").strip(),
+        asset_name=asset_name,
+        download_url=download_url,
+        sha256=sha256,
+    )
+
+
+def download_url_to_bytes(url: str, timeout: int = 60) -> bytes:
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.read()
+    except urllib.error.HTTPError as exc:
+        raise UpdateError(f"Tải tệp thất bại (HTTP {exc.code}): {url}") from exc
+    except urllib.error.URLError as exc:
+        raise UpdateError(f"Không kết nối được: {exc.reason}") from exc
+
+
+def download_url_to_file(
+    url: str,
+    destination: Path,
+    progress: Callable[[int, int | None], None] | None = None,
+    timeout: int = 120,
+) -> Path:
+    """Tải tệp từ URL bất kỳ (vd. GitHub Releases) kèm báo tiến độ, khác download_drive_file ở
+    chỗ không cần dò trang HTML lỗi của Drive vì GitHub trả thẳng nội dung nhị phân."""
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            total_header = response.headers.get("Content-Length")
+            total = int(total_header) if total_header and total_header.isdigit() else None
+            downloaded = 0
+            with destination.open("wb") as output:
+                while True:
+                    chunk = response.read(1024 * 256)
+                    if not chunk:
+                        break
+                    output.write(chunk)
+                    downloaded += len(chunk)
+                    if progress:
+                        progress(downloaded, total)
+        return destination
+    except urllib.error.HTTPError as exc:
+        raise UpdateError(f"Tải bản cập nhật thất bại (HTTP {exc.code}).") from exc
+    except urllib.error.URLError as exc:
+        raise UpdateError(f"Không kết nối được máy chủ tải bản cập nhật: {exc.reason}") from exc
+
+
+def launch_installer_and_exit(installer_path: Path) -> None:
+    """Mở trình cài đặt Inno Setup vừa tải. setup*.iss đã tự giữ nguyên deployment.json có sẵn
+    (không hỏi lại cấu hình) khi phát hiện đây là lần chạy thứ hai trở đi, nên chỉ cần mở lên;
+    CloseApplications=yes trong setup*.iss tự lo việc đóng ứng dụng đang chạy khi cần."""
+    if os.name != "nt":
+        raise UpdateError("Tự cập nhật hiện chỉ hỗ trợ Windows.")
+    subprocess.Popen([str(Path(installer_path).resolve())], close_fds=True)
 
 
 def version_key(version: str) -> tuple[int, ...]:

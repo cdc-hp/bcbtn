@@ -139,10 +139,18 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ConfigPath: String;
 begin
   if CurStep = ssPostInstall then
   begin
-    WriteDeploymentConfig;
-    ConfigureServerFirewall;
+    // Cài lại/cập nhật lên bản mới không được ghi đè deployment.json đã có — sẽ xóa mất mật
+    // khẩu/cổng máy chủ đang dùng. Chỉ hỏi và ghi cấu hình khi đây thực sự là lần cài đầu.
+    ConfigPath := ExpandConstant('{localappdata}\CDC_HaiPhong\GiamSatDichBenh\deployment.json');
+    if not FileExists(ConfigPath) then
+    begin
+      WriteDeploymentConfig;
+      ConfigureServerFirewall;
+    end;
   end;
 end;

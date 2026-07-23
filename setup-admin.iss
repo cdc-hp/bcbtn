@@ -121,7 +121,15 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ConfigPath: String;
 begin
   if CurStep = ssPostInstall then
-    WriteDeploymentConfig;
+  begin
+    // Cài lại/cập nhật lên bản mới không được ghi đè deployment.json đã có — sẽ xóa mất địa chỉ
+    // máy chủ/mật khẩu đang dùng. Chỉ hỏi và ghi cấu hình khi đây thực sự là lần cài đầu.
+    ConfigPath := ExpandConstant('{localappdata}\CDC_HaiPhong\GiamSatDichBenh\deployment.json');
+    if not FileExists(ConfigPath) then
+      WriteDeploymentConfig;
+  end;
 end;

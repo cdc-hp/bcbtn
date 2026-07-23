@@ -2432,8 +2432,8 @@ class SettingsTab(QWidget):
         if not self.config.is_workstation: self.refresh_backups()
 
     def check_update(self, silent: bool = False):
-        self.update_button.setEnabled(False); self.update_status.setText("Đang kiểm tra phiên bản trên Google Drive..."); QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        try: info = update_manager.fetch_manifest()
+        self.update_button.setEnabled(False); self.update_status.setText("Đang kiểm tra bản phát hành mới nhất trên GitHub..."); QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try: info = update_manager.fetch_github_release(self.config.mode)
         except Exception as exc:
             self.update_status.setText(f"Không kiểm tra được cập nhật: {exc}")
             if not silent: QMessageBox.warning(self, "Không kiểm tra được cập nhật", str(exc))
@@ -2443,19 +2443,24 @@ class SettingsTab(QWidget):
             self.update_status.setText(f"Đang dùng phiên bản mới nhất: {core.VERSION}.")
             if not silent: QMessageBox.information(self, "Không có bản mới", f"Phiên bản hiện tại: {core.VERSION}")
             return
+        if not info.sha256:
+            self.update_status.setText(f"Có phiên bản {info.version} nhưng không xác minh được mã SHA-256 — không tự cập nhật để bảo đảm an toàn.")
+            if not silent:
+                QMessageBox.warning(self, "Không thể tự cập nhật", f"Tải thủ công tại {update_manager.GITHUB_RELEASES_PAGE}")
+            return
         self.update_status.setText(f"Có phiên bản {info.version}: {info.notes or 'Không có ghi chú.'}")
-        answer = QMessageBox.question(self, "Có bản cập nhật mới", f"Phiên bản hiện tại: {core.VERSION}\nPhiên bản mới: {info.version}\n\n{info.notes or 'Không có ghi chú phát hành.'}\n\nỨng dụng sẽ sao lưu CSDL, tải gói cập nhật, tự đóng rồi mở lại. Tiếp tục?")
+        answer = QMessageBox.question(self, "Có bản cập nhật mới", f"Phiên bản hiện tại: {core.VERSION}\nPhiên bản mới: {info.version}\nGói cài đặt: {info.asset_name}\n\n{info.notes or 'Không có ghi chú phát hành.'}\n\nỨng dụng sẽ sao lưu CSDL, tải trình cài đặt từ GitHub, tự đóng và mở trình cài đặt (giữ nguyên cấu hình hiện có). Tiếp tục?")
         if answer != QMessageBox.StandardButton.Yes: return
         try:
-            backup_path = core.create_backup(); cache_dir = core.UPDATE_CACHE_DIR; zip_path = cache_dir / info.file_name
-            progress = QProgressDialog("Đang tải bản cập nhật từ Google Drive...", "Hủy", 0, 100, self); progress.setWindowTitle("Cập nhật ứng dụng"); progress.setWindowModality(Qt.WindowModality.WindowModal); progress.setMinimumDuration(0)
+            backup_path = core.create_backup(); cache_dir = core.UPDATE_CACHE_DIR; installer_path = cache_dir / info.asset_name
+            progress = QProgressDialog(f"Đang tải {info.asset_name} từ GitHub...", "Hủy", 0, 100, self); progress.setWindowTitle("Cập nhật ứng dụng"); progress.setWindowModality(Qt.WindowModality.WindowModal); progress.setMinimumDuration(0)
             def on_progress(downloaded, total):
                 if progress.wasCanceled(): raise update_manager.UpdateError("Đã hủy tải bản cập nhật.")
                 if total: progress.setMaximum(100); progress.setValue(min(99, int(downloaded * 100 / total)))
                 else: progress.setMaximum(0)
                 QApplication.processEvents()
-            update_manager.download_drive_file(info.release_file_id, zip_path, on_progress, timeout=180); progress.setLabelText("Đang kiểm tra tính toàn vẹn của gói cập nhật..."); progress.setMaximum(0); QApplication.processEvents(); update_manager.verify_download(zip_path, info.sha256); progress.close()
-            self.update_status.setText(f"Đã tải phiên bản {info.version}. CSDL đã sao lưu tại {backup_path.name}."); update_manager.launch_update_and_exit(zip_path, core.BASE_DIR, info.package_root); QApplication.quit()
+            update_manager.download_url_to_file(info.download_url, installer_path, on_progress, timeout=180); progress.setLabelText("Đang kiểm tra tính toàn vẹn của gói cài đặt..."); progress.setMaximum(0); QApplication.processEvents(); update_manager.verify_download(installer_path, info.sha256); progress.close()
+            self.update_status.setText(f"Đã tải phiên bản {info.version}. CSDL đã sao lưu tại {backup_path.name}. Đang mở trình cài đặt..."); update_manager.launch_installer_and_exit(installer_path); QApplication.quit()
         except Exception as exc:
             try: progress.close()
             except Exception: pass
