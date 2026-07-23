@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Thiết lập lần đầu{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-body p-4">
+    <h1 class="h5 mb-2">Thiết lập lần đầu</h1>
+    <p class="small text-secondary">Máy chủ chưa có tài khoản quản trị nào. Tạo tài khoản <strong>super_admin</strong> đầu tiên để bắt đầu sử dụng.</p>
+    {% if error %}
+    <div class="alert alert-danger py-2 small mb-3">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="/cdc/setup">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="mb-3">
+        <label class="form-label small fw-semibold">Tên đăng nhập</label>
+        <input type="text" name="username" class="form-control" autocomplete="username" autofocus required value="{{ username or '' }}">
+      </div>
+      <div class="mb-3">
+        <label class="form-label small fw-semibold">Tên hiển thị</label>
+        <input type="text" name="display_name" class="form-control" value="{{ display_name or '' }}">
+      </div>
+      <div class="mb-3">
+        <label class="form-label small fw-semibold">Mật khẩu (tối thiểu 8 ký tự)</label>
+        <input type="password" name="password" class="form-control" autocomplete="new-password" minlength="8" required>
+      </div>
+      <div class="mb-3">
+        <label class="form-label small fw-semibold">Nhập lại mật khẩu</label>
+        <input type="password" name="password_confirm" class="form-control" autocomplete="new-password" minlength="8" required>
+      </div>
+      <button type="submit" class="btn btn-primary w-100">Tạo tài khoản super_admin</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

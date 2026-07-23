@@ -3,6 +3,46 @@
 Kiến trúc & schema hiện tại xem [`CLAUDE.md`](CLAUDE.md). File này chỉ theo dõi **việc đã xong
 gần đây** (để không làm lại) và **việc còn mở**.
 
+## Đang làm: chuyển sang Web App tập trung (FastAPI)
+
+Nhiệm vụ lớn: bỏ mô hình desktop PyQt6 + máy trạm quản trị riêng, chuyển toàn bộ quản trị sang
+Web App chạy trên đúng 1 máy chủ, quản trị viên chỉ cần trình duyệt (Chrome/Edge) qua
+`https://cdc-hp.io.vn/cdc/login`. Chi tiết đầy đủ 18 mục yêu cầu nằm trong lịch sử trò chuyện
+lúc giao việc này — tóm tắt tiến độ theo 11 giai đoạn:
+
+- [x] **Giai đoạn 1** — Rà soát code, xác nhận baseline test (72 test cũ đều pass).
+- [x] **Giai đoạn 2** — FastAPI + xác thực: `webapp/` (`main.py`, `config.py`, `auth.py`,
+      `dependencies.py`, `routers/login.py`, `routers/dashboard.py` placeholder). Đăng nhập
+      phiên (cookie HttpOnly, tái dùng `core.issue_admin_token`/`verify_admin_token` — không
+      thêm thư viện session), CSRF double-submit-cookie, khoá tài khoản, buộc đổi mật khẩu lần
+      đầu, thiết lập `super_admin` đầu tiên (`/cdc/setup`), `/health`. `cdc_accounts` mở rộng
+      `role`/`must_change_password`/`failed_login_count`/`locked_until`; `audit_log` thêm cột
+      `ip`. Bootstrap 5 + HTMX vendor cục bộ trong `webapp/static/vendor/` (không phụ thuộc
+      CDN). 16 test mới (`tests/test_cdc_account_roles_lockout.py`,
+      `tests/test_webapp_auth.py`), 79/79 test pass. Đã chạy thử server thật (uvicorn) qua curl
+      xác nhận toàn luồng thiết lập → đăng nhập → dashboard → đăng xuất hoạt động đúng, không
+      chỉ dựa vào test.
+- [ ] **Giai đoạn 3** — API nhận báo cáo (`POST /queue/submit` tương thích `Code.gs` hiện tại)
+      + hàng đợi.
+- [ ] **Giai đoạn 4** — Dashboard, Ca bệnh, Ổ dịch (routers thật, thay `dashboard_placeholder.html`).
+- [ ] **Giai đoạn 5** — Lọc trùng + xuất dữ liệu qua Web.
+- [ ] **Giai đoạn 6** — Quản lý tài khoản (`/cdc/tai-khoan`, chỉ `super_admin`), nhật ký
+      (`/cdc/nhat-ky` — đã có sẵn cột `ip`/`actor` để lọc), sao lưu/phục hồi qua Web.
+- [ ] **Giai đoạn 7** — `secondary_sync.py` thành tác vụ nền APScheduler (thay
+      `MainWindow.run_auto_secondary_sync` kiểu QTimer hiện tại — không phụ thuộc có mở trình
+      duyệt hay không).
+- [ ] **Giai đoạn 8** — Windows Service + công cụ cấu hình lần đầu (cổng, domain, GAS URL/API
+      key, chu kỳ đồng bộ, thư mục sao lưu).
+- [ ] **Giai đoạn 9** — Installer `CDC-GiamSatDichBenh-Server-Setup-x.y.z.exe` (chỉ 1 file, bỏ
+      `setup-admin.iss`/khái niệm máy trạm quản trị).
+- [ ] **Giai đoạn 10** — Cập nhật `.github/workflows/release.yml` cho bộ cài mới.
+- [ ] **Giai đoạn 11** — Hoàn thiện test + tài liệu (README/CLAUDE.md/hướng dẫn PDF theo kiến
+      trúc mới).
+
+**Chưa xoá** `app.py`/`setup.iss`/`setup-admin.iss`/`lan_server.py` — giữ nguyên hoạt động song
+song cho tới khi Web App thay thế đủ chức năng và được xác nhận dùng thật; dọn dẹp thuộc Giai
+đoạn 11.
+
 ## Đã xong (tính đến v0.6.0)
 
 1. Lọc trùng theo tiêu chí chọn (bỏ chấm điểm), hiển thị `case_code` gốc để tra ngược.

@@ -67,6 +67,38 @@ google_apps_script/    Code.gs + appsscript.json (nguồn — deploy qua gas_dep
 tests/                 Kiểm thử lõi, lọc trùng, cấu hình, LAN, cdc_accounts, chuyển máy chủ
 ```
 
+## Web App tập trung (`webapp/`) — đang chuyển sang, xem TASKS.md
+
+Đang chuyển từ mô hình desktop PyQt6 + máy trạm quản trị riêng sang Web App chạy trên đúng 1
+máy chủ — quản trị viên chỉ cần trình duyệt, không cài gì thêm (xem TASKS.md mục "Đang làm:
+chuyển sang Web App tập trung" để biết đã xong tới giai đoạn nào). `app.py`/`lan_server.py`/
+`setup-admin.iss` **vẫn giữ nguyên, chạy song song** cho tới khi Web App thay thế đủ và được
+xác nhận dùng thật — chưa xoá gì.
+
+- Chạy dev: `uvicorn webapp.main:app --reload` (không phải `python app.py`).
+- `webapp/config.py`: đọc chung `deployment.json` với app desktop qua `deployment_config.py`
+  (không tạo hệ cấu hình riêng) — `web_token_secret` dùng để ký cookie phiên.
+- `webapp/auth.py`: đăng nhập **tái dùng** `core.issue_admin_token`/`verify_admin_token` đã có
+  sẵn (không thêm thư viện session) — chỉ khác chỗ lưu: cookie `cdc_session` (HttpOnly,
+  `Secure` khi request có `X-Forwarded-Proto: https` — Cloudflare Tunnel gắn header này) thay
+  vì header `X-GSBTN-Admin-Token`. CSRF theo mẫu double-submit-cookie (cookie `csrf_token`
+  không HttpOnly + form phải gửi kèm đúng giá trị) — không thêm thư viện, không cần bảng
+  session.
+- `webapp/dependencies.py`: nơi tập trung mọi quy tắc phân quyền — `require_login` (chưa đăng
+  nhập → redirect `/cdc/login`), `require_password_current` (chặn thao tác khác cho tới khi đổi
+  xong mật khẩu buộc đổi), `require_role(*roles)` (factory kiểm tra vai trò, 403 nếu không đủ
+  quyền), `require_setup_done` (chưa có tài khoản nào → redirect `/cdc/setup`).
+- `cdc_accounts` mở rộng thêm `role` (`super_admin`/`admin`/`data_operator`/`viewer`, hằng số
+  `core.CDC_ROLE_*`), `must_change_password`, `failed_login_count`, `locked_until` — khoá 15
+  phút (`core.ACCOUNT_LOCKOUT_MINUTES`) sau 5 lần sai liên tiếp (`core.ACCOUNT_LOCKOUT_THRESHOLD`).
+  `audit_log` thêm cột `ip` (ghi từ `Cf-Connecting-Ip`/`X-Forwarded-For` khi có Cloudflare
+  Tunnel, fallback IP kết nối TCP trực tiếp) để `/cdc/nhat-ky` lọc được theo IP.
+- Bootstrap 5 + HTMX **vendor cục bộ** trong `webapp/static/vendor/` (tải sẵn, không gọi CDN
+  lúc chạy) — tránh phụ thuộc mạng ngoài khi phục vụ, và để đóng gói được vào bản cài sau này
+  (Giai đoạn 9).
+- `/health`: kiểm tra nhanh service + CSDL còn sống, dùng cho Windows Service giám sát (Giai
+  đoạn 8) và kiểm tra sau cài đặt.
+
 ## Mô hình dữ liệu
 
 - **`cases`** — 48 trường danh sách ca bệnh + `birth_year`, thông tin file nguồn, `row_hash`,

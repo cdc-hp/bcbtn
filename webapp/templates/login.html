@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Đăng nhập{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-body p-4">
+    <h1 class="h5 mb-3">Đăng nhập quản trị</h1>
+    {% if error %}
+    <div class="alert alert-danger py-2 small mb-3">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="/cdc/login">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="next" value="{{ next_url }}">
+      <div class="mb-3">
+        <label class="form-label small fw-semibold">Tên đăng nhập</label>
+        <input type="text" name="username" class="form-control" autocomplete="username" autofocus required value="{{ username or '' }}">
+      </div>
+      <div class="mb-3">
+        <label class="form-label small fw-semibold">Mật khẩu</label>
+        <input type="password" name="password" class="form-control" autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="btn btn-primary w-100">Đăng nhập</button>
+    </form>
+  </div>
+</div>
+<div class="text-center text-secondary small mt-3">CDC Hải Phòng &middot; {{ version }}</div>
+{% endblock %}

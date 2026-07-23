@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block body %}
+<nav class="navbar navbar-expand navbar-light bg-white border-bottom">
+  <div class="container-fluid">
+    <span class="navbar-brand">CDC Hải Phòng</span>
+    <div class="d-flex align-items-center gap-3">
+      <span class="small text-secondary">{{ user.display_name }} &middot; {{ user.role }}</span>
+      <form method="post" action="/cdc/logout" class="m-0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn-sm btn-outline-secondary">Đăng xuất</button>
+      </form>
+    </div>
+  </div>
+</nav>
+<div class="container py-4">
+  <div class="alert alert-info">
+    Đăng nhập thành công. Dashboard đầy đủ (số liệu ca bệnh/ổ dịch, hàng đợi, tình hình nộp...)
+    thuộc Giai đoạn 4 — chưa triển khai trong đợt này.
+  </div>
+  <a href="/cdc/change-password" class="small">Đổi mật khẩu</a>
+</div>
+{% endblock %}

@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}{{ title or "Lỗi" }}{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-body p-4 text-center">
+    <div class="display-6 mb-2">{{ code or "!" }}</div>
+    <h1 class="h5 mb-2">{{ title or "Có lỗi xảy ra" }}</h1>
+    <p class="small text-secondary">{{ message or "" }}</p>
+    <a href="/cdc/login" class="small">Về trang đăng nhập</a>
+  </div>
+</div>
+{% endblock %}

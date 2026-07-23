@@ -429,6 +429,7 @@ def init_db(db_path: Path | str = DB_PATH) -> None:
             _ensure_column(conn, "cdc_accounts", "must_change_password", "INTEGER NOT NULL DEFAULT 0")
             _ensure_column(conn, "cdc_accounts", "failed_login_count", "INTEGER NOT NULL DEFAULT 0")
             _ensure_column(conn, "cdc_accounts", "locked_until", "TEXT")
+            _ensure_column(conn, "audit_log", "ip", "TEXT")
 
 def strip_text(value: Any) -> str:
     if value is None:
@@ -1655,20 +1656,24 @@ def archive_old_queue_files(older_than_days: int = 90, db_path: Path | str = DB_
 
 
 def log_audit(
-    action: str, *, actor: str = "", commune: str = "", detail: str = "", db_path: Path | str = DB_PATH,
+    action: str, *, actor: str = "", commune: str = "", detail: str = "", ip: str = "",
+    db_path: Path | str = DB_PATH,
 ) -> None:
-    """Ghi một dòng nhật ký kiểm toán: ai làm gì, ở xã nào, khi nào."""
+    """Ghi một dòng nhật ký kiểm toán: ai làm gì, ở xã nào, từ IP nào, khi nào. `ip` là cột
+    riêng (không gộp vào `detail`) để /cdc/nhat-ky lọc được trực tiếp theo IP (TASKS.md, Web
+    App mục 6)."""
     init_db(db_path)
     now = datetime.now().isoformat(sep=" ", timespec="seconds")
     with _connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO audit_log (created_at, actor, action, commune, detail) VALUES (?, ?, ?, ?, ?)",
-            (now, actor or "he_thong", action, commune or "", detail or ""),
+            "INSERT INTO audit_log (created_at, actor, action, commune, detail, ip) VALUES (?, ?, ?, ?, ?, ?)",
+            (now, actor or "he_thong", action, commune or "", detail or "", ip or ""),
         )
 
 
 def list_audit_log(
-    limit: int = 200, action: str = "", commune: str = "", db_path: Path | str = DB_PATH,
+    limit: int = 200, action: str = "", commune: str = "", actor: str = "", ip: str = "",
+    since: str = "", until: str = "", db_path: Path | str = DB_PATH,
 ) -> list[dict[str, Any]]:
     init_db(db_path)
     where: list[str] = []
@@ -1677,6 +1682,14 @@ def list_audit_log(
         where.append("action = ?"); params.append(action)
     if commune:
         where.append("commune = ?"); params.append(commune)
+    if actor:
+        where.append("actor = ?"); params.append(actor)
+    if ip:
+        where.append("ip = ?"); params.append(ip)
+    if since:
+        where.append("created_at >= ?"); params.append(since)
+    if until:
+        where.append("created_at <= ?"); params.append(until)
     where_sql = " WHERE " + " AND ".join(where) if where else ""
     limit = max(1, min(2000, int(limit)))
     with _connect(db_path) as conn:
@@ -1992,7 +2005,9 @@ def get_cdc_account_lock_status(username: str, db_path: Path | str = DB_PATH) ->
     return {"locked_until": row["locked_until"]}
 
 
-def verify_cdc_account(username: str, password: str, db_path: Path | str = DB_PATH) -> dict[str, Any] | None:
+def verify_cdc_account(
+    username: str, password: str, db_path: Path | str = DB_PATH, ip: str = "",
+) -> dict[str, Any] | None:
     """Kiểm tra tên đăng nhập/mật khẩu tài khoản quản trị viên; ghi nhật ký cả khi thành công
     lẫn thất bại — dùng cho đăng nhập cá nhân (POST /cdc/login). Khoá tài khoản
     ACCOUNT_LOCKOUT_MINUTES phút sau ACCOUNT_LOCKOUT_THRESHOLD lần sai liên tiếp; gọi
@@ -2044,7 +2059,7 @@ def verify_cdc_account(username: str, password: str, db_path: Path | str = DB_PA
             }
             audit_action = "login"
             audit_actor = row["username"]
-    log_audit(audit_action, actor=audit_actor, detail=audit_detail, db_path=db_path)
+    log_audit(audit_action, actor=audit_actor, detail=audit_detail, ip=ip, db_path=db_path)
     return result
 
 
