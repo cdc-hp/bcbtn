@@ -38,6 +38,11 @@ class DeploymentConfig:
     secondary_webapp_url: str = ""
     secondary_shared_key: str = ""
     secondary_sync_interval_minutes: int = 20
+    # Khoá riêng cho Google Apps Script gọi POST /queue/submit trên webapp/ (Web App tập
+    # trung) — TÁCH RIÊNG khỏi `password` (mật khẩu LAN dùng chung cho app desktop cũ) để giới
+    # hạn phạm vi nếu lộ và đổi được độc lập. Header vẫn là X-GSBTN-Password (không đổi phía
+    # Code.gs) — chỉ khác giá trị nào được server đem ra so khớp. Xem webapp/routers/submission_api.py.
+    gas_api_key: str = ""
     web_token_secret: str = ""
     admin_username: str = ""
     admin_token: str = ""
@@ -97,6 +102,7 @@ def load_config() -> DeploymentConfig:
         secondary_webapp_url=str(raw.get("secondary_webapp_url", "") or "").strip(),
         secondary_shared_key=str(raw.get("secondary_shared_key", "") or ""),
         secondary_sync_interval_minutes=max(5, min(180, int(raw.get("secondary_sync_interval_minutes", 20) or 20))),
+        gas_api_key=str(raw.get("gas_api_key", "") or ""),
         web_token_secret=str(raw.get("web_token_secret", "") or ""),
         admin_username=str(raw.get("admin_username", "") or ""),
         admin_token=str(raw.get("admin_token", "") or ""),

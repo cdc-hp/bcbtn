@@ -1,0 +1,14 @@
+<nav class="navbar navbar-expand navbar-light bg-white border-bottom mb-3">
+  <div class="container-fluid">
+    <span class="navbar-brand">CDC Hải Phòng</span>
+    <div class="d-flex align-items-center gap-3">
+      <a href="/cdc/dashboard" class="small text-decoration-none {% if active == 'dashboard' %}fw-semibold{% endif %}">Dashboard</a>
+      <a href="/cdc/hang-doi" class="small text-decoration-none {% if active == 'hang-doi' %}fw-semibold{% endif %}">Hàng đợi</a>
+      <span class="small text-secondary">{{ user.display_name }} &middot; {{ user.role }}</span>
+      <form method="post" action="/cdc/logout" class="m-0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn-sm btn-outline-secondary">Đăng xuất</button>
+      </form>
+    </div>
+  </div>
+</nav>

@@ -22,8 +22,19 @@ lúc giao việc này — tóm tắt tiến độ theo 11 giai đoạn:
       `tests/test_webapp_auth.py`), 79/79 test pass. Đã chạy thử server thật (uvicorn) qua curl
       xác nhận toàn luồng thiết lập → đăng nhập → dashboard → đăng xuất hoạt động đúng, không
       chỉ dựa vào test.
-- [ ] **Giai đoạn 3** — API nhận báo cáo (`POST /queue/submit` tương thích `Code.gs` hiện tại)
-      + hàng đợi.
+- [x] **Giai đoạn 3** — `POST /queue/submit` (`webapp/routers/submission_api.py`) tương thích
+      nguyên trạng `Code.gs: tryForwardToMainServer` (không đổi phía Code.gs) — xác thực bằng
+      `gas_api_key` riêng (deployment_config.py, TÁCH khỏi mật khẩu LAN dùng chung), rate-limit
+      10 lần/5 phút theo (IP, xã) (`webapp/services/rate_limit.py`), chống gửi trùng theo hash
+      nội dung (`core.queue_submit` — cột `content_hash` mới, bỏ qua các mục đã lỗi khi so
+      trùng). `/cdc/hang-doi` (`webapp/routers/queue.py` + `templates/queue.html`): lọc theo
+      xã/tuần/trạng thái/nguồn (`core.list_import_queue` thêm tham số `week`/`source`), xem,
+      tải file gốc, nhập một/nhiều, **nhập lại** mục lỗi (`core.import_queue_item` giờ nhận cả
+      trạng thái `loi`, trước đây chỉ `cho_nhap`), xoá theo quyền (`core.delete_queue_item` mới
+      — chặn xoá khi `dang_nhap`/đã `da_nhap`). Phân quyền: xem = mọi vai trò đã đăng nhập, nhập
+      = super_admin/admin/data_operator, xoá = super_admin/admin. 23 test mới
+      (`tests/test_queue_web_extensions.py`, `tests/test_webapp_queue.py`), 102/102 test pass.
+      Đã chạy thử server thật xác nhận `/queue/submit` và `/cdc/hang-doi` hoạt động đúng.
 - [ ] **Giai đoạn 4** — Dashboard, Ca bệnh, Ổ dịch (routers thật, thay `dashboard_placeholder.html`).
 - [ ] **Giai đoạn 5** — Lọc trùng + xuất dữ liệu qua Web.
 - [ ] **Giai đoạn 6** — Quản lý tài khoản (`/cdc/tai-khoan`, chỉ `super_admin`), nhật ký

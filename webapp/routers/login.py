@@ -11,22 +11,10 @@ import core
 from webapp import auth
 from webapp.config import WebAppSettings
 from webapp.dependencies import ForbiddenError, get_current_user, get_settings_dep, require_login, require_setup_done
+from webapp.services.http import client_ip
 
 router = APIRouter()
 templates = Jinja2Templates(directory="webapp/templates")
-
-
-def client_ip(request: Request) -> str:
-    """Ưu tiên IP thật của client khi phía trước có Cloudflare Tunnel/reverse proxy (header do
-    hạ tầng đó gắn, không phải client tự khai nên không giả mạo được từ trình duyệt) — chỉ
-    dùng request.client.host (IP kết nối TCP trực tiếp) khi truy cập thẳng qua LAN."""
-    cf_ip = request.headers.get("cf-connecting-ip", "").strip()
-    if cf_ip:
-        return cf_ip
-    forwarded_for = request.headers.get("x-forwarded-for", "").strip()
-    if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
-    return request.client.host if request.client else ""
 
 
 def _render(request: Request, template: str, context: dict) -> HTMLResponse:

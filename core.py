@@ -368,7 +368,8 @@ def init_db(db_path: Path | str = DB_PATH) -> None:
                     imported_at TEXT,
                     import_batch_id INTEGER,
                     error_message TEXT,
-                    archived_at TEXT
+                    archived_at TEXT,
+                    content_hash TEXT
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_import_queue_status ON import_queue(status);
@@ -423,6 +424,7 @@ def init_db(db_path: Path | str = DB_PATH) -> None:
             _ensure_column(conn, "duplicate_actions", "merged_values_json", "TEXT")
             _ensure_column(conn, "duplicate_actions", "restored_at", "TEXT")
             _ensure_column(conn, "import_queue", "archived_at", "TEXT")
+            _ensure_column(conn, "import_queue", "content_hash", "TEXT")
             # Web App (Giai đoạn chuyển sang FastAPI tập trung, xem TASKS.md): phân quyền theo
             # vai trò + khoá tài khoản sau nhiều lần đăng nhập sai + bắt đổi mật khẩu lần đầu.
             _ensure_column(conn, "cdc_accounts", "role", f"TEXT NOT NULL DEFAULT '{CDC_ROLE_ADMIN}'")
@@ -1577,6 +1579,29 @@ def queue_submit(
         raise ValueError("File rỗng hoặc thiếu nội dung.")
     if len(file_bytes) > 100 * 1024 * 1024:
         raise ValueError("File vượt quá giới hạn 100 MB.")
+    content_hash = hashlib.sha256(file_bytes).hexdigest()
+
+    # Chống gửi trùng: cùng xã + tuần + NỘI DUNG file giống hệt và chưa bị lỗi -> đây gần như
+    # chắc chắn là gửi lặp (mạng timeout khiến GAS/trình duyệt gửi lại) chứ không phải bản cập
+    # nhật thật — trả lại đúng mục đã có thay vì tạo thêm dòng hàng đợi mới. Nội dung KHÁC nhau
+    # (dù cùng xã/tuần) vẫn tạo dòng mới như cũ — xã có thể chủ động nộp lại dữ liệu đã sửa
+    # trong cùng tuần, CDC vẫn cần thấy như một lượt nộp riêng để giữ lịch sử.
+    with _connect(db_path) as conn:
+        existing = conn.execute(
+            """SELECT * FROM import_queue WHERE commune=? AND week=? AND content_hash=? AND status != 'loi'
+               ORDER BY id DESC LIMIT 1""",
+            (commune, week, content_hash),
+        ).fetchone()
+    if existing:
+        log_audit(
+            "queue_submit_duplicate", actor=submitted_by or source, commune=commune,
+            detail=f"week={week}; file={safe_name}; queue_id_goc={existing['id']}", db_path=db_path,
+        )
+        return {
+            "queue_id": int(existing["id"]), "commune": commune, "week": week, "source": existing["source"],
+            "received_at": existing["received_at"], "duplicate": True,
+        }
+
     now = datetime.now().isoformat(sep=" ", timespec="seconds")
     dest_dir = QUEUE_DIR / _safe_path_part(commune) / _safe_path_part(week)
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -1587,20 +1612,25 @@ def queue_submit(
     dest_path.write_bytes(file_bytes)
     with _connect(db_path) as conn:
         cur = conn.execute(
-            """INSERT INTO import_queue (commune, week, file_name, file_path, source, status, submitted_by, received_at)
-               VALUES (?, ?, ?, ?, ?, 'cho_nhap', ?, ?)""",
-            (commune, week, safe_name, str(dest_path), source, submitted_by, now),
+            """INSERT INTO import_queue
+               (commune, week, file_name, file_path, source, status, submitted_by, received_at, content_hash)
+               VALUES (?, ?, ?, ?, ?, 'cho_nhap', ?, ?, ?)""",
+            (commune, week, safe_name, str(dest_path), source, submitted_by, now, content_hash),
         )
         queue_id = int(cur.lastrowid)
     log_audit(
         "queue_submit", actor=submitted_by or source, commune=commune,
         detail=f"week={week}; file={safe_name}; source={source}", db_path=db_path,
     )
-    return {"queue_id": queue_id, "commune": commune, "week": week, "source": source, "received_at": now}
+    return {
+        "queue_id": queue_id, "commune": commune, "week": week, "source": source, "received_at": now,
+        "duplicate": False,
+    }
 
 
 def list_import_queue(
-    status: str = "", commune: str = "", limit: int = 200, offset: int = 0, db_path: Path | str = DB_PATH,
+    status: str = "", commune: str = "", week: str = "", source: str = "",
+    limit: int = 200, offset: int = 0, db_path: Path | str = DB_PATH,
 ) -> list[dict[str, Any]]:
     init_db(db_path)
     where: list[str] = []
@@ -1609,6 +1639,10 @@ def list_import_queue(
         where.append("status = ?"); params.append(status)
     if commune:
         where.append("commune = ?"); params.append(commune)
+    if week:
+        where.append("week = ?"); params.append(week)
+    if source:
+        where.append("source = ?"); params.append(source)
     where_sql = " WHERE " + " AND ".join(where) if where else ""
     limit = max(1, min(2000, int(limit)))
     offset = max(0, int(offset))
@@ -2092,11 +2126,13 @@ def verify_admin_token(token: str, secret: str) -> dict[str, Any] | None:
 
 
 def import_queue_item(queue_id: int, db_path: Path | str = DB_PATH, actor: str = "") -> dict[str, Any]:
-    """Nhập một file đang chờ trong hàng đợi vào CSDL chính bằng import_excel hiện có.
+    """Nhập một file đang chờ (hoặc "nhập lại" một file đã lỗi lần trước) trong hàng đợi vào
+    CSDL chính bằng import_excel hiện có.
 
     Dùng một câu UPDATE nguyên tử để "giữ chỗ" mục hàng đợi (chuyển sang trạng thái tạm
     ``dang_nhap``) trước khi nhập — tránh 2 yêu cầu đồng thời (2 người CDC cùng bấm nhập, hoặc
-    bấm đúp) cùng đọc thấy ``cho_nhap`` rồi cùng chạy ``import_excel`` song song trên một file.
+    bấm đúp) cùng đọc thấy ``cho_nhap``/``loi`` rồi cùng chạy ``import_excel`` song song trên
+    một file. Nhận cả trạng thái ``loi`` để hỗ trợ "Nhập lại" sau khi CDC đã sửa file gốc.
     """
     init_db(db_path)
     queue_id = int(queue_id)
@@ -2106,7 +2142,7 @@ def import_queue_item(queue_id: int, db_path: Path | str = DB_PATH, actor: str =
             raise ValueError("Không tìm thấy mục trong hàng đợi.")
         item = dict(row)
         claimed = conn.execute(
-            "UPDATE import_queue SET status='dang_nhap' WHERE id=? AND status='cho_nhap'", (queue_id,)
+            "UPDATE import_queue SET status='dang_nhap' WHERE id=? AND status IN ('cho_nhap', 'loi')", (queue_id,)
         )
         if claimed.rowcount == 0:
             if item["status"] == "da_nhap":
@@ -2144,6 +2180,35 @@ def import_queue_item(queue_id: int, db_path: Path | str = DB_PATH, actor: str =
         "inserted": summary.inserted, "duplicates": summary.duplicates, "skipped": summary.skipped,
         "issues": summary.issues, "summary_text": summary.as_text(),
     }
+
+
+def delete_queue_item(queue_id: int, db_path: Path | str = DB_PATH, actor: str = "") -> None:
+    """Xoá 1 mục hàng đợi (file nộp nhầm/trùng/không cần nữa) — chặn xoá khi đang ``dang_nhap``
+    (một thao tác khác đang xử lý) để không xoá mất file giữa chừng khi ``import_excel`` còn
+    đang đọc. Không cho xoá mục đã ``da_nhap`` — dữ liệu đã vào CSDL chính, xoá dòng hàng đợi sẽ
+    mất dấu vết nguồn gốc; muốn dọn file vật lý loại đó dùng ``archive_old_queue_files``."""
+    init_db(db_path)
+    queue_id = int(queue_id)
+    with _connect(db_path) as conn:
+        row = conn.execute("SELECT * FROM import_queue WHERE id=?", (queue_id,)).fetchone()
+        if not row:
+            raise ValueError("Không tìm thấy mục trong hàng đợi.")
+        if row["status"] == "dang_nhap":
+            raise ValueError("Mục đang được xử lý bởi một thao tác khác, không thể xoá lúc này.")
+        if row["status"] == "da_nhap":
+            raise ValueError("Mục đã nhập vào CSDL chính, không thể xoá khỏi hàng đợi.")
+        item = dict(row)
+        conn.execute("DELETE FROM import_queue WHERE id=?", (queue_id,))
+    file_path = Path(item["file_path"])
+    if file_path.exists():
+        try:
+            file_path.unlink()
+        except OSError:
+            pass
+    log_audit(
+        "delete_queue_item", actor=actor, commune=item.get("commune", ""),
+        detail=f"queue_id={queue_id}; file={item['file_name']}; status_truoc={item['status']}", db_path=db_path,
+    )
 
 
 def execute_select(sql: str, db_path: Path | str = DB_PATH, max_rows: int = 5000) -> tuple[list[str], list[list[Any]]]:

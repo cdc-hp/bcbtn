@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Hàng đợi nhập liệu{% endblock %}
+{% block body %}
+{% include "_navbar.html" %}
+<div class="container-fluid py-3">
+  <h1 class="h5 mb-3">Hàng đợi nhập liệu</h1>
+
+  {% if msg %}<div class="alert alert-success py-2 small">{{ msg }}</div>{% endif %}
+  {% if err %}<div class="alert alert-danger py-2 small">{{ err }}</div>{% endif %}
+
+  <form method="get" action="/cdc/hang-doi" class="row g-2 mb-3 align-items-end">
+    <div class="col-auto">
+      <label class="form-label small mb-0">Xã</label>
+      <input type="text" name="commune" value="{{ filters.commune }}" class="form-control form-control-sm" placeholder="Tất cả">
+    </div>
+    <div class="col-auto">
+      <label class="form-label small mb-0">Tuần</label>
+      <input type="text" name="week" value="{{ filters.week }}" class="form-control form-control-sm" placeholder="2026-W29">
+    </div>
+    <div class="col-auto">
+      <label class="form-label small mb-0">Trạng thái</label>
+      <select name="status" class="form-select form-select-sm">
+        <option value="">Tất cả</option>
+        {% for value, label in status_options.items() %}
+        <option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <label class="form-label small mb-0">Nguồn</label>
+      <select name="source" class="form-select form-select-sm">
+        <option value="">Tất cả</option>
+        {% for value, label in source_options.items() %}
+        <option value="{{ value }}" {% if filters.source == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <button type="submit" class="btn btn-sm btn-primary">Lọc</button>
+      <a href="/cdc/hang-doi" class="btn btn-sm btn-outline-secondary">Xoá lọc</a>
+    </div>
+  </form>
+
+  <form method="post" action="/cdc/hang-doi/import-batch">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    {% if can_import %}<button type="submit" class="btn btn-sm btn-primary mb-2">Nhập các mục đã chọn</button>{% endif %}
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle">
+        <thead>
+          <tr>
+            {% if can_import %}<th></th>{% endif %}
+            <th>Xã</th><th>Tuần</th><th>File</th><th>Nguồn</th><th>Trạng thái</th>
+            <th>Người nộp</th><th>Nhận lúc</th><th>Lỗi</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            {% if can_import %}
+            <td>{% if row.status in ("cho_nhap", "loi") %}<input type="checkbox" name="queue_ids" value="{{ row.id }}">{% endif %}</td>
+            {% endif %}
+            <td>{{ row.commune }}</td>
+            <td>{{ row.week }}</td>
+            <td><a href="/cdc/hang-doi/{{ row.id }}/download">{{ row.file_name }}</a></td>
+            <td>{{ row.source_label }}</td>
+            <td>
+              <span class="badge {% if row.status == 'da_nhap' %}text-bg-success{% elif row.status == 'loi' %}text-bg-danger{% elif row.status == 'dang_nhap' %}text-bg-warning{% else %}text-bg-secondary{% endif %}">
+                {{ row.status_label }}
+              </span>
+            </td>
+            <td>{{ row.submitted_by or "" }}</td>
+            <td class="text-nowrap">{{ row.received_at }}</td>
+            <td class="small text-danger">{{ row.error_message or "" }}</td>
+            <td class="text-nowrap">
+              {% if can_import and row.status in ("cho_nhap", "loi") %}
+              <form method="post" action="/cdc/hang-doi/{{ row.id }}/import" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn btn-sm btn-outline-primary">{% if row.status == 'loi' %}Nhập lại{% else %}Nhập{% endif %}</button>
+              </form>
+              {% endif %}
+              {% if can_delete and row.status in ("cho_nhap", "loi") %}
+              <form method="post" action="/cdc/hang-doi/{{ row.id }}/delete" class="d-inline" onsubmit="return confirm('Xoá mục này khỏi hàng đợi?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn btn-sm btn-outline-danger">Xoá</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="9" class="text-center text-secondary py-4">Không có mục nào khớp bộ lọc.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </form>
+</div>
+{% endblock %}

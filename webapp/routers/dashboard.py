@@ -18,6 +18,8 @@ templates = Jinja2Templates(directory="webapp/templates")
 @router.get("/cdc/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request, user: auth.CurrentUser = Depends(require_password_current)):
     token = auth.get_csrf_token(request)
-    response = templates.TemplateResponse(request, "dashboard_placeholder.html", {"user": user, "csrf_token": token})
+    response = templates.TemplateResponse(
+        request, "dashboard_placeholder.html", {"user": user, "csrf_token": token, "active": "dashboard"}
+    )
     auth.set_csrf_cookie(response, request, token)
     return response
