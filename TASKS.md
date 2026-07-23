@@ -46,8 +46,26 @@ lúc giao việc này — tóm tắt tiến độ theo 11 giai đoạn:
       tham số `entity_id`). "Xuất theo bộ lọc" chưa làm — gộp vào Giai đoạn 5 (cùng nhóm xuất dữ
       liệu). 18 test mới (`tests/test_webapp_records.py`), 110/110 test pass. Đã chạy thử server
       thật xác nhận các trang yêu cầu đăng nhập đúng.
-- [ ] **Giai đoạn 5** — Lọc trùng + xuất dữ liệu qua Web (bao gồm "xuất theo bộ lọc" của Giai
-      đoạn 4 và "nhóm nghi trùng" trên dashboard).
+- [x] **Giai đoạn 5** — `/cdc/loc-trung` (`webapp/routers/dedup.py`): quét trùng ca bệnh/ổ dịch
+      (tái dùng nguyên `core.find_duplicate_groups`), duyệt & hợp nhất từng nhóm
+      (`/cdc/loc-trung/xem` nhận id bản ghi trực tiếp qua querystring thay vì `group_id` — tránh
+      quét lại/lệch kết quả nếu dữ liệu vừa đổi; `core.get_records_by_ids` mới), hợp nhất
+      (`core.merge_duplicate_records`, đưa bản còn lại vào Thùng rác), thùng rác/lịch sử + khôi
+      phục (`core.list_duplicate_actions`/`restore_duplicate_action`), cấu hình tiêu chí ca bệnh
+      + trọng số ổ dịch (`duplicate_config.save_case_criteria`/`save_rules`). Phân quyền: xem =
+      mọi vai trò, hợp nhất = super_admin/admin/data_operator, khôi phục/cấu hình tiêu chí =
+      super_admin/admin. `/cdc/xuat-du-lieu` (`webapp/routers/xuat_du_lieu.py`): xuất theo bộ lọc
+      (Excel/CSV, tái dùng `core.export_filtered_records`) — có nút "Xuất theo bộ lọc" ngay trên
+      `/cdc/ca-benh`/`/cdc/o-dich`; xuất ca bệnh chia theo xã (`core.export_cases_by_commune`).
+      Xuất bị chặn với vai trò `viewer` (chỉ xem, không xuất hàng loạt — quyết định vì dữ liệu có
+      CCCD/SĐT, xem TASKS.md backlog "Mã hoá national_id/phone"). Dashboard: thêm thẻ "Nhóm nghi
+      trùng chưa xử lý" (`core.count_duplicate_groups` mới, giới hạn `max_records=3000` để không
+      làm chậm trang tổng quan). File xuất dùng file tạm + tự xoá sau khi gửi xong
+      (`webapp/services/export_files.py`, `BackgroundTask`), không ghi vào thư mục dữ liệu chính.
+      26 test mới (`tests/test_dedup_export_core.py`, `tests/test_webapp_dedup.py`,
+      `tests/test_webapp_export.py`), 136/136 test pass. Đã chạy thử server thật: seed dữ liệu
+      trùng thật, quét → duyệt → hợp nhất → thùng rác → khôi phục, xuất theo bộ lọc và xuất theo
+      xã đều tải file `.xlsx` thành công qua curl (không chỉ dựa vào test).
 - [ ] **Giai đoạn 6** — Quản lý tài khoản (`/cdc/tai-khoan`, chỉ `super_admin`), nhật ký
       (`/cdc/nhat-ky` — đã có sẵn cột `ip`/`actor` để lọc), sao lưu/phục hồi qua Web.
 - [ ] **Giai đoạn 7** — `secondary_sync.py` thành tác vụ nền APScheduler (thay

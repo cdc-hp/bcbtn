@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Xuất dữ liệu{% endblock %}
+{% block body %}
+{% include "_navbar.html" %}
+<div class="container py-3">
+  <h1 class="h5 mb-3">Xuất dữ liệu</h1>
+
+  {% if err %}<div class="alert alert-danger py-2 small">{{ err }}</div>{% endif %}
+
+  {% if not can_export %}
+  <div class="alert alert-secondary small">Vai trò của bạn chỉ được xem dữ liệu, không được xuất file. Liên hệ quản trị viên nếu cần.</div>
+  {% endif %}
+
+  <div class="card p-3 mb-3">
+    <div class="fw-semibold mb-2">Xuất theo bộ lọc</div>
+    <div class="text-secondary small mb-2">Xuất toàn bộ ca bệnh hoặc ổ dịch khớp bộ lọc ra Excel/CSV (tối đa 50.000 dòng).</div>
+    <form method="get" action="/cdc/xuat-du-lieu/tai-ve" class="row g-2 align-items-end">
+      <div class="col-auto">
+        <label class="form-label small mb-0">Đối tượng</label>
+        <select name="entity" class="form-select form-select-sm">
+          <option value="case">Ca bệnh</option>
+          <option value="outbreak">Ổ dịch</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-0">Tìm kiếm</label>
+        <input type="text" name="search" class="form-control form-control-sm" placeholder="Tên, mã số...">
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-0">Chẩn đoán/Tên bệnh</label>
+        <input type="text" name="disease" class="form-control form-control-sm" placeholder="Tất cả">
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-0">Xã/Địa bàn</label>
+        <input type="text" name="admin_area" class="form-control form-control-sm" placeholder="Tất cả">
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-0">Trạng thái</label>
+        <input type="text" name="status" class="form-control form-control-sm" placeholder="Tất cả">
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-0">Định dạng</label>
+        <select name="fmt" class="form-select form-select-sm">
+          <option value="xlsx">Excel (.xlsx)</option>
+          <option value="csv">CSV</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        {% if can_export %}<button type="submit" class="btn btn-sm btn-primary">Tải xuống</button>{% endif %}
+      </div>
+    </form>
+  </div>
+
+  <div class="card p-3">
+    <div class="fw-semibold mb-2">Xuất ca bệnh chia theo xã</div>
+    <div class="text-secondary small mb-2">
+      Xuất toàn bộ ca bệnh thành 1 file Excel, mỗi xã 1 sheet (kèm sheet Tổng hợp liệt kê nhóm nghi trùng) — dùng để gửi các xã tự lọc trùng.
+      Tiêu chí lọc trùng đang dùng: <strong>{{ criteria_text }}</strong>
+      {% if can_export %}(<a href="/cdc/loc-trung/tieu-chi?entity=case">đổi tiêu chí</a>){% endif %}.
+    </div>
+    {% if can_export %}<a href="/cdc/xuat-du-lieu/theo-xa" class="btn btn-sm btn-primary">Xuất theo xã</a>{% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -31,6 +31,9 @@
     <div class="col-auto">
       <button type="submit" class="btn btn-sm btn-primary">Lọc</button>
       <a href="/cdc/{{ entity_path }}" class="btn btn-sm btn-outline-secondary">Xoá lọc</a>
+      {% if can_export %}
+      <a href="/cdc/xuat-du-lieu/tai-ve?entity={{ entity_type }}&search={{ filters.search }}&disease={{ filters.disease }}&status={{ filters.status }}&admin_area={{ filters.admin_area }}&fmt=xlsx" class="btn btn-sm btn-outline-secondary">Xuất theo bộ lọc</a>
+      {% endif %}
     </div>
   </form>
 

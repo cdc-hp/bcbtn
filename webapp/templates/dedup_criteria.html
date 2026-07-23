@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Tiêu chí lọc trùng{% endblock %}
+{% block body %}
+{% include "_navbar.html" %}
+<div class="container py-3">
+  <a href="/cdc/loc-trung?entity={{ entity_type }}" class="small">&larr; Quay lại lọc trùng</a>
+  <h1 class="h5 my-3">Tiêu chí lọc trùng</h1>
+
+  {% if msg %}<div class="alert alert-success py-2 small">{{ msg }}</div>{% endif %}
+
+  <ul class="nav nav-tabs mb-3">
+    <li class="nav-item"><a class="nav-link {% if entity_type == 'case' %}active{% endif %}" href="/cdc/loc-trung/tieu-chi?entity=case">Ca bệnh</a></li>
+    <li class="nav-item"><a class="nav-link {% if entity_type == 'outbreak' %}active{% endif %}" href="/cdc/loc-trung/tieu-chi?entity=outbreak">Ổ dịch</a></li>
+  </ul>
+
+  {% if entity_type == "case" %}
+  <form method="post" action="/cdc/loc-trung/tieu-chi">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="entity" value="case">
+    <div class="mb-3">
+      <div class="form-label small fw-semibold">Hai ca bệnh trùng nếu khớp ít nhất một tiêu chí đang bật:</div>
+      {% for id, label in criteria_defs %}
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="enabled" value="{{ id }}" id="crit_{{ id }}" {% if id in case_criteria.enabled %}checked{% endif %}>
+        <label class="form-check-label" for="crit_{{ id }}">{{ label }}</label>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="row g-3 mb-3" style="max-width:560px;">
+      <div class="col-6">
+        <label class="form-label small mb-0">Ngưỡng "họ tên gần giống" (%)</label>
+        <input type="number" name="name_similarity_percent" min="50" max="100" value="{{ case_criteria.name_similarity_percent }}" class="form-control form-control-sm">
+      </div>
+      <div class="col-6">
+        <label class="form-label small mb-0">"Khởi phát gần nhau" tối đa (ngày)</label>
+        <input type="number" name="onset_max_days" min="0" max="60" value="{{ case_criteria.onset_max_days }}" class="form-control form-control-sm">
+      </div>
+    </div>
+    <button type="submit" class="btn btn-sm btn-primary">Lưu tiêu chí</button>
+  </form>
+  {% else %}
+  <form method="post" action="/cdc/loc-trung/tieu-chi">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="entity" value="outbreak">
+    <div class="row g-3 mb-3" style="max-width:560px;">
+      <div class="col-6">
+        <label class="form-label small mb-0">Ngưỡng phát hiện trùng (điểm)</label>
+        <input type="number" name="min_score" min="40" max="100" value="{{ rules.min_score }}" class="form-control form-control-sm">
+      </div>
+      <div class="col-6">
+        <label class="form-label small mb-0">Ngưỡng "trùng chắc chắn" (điểm)</label>
+        <input type="number" name="definite_score" min="40" max="100" value="{{ rules.definite_score }}" class="form-control form-control-sm">
+      </div>
+    </div>
+    <div class="mb-3">
+      <div class="form-label small fw-semibold">Trọng số từng tiêu chí</div>
+      <div class="row g-3" style="max-width:720px;">
+        {% for key, default in outbreak_weight_defs.items() %}
+        <div class="col-4">
+          <label class="form-label small mb-0">{{ key }}</label>
+          <input type="number" name="weight__{{ key }}" min="0" max="100" value="{{ rules.outbreak_weights.get(key, default) }}" class="form-control form-control-sm">
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    <button type="submit" class="btn btn-sm btn-primary">Lưu tiêu chí</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

@@ -29,6 +29,8 @@ def dashboard(
     queue_error = len(core.list_import_queue(status="loi", limit=2000, db_path=settings.db_path))
     this_week_items = core.list_import_queue(week=current_week, limit=2000, db_path=settings.db_path)
     communes_submitted = sorted({item["commune"] for item in this_week_items})
+    duplicate_case_groups = core.count_duplicate_groups("case", db_path=settings.db_path)
+    duplicate_outbreak_groups = core.count_duplicate_groups("outbreak", db_path=settings.db_path)
 
     try:
         backups = backup_manager.list_backups()
@@ -42,6 +44,7 @@ def dashboard(
         "stats": stats, "current_week": current_week,
         "queue_pending": queue_pending, "queue_error": queue_error,
         "communes_submitted": communes_submitted, "latest_backup": latest_backup,
+        "duplicate_groups": duplicate_case_groups + duplicate_outbreak_groups,
         "version": core.VERSION,
     })
     auth.set_csrf_cookie(response, request, token)

@@ -28,6 +28,13 @@
       <div class="card p-3"><div class="text-secondary small">Cảnh báo chất lượng</div><div class="fs-4 fw-semibold">{{ stats.quality_issues }}</div></div>
     </div>
     <div class="col-6 col-md-3">
+      <a href="/cdc/loc-trung" class="text-decoration-none text-reset">
+        <div class="card p-3"><div class="text-secondary small">Nhóm nghi trùng chưa xử lý</div>
+          <div class="fs-4 fw-semibold {% if duplicate_groups %}text-warning-emphasis{% endif %}">{{ duplicate_groups }}</div>
+        </div>
+      </a>
+    </div>
+    <div class="col-6 col-md-3">
       <div class="card p-3"><div class="text-secondary small">Lần sao lưu gần nhất</div>
         <div class="fw-semibold small">{% if latest_backup %}{{ latest_backup.created_at }}{% else %}Chưa có{% endif %}</div>
       </div>

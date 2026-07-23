@@ -12,6 +12,7 @@ import core
 from webapp import auth
 from webapp.config import WebAppSettings
 from webapp.dependencies import ForbiddenError, get_settings_dep, require_password_current
+from webapp.routers.xuat_du_lieu import CAN_EXPORT_ROLES
 
 router = APIRouter()
 templates = Jinja2Templates(directory="webapp/templates")
@@ -70,6 +71,7 @@ def _list_view(entity_type: str):
             "disease_options": disease_options, "area_options": area_options,
             "area_label": "Xã/Phường" if entity_type == "case" else "Địa bàn",
             "disease_label": "Chẩn đoán" if entity_type == "case" else "Tên bệnh",
+            "can_export": user.has_role(*CAN_EXPORT_ROLES),
         })
         auth.set_csrf_cookie(response, request, token)
         return response

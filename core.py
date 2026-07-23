@@ -151,6 +151,17 @@ OUTBREAK_FIELDS: list[tuple[str, str]] = [
 CASE_LABELS = {db: label for label, db in CASE_FIELDS}
 OUTBREAK_LABELS = {db: label for label, db in OUTBREAK_FIELDS}
 
+# Tập con trường có thể chọn giá trị khi hợp nhất bản ghi trùng (bỏ id/nguồn/dấu vết import) —
+# dùng chung cho màn hình lọc trùng máy trạm cũ (app.py) và Web (webapp/routers/dedup.py).
+CASE_MERGE_FIELDS = [
+    "case_code", "full_name", "birth_date_raw", "gender", "national_id", "phone", "current_address",
+    "commune", "main_diagnosis", "onset_date", "report_datetime", "reporting_unit", "current_status", "record_status",
+]
+OUTBREAK_MERGE_FIELDS = [
+    "disease", "location", "first_onset_date", "last_onset_date", "end_date", "status", "case_count",
+    "death_count", "sample_count", "positive_count", "report_datetime", "reporting_unit",
+]
+
 DATE_FIELDS = {
     "sample_date",
     "onset_date",
@@ -975,6 +986,21 @@ def get_record(entity_type: str, record_id: int, db_path: Path | str = DB_PATH) 
         return dict(row) if row else None
 
 
+def get_records_by_ids(entity_type: str, ids: Sequence[int], db_path: Path | str = DB_PATH) -> list[dict[str, Any]]:
+    """Lấy nhiều bản ghi theo id, dùng cho màn hình duyệt nhóm trùng (Web) — không cần quét lại
+    toàn bộ ``find_duplicate_groups`` khi mở trang duyệt, tránh lệch kết quả nếu dữ liệu vừa đổi."""
+    table, _ = _safe_table(entity_type)
+    id_list = [int(v) for v in ids]
+    if not id_list:
+        return []
+    placeholders = ",".join("?" for _ in id_list)
+    with _connect(db_path) as conn:
+        rows = {int(r["id"]): dict(r) for r in conn.execute(
+            f"SELECT * FROM {table} WHERE id IN ({placeholders})", id_list
+        ).fetchall()}
+    return [rows[i] for i in id_list if i in rows]
+
+
 def save_outbreak(data: dict[str, Any], record_id: int | None = None, db_path: Path | str = DB_PATH) -> int:
     init_db(db_path)
     allowed = {db for _, db in OUTBREAK_FIELDS}
@@ -1139,6 +1165,18 @@ def find_duplicate_groups(
     if entity_type == "case":
         return _find_case_duplicate_groups(table, criteria, max_records, db_path)
     return _find_outbreak_duplicate_groups(table, min_score, rules, max_records, db_path)
+
+
+def count_duplicate_groups(entity_type: str, max_records: int = 3000, db_path: Path | str = DB_PATH) -> int:
+    """Đếm nhanh số nhóm nghi trùng cho dashboard, dùng tiêu chí/ngưỡng đã lưu — giới hạn
+    ``max_records`` (mặc định 3000, thấp hơn ngưỡng 20000 của màn hình lọc trùng đầy đủ) để
+    tránh làm chậm trang tổng quan khi CSDL lớn; số trả về vì vậy chỉ là ước lượng nếu bảng vượt
+    quá giới hạn này, không phải con số tuyệt đối."""
+    if entity_type == "case":
+        groups = find_duplicate_groups("case", criteria=load_case_criteria(), max_records=max_records, db_path=db_path)
+    else:
+        groups = find_duplicate_groups("outbreak", max_records=max_records, db_path=db_path)
+    return len(groups)
 
 
 def _resolve_case_criteria(criteria: dict[str, Any] | CaseDuplicateCriteria | None) -> CaseDuplicateCriteria:

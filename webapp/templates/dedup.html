@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Lọc trùng dữ liệu{% endblock %}
+{% block body %}
+{% include "_navbar.html" %}
+<div class="container-fluid py-3">
+  <h1 class="h5 mb-3">Lọc trùng dữ liệu</h1>
+
+  {% if msg %}<div class="alert alert-success py-2 small">{{ msg }}</div>{% endif %}
+  {% if err %}<div class="alert alert-danger py-2 small">{{ err }}</div>{% endif %}
+
+  <form method="get" action="/cdc/loc-trung" class="row g-2 mb-2 align-items-end">
+    <div class="col-auto">
+      <label class="form-label small mb-0">Đối tượng</label>
+      <select name="entity" class="form-select form-select-sm" onchange="this.form.submit()">
+        <option value="case" {% if entity_type == "case" %}selected{% endif %}>Ca bệnh</option>
+        <option value="outbreak" {% if entity_type == "outbreak" %}selected{% endif %}>Ổ dịch</option>
+      </select>
+    </div>
+    {% if entity_type == "outbreak" %}
+    <div class="col-auto">
+      <label class="form-label small mb-0">Ngưỡng điểm</label>
+      <input type="number" name="min_score" min="40" max="100" value="{{ min_score }}" class="form-control form-control-sm">
+    </div>
+    {% endif %}
+    <div class="col-auto">
+      <button type="submit" class="btn btn-sm btn-primary">Quét dữ liệu</button>
+    </div>
+    <div class="col-auto ms-auto d-flex gap-2">
+      {% if can_configure %}<a href="/cdc/loc-trung/tieu-chi?entity={{ entity_type }}" class="btn btn-sm btn-outline-secondary">Tiêu chí...</a>{% endif %}
+      <a href="/cdc/loc-trung/lich-su" class="btn btn-sm btn-outline-secondary">Thùng rác / lịch sử</a>
+      {% if can_export %}<a href="/cdc/loc-trung/xuat?entity={{ entity_type }}&min_score={{ min_score }}" class="btn btn-sm btn-outline-secondary">Xuất kết quả</a>{% endif %}
+      {% if entity_type == "case" %}<a href="/cdc/xuat-du-lieu" class="btn btn-sm btn-outline-secondary">Xuất theo xã...</a>{% endif %}
+    </div>
+  </form>
+
+  <div class="text-secondary small mb-3">
+    {% if entity_type == "case" %}
+    Hai ca bệnh trùng nếu khớp ít nhất một trong các tiêu chí đang chọn: <strong>{{ criteria_text }}</strong>.
+    {% else %}
+    Phát hiện trùng theo trọng số có thể cấu hình. Khi hợp nhất, bản còn lại được đưa vào Thùng rác — có thể khôi phục ở mục "Thùng rác / lịch sử".
+    {% endif %}
+  </div>
+
+  <div class="mb-2">
+    {% if rows %}
+    <strong>{{ "{:,}".format(total_groups) }}</strong> nhóm với <strong>{{ "{:,}".format(total_records) }}</strong> bản ghi cần duyệt.
+    {% else %}
+    Không phát hiện bản ghi trùng theo tiêu chí/ngưỡng hiện tại.
+    {% endif %}
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle">
+      <thead>
+        <tr>
+          <th>Nhóm</th><th>Mức</th>
+          {% if entity_type == "case" %}<th>Mã ca bệnh liên quan</th>{% else %}<th>Điểm</th>{% endif %}
+          <th>Số bản ghi</th><th>Tóm tắt</th><th>Tiêu chí/Lý do khớp</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>{{ row.group_id }}</td>
+          <td><span class="badge {% if row.confidence == 'Trùng chắc chắn' %}text-bg-danger{% else %}text-bg-warning{% endif %}">{{ row.confidence }}</span></td>
+          {% if entity_type == "case" %}<td>{{ row.case_codes_text }}</td>{% else %}<td>{{ row.score }}</td>{% endif %}
+          <td>{{ row.record_count }}</td>
+          <td>{{ row.summary }}</td>
+          <td class="small">{{ row.reasons }}</td>
+          <td>{% if can_merge %}<a href="{{ row.review_url }}" class="btn btn-sm btn-outline-primary">Duyệt &amp; hợp nhất</a>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-secondary py-4">Chưa có kết quả — bấm "Quét dữ liệu".</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

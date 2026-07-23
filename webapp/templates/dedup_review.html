@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Duyệt nhóm trùng{% endblock %}
+{% block body %}
+{% include "_navbar.html" %}
+<div class="container-fluid py-3">
+  <a href="/cdc/loc-trung?entity={{ entity_type }}" class="small">&larr; Quay lại danh sách nhóm trùng</a>
+  <h1 class="h5 my-3">Duyệt và hợp nhất ({{ records|length }} bản ghi)</h1>
+  <div class="text-secondary small mb-3">
+    Chọn bản ghi chính và giá trị cuối cho từng trường. Bản còn lại được đưa vào Thùng rác, không xoá vĩnh viễn;
+    CSDL được sao lưu trước thao tác. Trường có dấu ⚠ nghĩa là các bản ghi đang khác giá trị nhau.
+  </div>
+
+  <div class="table-responsive mb-3">
+    <table class="table table-sm table-hover">
+      <thead><tr>{% for key, label in compare_columns %}<th>{{ label }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for record in records %}
+        <tr>{% for key, label in compare_columns %}<td>{{ record.get(key, "") }}</td>{% endfor %}</tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if can_merge %}
+  <form method="post" action="/cdc/loc-trung/hop-nhat">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="entity" value="{{ entity_type }}">
+    {% for id in ids %}<input type="hidden" name="ids" value="{{ id }}">{% endfor %}
+
+    <div class="mb-3" style="max-width:480px;">
+      <label class="form-label small mb-0">Bản ghi chính (giữ lại, mang ID này)</label>
+      <select name="keep" class="form-select form-select-sm">
+        {% for record in records %}
+        <option value="{{ record.id }}">ID {{ record.id }} — {{ record.get("full_name") or record.get("disease") or "" }} — {{ record.get("case_code") or record.get("location") or "" }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="card p-3 mb-3">
+      <div class="fw-semibold mb-2">Chọn giá trị cho bản ghi sau hợp nhất</div>
+      <table class="table table-sm">
+        <thead><tr><th style="width:280px">Trường dữ liệu</th><th>Giá trị giữ lại</th></tr></thead>
+        <tbody>
+          {% for item in merge_rows %}
+          <tr>
+            <td>{% if item.differs %}⚠ {% endif %}{{ item.label }}</td>
+            <td>
+              <select name="field__{{ item.field }}" class="form-select form-select-sm">
+                {% for value in item.options %}
+                <option value="{{ value }}" {% if value == item.default %}selected{% endif %}>{{ value if value else "(trống)" }}</option>
+                {% endfor %}
+              </select>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <button type="submit" class="btn btn-primary btn-sm" onclick="return confirm('Hợp nhất và đưa các bản ghi còn lại vào Thùng rác?');">
+      Hợp nhất và đưa bản còn lại vào Thùng rác
+    </button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

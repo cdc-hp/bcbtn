@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Thùng rác / lịch sử lọc trùng{% endblock %}
+{% block body %}
+{% include "_navbar.html" %}
+<div class="container-fluid py-3">
+  <a href="/cdc/loc-trung" class="small">&larr; Quay lại lọc trùng</a>
+  <h1 class="h5 my-3">Thùng rác / lịch sử lọc trùng</h1>
+
+  {% if msg %}<div class="alert alert-success py-2 small">{{ msg }}</div>{% endif %}
+  {% if err %}<div class="alert alert-danger py-2 small">{{ err }}</div>{% endif %}
+
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle">
+      <thead>
+        <tr>
+          <th>Mã thao tác</th><th>Đối tượng</th><th>ID giữ lại</th><th>Xử lý</th>
+          <th>Đã đưa vào rác</th><th>Có thể khôi phục</th><th>Thời điểm</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in rows %}
+        <tr>
+          <td>{{ item.id }}</td>
+          <td>{{ item.entity_label }}</td>
+          <td>{{ item.keep_id }}</td>
+          <td>{{ item.action_label }}</td>
+          <td>{{ item.trash_count }}</td>
+          <td>{{ item.pending_count }}</td>
+          <td class="text-nowrap">{{ item.created_at }}</td>
+          <td>
+            {% if can_restore and item.pending_count and item.pending_count > 0 %}
+            <form method="post" action="/cdc/loc-trung/khoi-phuc/{{ item.id }}" onsubmit="return confirm('Khôi phục các bản ghi đã loại? CSDL hiện tại sẽ được sao lưu trước.');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button type="submit" class="btn btn-sm btn-outline-primary">Khôi phục</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-secondary py-4">Chưa có thao tác lọc trùng nào.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
