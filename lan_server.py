@@ -456,6 +456,62 @@ def configure_windows_firewall(port: int) -> dict[str, Any]:
         return {"ok": False, "message": str(exc)}
 
 
+CLOUDFLARED_SERVICE_NAME = "Cloudflared"
+
+
+def check_cloudflared_service() -> dict[str, Any]:
+    """Đọc trạng thái dịch vụ Windows cài bằng `cloudflared.exe service install <token>`."""
+    if os.name != "nt":
+        return {"ok": False, "installed": False, "message": "Chỉ áp dụng trên Windows."}
+    try:
+        completed = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             f"(Get-Service -Name {CLOUDFLARED_SERVICE_NAME} -ErrorAction SilentlyContinue).Status"],
+            capture_output=True, text=True, timeout=15,
+        )
+        status = completed.stdout.strip()
+        if not status:
+            return {"ok": True, "installed": False, "status": "", "message": "Chưa cài dịch vụ Cloudflared trên máy này (xem docs/huong-dan/5-mo-ra-internet.pdf)."}
+        return {"ok": True, "installed": True, "status": status, "message": f"Dịch vụ Cloudflared: {status}."}
+    except Exception as exc:
+        return {"ok": False, "installed": False, "message": str(exc)}
+
+
+def set_cloudflared_service(running: bool) -> dict[str, Any]:
+    """Bật/tắt dịch vụ Cloudflared. Cần ứng dụng đang chạy bằng quyền quản trị."""
+    if os.name != "nt":
+        return {"ok": False, "message": "Chỉ áp dụng trên Windows."}
+    verb = "Start-Service" if running else "Stop-Service"
+    try:
+        completed = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", f"{verb} -Name {CLOUDFLARED_SERVICE_NAME}"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if completed.returncode == 0:
+            return {"ok": True, "message": "Đã bật kết nối Internet." if running else "Đã tắt kết nối Internet."}
+        message = (completed.stderr or completed.stdout or "").strip()
+        if "Cannot find any service" in message:
+            message = "Chưa cài dịch vụ Cloudflared trên máy này."
+        return {"ok": False, "message": message or "Cần chạy ứng dụng bằng quyền quản trị."}
+    except Exception as exc:
+        return {"ok": False, "message": str(exc)}
+
+
+def check_public_url(url: str, timeout: float = 8.0) -> dict[str, Any]:
+    """Gọi /health qua địa chỉ công khai (vd. qua Cloudflare Tunnel) để xác nhận ra được Internet."""
+    target = url.strip().rstrip("/") + "/health"
+    try:
+        with urlopen(target, timeout=timeout) as resp:
+            resp.read(200)
+            return {"ok": True, "message": f"Kết nối OK ({resp.status}) — {target}"}
+    except HTTPError as exc:
+        return {"ok": False, "message": f"Máy chủ phản hồi lỗi {exc.code} — {target}"}
+    except URLError as exc:
+        return {"ok": False, "message": f"Không kết nối được {target}: {exc.reason}"}
+    except Exception as exc:
+        return {"ok": False, "message": str(exc)}
+
+
 class ApiServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True

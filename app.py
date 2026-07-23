@@ -65,7 +65,10 @@ from duplicate_config import (
     save_case_criteria,
     save_rules,
 )
-from lan_server import LanServerController, configure_windows_firewall, port_available
+from lan_server import (
+    LanServerController, check_cloudflared_service, check_public_url,
+    configure_windows_firewall, port_available, set_cloudflared_service,
+)
 
 DEPLOYMENT_CONFIG = load_config()
 if DEPLOYMENT_CONFIG.is_workstation:
@@ -2063,6 +2066,23 @@ class ServerTab(QWidget):
             "(CDC xem hàng đợi chia theo xã, nhập vào CSDL và đồng bộ máy chủ phụ)."
         )
         web_note.setWordWrap(True); root.addWidget(web_note)
+        internet_box = QGroupBox("Internet (Cloudflare Tunnel)"); internet_form = QFormLayout(internet_box)
+        self.public_url = QLineEdit(config.public_url); self.public_url.setPlaceholderText("https://cdc-hp.io.vn")
+        internet_form.addRow("Địa chỉ công khai:", self.public_url)
+        self.internet_status = QLabel("Chưa kiểm tra."); self.internet_status.setWordWrap(True)
+        internet_form.addRow("Trạng thái:", self.internet_status)
+        internet_row = QHBoxLayout()
+        self.internet_start = QPushButton("Bật kết nối Internet"); self.internet_start.clicked.connect(self.start_internet)
+        self.internet_stop = QPushButton("Tắt kết nối Internet"); self.internet_stop.setObjectName("secondary"); self.internet_stop.clicked.connect(self.stop_internet)
+        internet_check = QPushButton("Kiểm tra kết nối"); internet_check.setObjectName("secondary"); internet_check.clicked.connect(self.check_internet)
+        for widget in (self.internet_start, self.internet_stop, internet_check): internet_row.addWidget(widget)
+        internet_row.addStretch(); internet_form.addRow("", internet_row)
+        internet_note = QLabel(
+            "Yêu cầu đã cài cloudflared làm dịch vụ Windows trên máy này (xem docs/huong-dan/5-mo-ra-internet.pdf). "
+            "Bật/tắt kết nối cần ứng dụng đang chạy bằng quyền quản trị (chuột phải → Run as administrator)."
+        )
+        internet_note.setWordWrap(True); internet_form.addRow("", internet_note)
+        root.addWidget(internet_box)
         self.status = QLabel(); self.status.setWordWrap(True); root.addWidget(self.status)
         row = QHBoxLayout(); save = QPushButton("Lưu cấu hình"); save.clicked.connect(self.save_settings)
         self.start_button = QPushButton("Khởi động server"); self.start_button.clicked.connect(self.start_server)
@@ -2081,12 +2101,14 @@ class ServerTab(QWidget):
         splitter.addWidget(client_box); splitter.addWidget(log_box); splitter.setSizes([520, 650]); root.addWidget(splitter, 1)
         detail = QLabel(f"CSDL máy chủ: {local_core.DB_PATH}\nThư mục dữ liệu: {local_core.DATA_DIR}"); detail.setWordWrap(True); root.addWidget(detail)
         self.timer = QTimer(self); self.timer.timeout.connect(self.refresh); self.timer.start(3000); self.refresh()
+        self.refresh_internet_status()
 
     def _apply_fields(self):
         self.config.server_name = self.server_name.text().strip(); self.config.server_port = self.port.value(); self.config.password = self.password.text()
         self.config.auto_start_server = self.auto_start.isChecked(); self.config.discovery_enabled = self.discovery.isChecked()
         self.config.secondary_webapp_url = self.secondary_url.text().strip(); self.config.secondary_shared_key = self.secondary_key.text()
         self.config.secondary_sync_interval_minutes = self.secondary_interval.value()
+        self.config.public_url = self.public_url.text().strip().rstrip("/")
         save_config(self.config); self.controller.config = self.config
 
     def save_settings(self):
@@ -2127,6 +2149,33 @@ class ServerTab(QWidget):
         if answer != QMessageBox.StandardButton.Yes: return
         result = configure_windows_firewall(self.port.value())
         (QMessageBox.information if result.get("ok") else QMessageBox.warning)(self, "Windows Firewall", str(result.get("message")))
+
+    def refresh_internet_status(self):
+        result = check_cloudflared_service()
+        self.internet_status.setText(str(result.get("message", "")))
+
+    def start_internet(self):
+        result = set_cloudflared_service(True)
+        if not result.get("ok"): QMessageBox.warning(self, "Bật kết nối Internet", str(result.get("message")))
+        self.refresh_internet_status()
+
+    def stop_internet(self):
+        answer = QMessageBox.question(self, "Tắt kết nối Internet", "Tắt kết nối Internet sẽ khiến các xã/máy trạm không vào được máy chủ này từ bên ngoài LAN cho đến khi bật lại. Tiếp tục?")
+        if answer != QMessageBox.StandardButton.Yes: return
+        result = set_cloudflared_service(False)
+        if not result.get("ok"): QMessageBox.warning(self, "Tắt kết nối Internet", str(result.get("message")))
+        self.refresh_internet_status()
+
+    def check_internet(self):
+        self._apply_fields()
+        url = self.public_url.text().strip()
+        if not url:
+            QMessageBox.information(self, "Chưa có địa chỉ", "Điền địa chỉ công khai (vd. https://cdc-hp.io.vn) trước khi kiểm tra.")
+            return
+        self.internet_status.setText("Đang kiểm tra..."); QApplication.processEvents()
+        result = check_public_url(url)
+        self.internet_status.setText(str(result.get("message", "")))
+        if not result.get("ok"): QMessageBox.warning(self, "Kiểm tra kết nối", str(result.get("message")))
 
     def refresh(self):
         status = self.controller.status()

@@ -44,6 +44,9 @@ class DeploymentConfig:
     # Đặt khi máy chủ này đã "Chuyển máy chủ" thành công sang địa chỉ mới — từ đó máy chủ chỉ
     # còn báo địa chỉ mới cho mọi request thay vì phục vụ dữ liệu (xem migrate_to_new_server).
     retired_redirect_url: str = ""
+    # Địa chỉ Internet công khai của máy chủ này (vd. qua Cloudflare Tunnel), dùng để tự kiểm tra
+    # kết nối ra ngoài và điền vào MAIN_SERVER_URL của Google Apps Script.
+    public_url: str = ""
 
     @property
     def is_standalone(self) -> bool:
@@ -93,6 +96,7 @@ def load_config() -> DeploymentConfig:
         admin_username=str(raw.get("admin_username", "") or ""),
         admin_token=str(raw.get("admin_token", "") or ""),
         retired_redirect_url=str(raw.get("retired_redirect_url", "") or ""),
+        public_url=str(raw.get("public_url", "") or "").strip().rstrip("/"),
     )
 
 
