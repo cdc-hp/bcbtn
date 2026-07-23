@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiểm tra IP công khai — CDC Hải Phòng</title>
+<style>
+  :root {
+    --bg: #e2e8f0;
+    --surface: #ffffff;
+    --text: #1f2937;
+    --text-muted: #64748b;
+    --accent: #2563eb;
+    --accent-strong: #1e3a8a;
+    --accent-tint: #eff6ff;
+    --border: #e2e8f0;
+    --success: #16a34a;
+    --success-tint: #f0fdf4;
+    --error: #dc2626;
+    --error-tint: #fef2f2;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; min-height: 100%; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 10px; padding: 12px 16px 16px;
+    background: var(--accent-tint); color: var(--accent-strong);
+    box-shadow: 0 3px 10px rgba(30, 58, 138, .10);
+    border-radius: 0 0 18px 18px;
+  }
+  .logo-badge {
+    flex: none; width: 32px; height: 32px; border-radius: 9px; object-fit: contain;
+    box-shadow: 0 1px 4px rgba(30, 58, 138, .20); background: #fff;
+  }
+  header strong { font-weight: 700; }
+  header span.sub { opacity: .85; font-size: .85rem; }
+
+  main {
+    max-width: 560px; margin: 0 auto; padding: 32px 20px 48px;
+    display: flex; flex-direction: column; gap: 18px;
+  }
+  .card {
+    background: var(--surface); border-radius: 16px; padding: 28px 24px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, .08), 0 8px 24px rgba(15, 23, 42, .06);
+  }
+  h1 { font-size: 1.15rem; margin: 0 0 6px; color: var(--accent-strong); }
+  p.lede { margin: 0; color: var(--text-muted); font-size: .92rem; line-height: 1.55; }
+
+  .ip-display {
+    margin-top: 20px; padding: 22px 20px; border-radius: 12px;
+    background: var(--accent-tint); border: 1px solid #dbeafe;
+    text-align: center;
+  }
+  .ip-value {
+    font-family: ui-monospace, "Cascadia Code", Consolas, "Courier New", monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: clamp(1.6rem, 6vw, 2.4rem); font-weight: 700; letter-spacing: 0.02em;
+    color: var(--accent-strong); word-break: break-all;
+  }
+  .ip-value.loading { color: var(--text-muted); font-size: 1.1rem; font-weight: 500; letter-spacing: normal; }
+  .ip-value.error { color: var(--error); font-size: 1rem; font-weight: 500; letter-spacing: normal; }
+
+  .actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+  button {
+    font: inherit; font-size: .92rem; font-weight: 600; padding: 10px 16px;
+    border-radius: 8px; border: none; cursor: pointer;
+    transition: transform .12s ease, box-shadow .12s ease;
+  }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button:active { transform: scale(0.98); }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-strong); }
+  .btn-secondary { background: #fff; color: var(--accent-strong); border: 1px solid var(--border); }
+  .btn-secondary:hover { background: var(--accent-tint); }
+
+  .toast {
+    display: inline-flex; align-items: center; gap: 6px; font-size: .85rem; font-weight: 600;
+    color: var(--success); opacity: 0; transition: opacity .2s ease;
+  }
+  .toast.show { opacity: 1; }
+
+  .note {
+    font-size: .85rem; color: var(--text-muted); line-height: 1.6; margin-top: 4px;
+  }
+  .note b { color: var(--text); }
+  .note code {
+    font-family: ui-monospace, Consolas, "Courier New", monospace; background: var(--accent-tint);
+    padding: 1px 5px; border-radius: 4px; font-size: .82rem; color: var(--accent-strong);
+  }
+
+  .steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+  .steps li { display: flex; gap: 10px; font-size: .88rem; color: var(--text); line-height: 1.5; }
+  .steps .num {
+    flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--accent);
+    color: #fff; font-size: .72rem; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+
+  footer { text-align: center; font-size: .78rem; color: var(--text-muted); margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<header>
+  <img class="logo-badge" src="logo.png" alt="CDC Hải Phòng">
+  <div>
+    <div><strong>CDC Hải Phòng</strong></div>
+    <span class="sub">Kiểm tra IP công khai của mạng</span>
+  </div>
+</header>
+
+<main>
+  <div class="card">
+    <h1>IP công khai của mạng này</h1>
+    <p class="lede">Mở trang này từ một máy tính <b>đang kết nối trong mạng CDC</b> (nơi đặt máy chủ) — địa chỉ hiện ra bên dưới là IP mà Internet nhìn thấy mạng CDC, dùng để khai báo bản ghi DNS.</p>
+
+    <div class="ip-display">
+      <div class="ip-value loading" id="ipValue">Đang lấy địa chỉ IP…</div>
+    </div>
+
+    <div class="actions">
+      <button class="btn-primary" id="copyBtn" type="button" disabled>Sao chép IP</button>
+      <button class="btn-secondary" id="refreshBtn" type="button">Kiểm tra lại</button>
+      <span class="toast" id="toast">✓ Đã sao chép</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h1>Dùng IP này ở đâu</h1>
+    <ul class="steps">
+      <li><span class="num">1</span><span>Vào trang quản lý DNS của domain <code>cdc-hp.io.vn</code> (nơi đã đăng ký).</span></li>
+      <li><span class="num">2</span><span>Thêm/sửa bản ghi <b>A</b>: Host để trống hoặc <code>@</code>, giá trị là IP ở trên.</span></li>
+      <li><span class="num">3</span><span>Kiểm tra lại trang này sau vài ngày — nếu IP <b>khác đi</b>, mạng CDC đang dùng IP động, cần dùng thêm Dynamic DNS thay vì bản ghi A cố định.</span></li>
+    </ul>
+    <p class="note" style="margin-top:14px">Chi tiết đầy đủ: <b>docs/huong-dan/5-mo-ra-internet.pdf</b> trong repo <code>cdc-hp/bcbtn</code>.</p>
+  </div>
+
+  <footer>Trang không lưu lại bất kỳ địa chỉ IP nào — chỉ hiển thị ngay trên trình duyệt của bạn.</footer>
+</main>
+
+<script>
+  var ipValueEl = document.getElementById("ipValue");
+  var copyBtn = document.getElementById("copyBtn");
+  var refreshBtn = document.getElementById("refreshBtn");
+  var toastEl = document.getElementById("toast");
+  var currentIp = "";
+
+  // Vài nguồn dự phòng — thử lần lượt nếu nguồn trước lỗi/chặn.
+  var SOURCES = [
+    { url: "https://api.ipify.org?format=json", parse: function (text) { return JSON.parse(text).ip; } },
+    { url: "https://icanhazip.com", parse: function (text) { return text.trim(); } },
+    { url: "https://ifconfig.me/ip", parse: function (text) { return text.trim(); } },
+  ];
+
+  function setState(mode, text) {
+    ipValueEl.className = "ip-value" + (mode ? " " + mode : "");
+    ipValueEl.textContent = text;
+  }
+
+  function fetchFrom(index) {
+    if (index >= SOURCES.length) {
+      setState("error", "Không lấy được IP — kiểm tra kết nối Internet rồi bấm \"Kiểm tra lại\".");
+      copyBtn.disabled = true;
+      return;
+    }
+    var source = SOURCES[index];
+    fetch(source.url, { cache: "no-store" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.text();
+      })
+      .then(function (text) {
+        var ip = source.parse(text);
+        if (!ip) throw new Error("Phản hồi rỗng");
+        currentIp = ip;
+        setState("", ip);
+        copyBtn.disabled = false;
+      })
+      .catch(function () { fetchFrom(index + 1); });
+  }
+
+  function refresh() {
+    setState("loading", "Đang lấy địa chỉ IP…");
+    copyBtn.disabled = true;
+    fetchFrom(0);
+  }
+
+  copyBtn.addEventListener("click", function () {
+    if (!currentIp) return;
+    navigator.clipboard.writeText(currentIp).then(function () {
+      toastEl.classList.add("show");
+      setTimeout(function () { toastEl.classList.remove("show"); }, 1800);
+    });
+  });
+  refreshBtn.addEventListener("click", refresh);
+
+  refresh();
+</script>
+
+</body>
+</html>
