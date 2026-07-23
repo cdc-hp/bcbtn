@@ -66,8 +66,24 @@ lúc giao việc này — tóm tắt tiến độ theo 11 giai đoạn:
       `tests/test_webapp_export.py`), 136/136 test pass. Đã chạy thử server thật: seed dữ liệu
       trùng thật, quét → duyệt → hợp nhất → thùng rác → khôi phục, xuất theo bộ lọc và xuất theo
       xã đều tải file `.xlsx` thành công qua curl (không chỉ dựa vào test).
-- [ ] **Giai đoạn 6** — Quản lý tài khoản (`/cdc/tai-khoan`, chỉ `super_admin`), nhật ký
-      (`/cdc/nhat-ky` — đã có sẵn cột `ip`/`actor` để lọc), sao lưu/phục hồi qua Web.
+- [x] **Giai đoạn 6** — `/cdc/tai-khoan` (`webapp/routers/accounts.py`, chỉ `super_admin`): tạo
+      tài khoản, đổi vai trò, khoá/mở khoá, đặt lại mật khẩu (tái dùng nguyên
+      `core.create_cdc_account`/`set_cdc_account_role`/`set_cdc_account_active`/
+      `reset_cdc_account_password`) — thêm 1 lớp bảo vệ router tự làm (không có trong `core.py`,
+      chủ định để tầng gọi tự lo — xem docstring `set_cdc_account_role`): chặn super_admin tự
+      khoá/tự hạ quyền chính mình. `/cdc/nhat-ky` (`webapp/routers/audit_log.py`, super_admin +
+      admin): xem/lọc theo action/actor/commune/ip/khoảng ngày, tái dùng nguyên
+      `core.list_audit_log` (đã có sẵn tham số lọc từ Giai đoạn 2). `/cdc/sao-luu`
+      (`webapp/routers/backups.py`, tái dùng nguyên `backup_manager`): xem tình trạng sao lưu tự
+      động, sao lưu ngay, tải file sao lưu, cấu hình chính sách giữ bản (interval/keep_*) — xem =
+      super_admin/admin, PHỤC HỒI (ghi đè CSDL đang chạy) + sửa chính sách = chỉ super_admin
+      (rủi ro cao hơn hẳn thao tác khác, tách quyền riêng thay vì dùng chung CAN_MANAGE của
+      `/cdc/tai-khoan`). Tên file sao lưu trong URL được xác thực nằm đúng trong thư mục sao lưu
+      (chặn path traversal) trước khi tải/phục hồi. 24 test mới (`tests/test_webapp_accounts.py`,
+      `tests/test_webapp_audit_log.py`, `tests/test_webapp_backups.py`), 160/160 test pass. Đã
+      chạy thử server thật: tạo tài khoản → xem trong nhật ký → sao lưu → phục hồi (xác nhận tài
+      khoản tạo sau thời điểm sao lưu biến mất đúng như core-level test đã kiểm) → phiên đăng
+      nhập vẫn còn hiệu lực sau khi phục hồi CSDL đang chạy.
 - [ ] **Giai đoạn 7** — `secondary_sync.py` thành tác vụ nền APScheduler (thay
       `MainWindow.run_auto_secondary_sync` kiểu QTimer hiện tại — không phụ thuộc có mở trình
       duyệt hay không).

@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Sao lưu / phục hồi{% endblock %}
+{% block body %}
+{% include "_navbar.html" %}
+<div class="container-fluid py-3">
+  <h1 class="h5 mb-3">Sao lưu / phục hồi CSDL</h1>
+
+  {% if msg %}<div class="alert alert-success py-2 small">{{ msg }}</div>{% endif %}
+  {% if err %}<div class="alert alert-danger py-2 small">{{ err }}</div>{% endif %}
+
+  <div class="card p-3 mb-3">
+    <div class="fw-semibold mb-1">Tình trạng sao lưu tự động</div>
+    <div class="small {% if health.overdue %}text-danger{% else %}text-secondary{% endif %}">{{ health.message }}</div>
+    <form method="post" action="/cdc/sao-luu/tao" class="mt-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="btn btn-sm btn-primary">Sao lưu ngay</button>
+    </form>
+  </div>
+
+  {% if can_restore %}
+  <div class="card p-3 mb-3">
+    <div class="fw-semibold mb-2">Cấu hình sao lưu tự động</div>
+    <form method="post" action="/cdc/sao-luu/chinh-sach" class="row g-2 align-items-end">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="col-auto form-check mt-4">
+        <input class="form-check-input" type="checkbox" name="enabled" value="1" id="policy_enabled" {% if policy.enabled %}checked{% endif %}>
+        <label class="form-check-label small" for="policy_enabled">Bật tự động</label>
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-0">Chu kỳ (giờ)</label>
+        <input type="number" name="interval_hours" min="1" max="720" value="{{ policy.interval_hours }}" class="form-control form-control-sm" style="width:100px;">
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-0">Giữ theo ngày</label>
+        <input type="number" name="keep_daily" min="0" max="365" value="{{ policy.keep_daily }}" class="form-control form-control-sm" style="width:90px;">
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-0">Giữ theo tuần</label>
+        <input type="number" name="keep_weekly" min="0" max="260" value="{{ policy.keep_weekly }}" class="form-control form-control-sm" style="width:90px;">
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-0">Giữ theo tháng</label>
+        <input type="number" name="keep_monthly" min="0" max="120" value="{{ policy.keep_monthly }}" class="form-control form-control-sm" style="width:90px;">
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-0">Giữ bản thủ công</label>
+        <input type="number" name="keep_manual" min="1" max="200" value="{{ policy.keep_manual }}" class="form-control form-control-sm" style="width:90px;">
+      </div>
+      <div class="col-auto form-check mt-4">
+        <input class="form-check-input" type="checkbox" name="verify_after_backup" value="1" id="policy_verify" {% if policy.verify_after_backup %}checked{% endif %}>
+        <label class="form-check-label small" for="policy_verify">Kiểm tra toàn vẹn sau khi sao lưu</label>
+      </div>
+      <div class="col-auto"><button type="submit" class="btn btn-sm btn-outline-primary">Lưu cấu hình</button></div>
+    </form>
+  </div>
+  {% endif %}
+
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle">
+      <thead><tr><th>Tên file</th><th>Loại</th><th>Thời điểm</th><th>Kích thước</th><th></th></tr></thead>
+      <tbody>
+        {% for b in backups %}
+        <tr>
+          <td>{{ b.name }}</td>
+          <td>{{ b.kind }}</td>
+          <td class="text-nowrap">{{ b.created_at }}</td>
+          <td>{{ "{:,}".format(b.size) }} bytes</td>
+          <td class="text-nowrap">
+            <a href="/cdc/sao-luu/{{ b.name }}/tai-ve" class="btn btn-sm btn-outline-secondary">Tải xuống</a>
+            {% if can_restore %}
+            <form method="post" action="/cdc/sao-luu/{{ b.name }}/phuc-hoi" class="d-inline" onsubmit="return confirm('Phục hồi CSDL từ {{ b.name }}? CSDL hiện tại sẽ được sao lưu trước, nhưng mọi thay đổi sau thời điểm bản sao lưu này sẽ MẤT.');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button type="submit" class="btn btn-sm btn-outline-danger">Phục hồi</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center text-secondary py-4">Chưa có bản sao lưu nào.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

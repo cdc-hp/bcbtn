@@ -8,6 +8,13 @@
       <a href="/cdc/o-dich" class="small text-decoration-none {% if active == 'o-dich' %}fw-semibold{% endif %}">Ổ dịch</a>
       <a href="/cdc/loc-trung" class="small text-decoration-none {% if active == 'loc-trung' %}fw-semibold{% endif %}">Lọc trùng</a>
       <a href="/cdc/xuat-du-lieu" class="small text-decoration-none {% if active == 'xuat-du-lieu' %}fw-semibold{% endif %}">Xuất dữ liệu</a>
+      {% if user.has_role("super_admin", "admin") %}
+      <a href="/cdc/nhat-ky" class="small text-decoration-none {% if active == 'nhat-ky' %}fw-semibold{% endif %}">Nhật ký</a>
+      <a href="/cdc/sao-luu" class="small text-decoration-none {% if active == 'sao-luu' %}fw-semibold{% endif %}">Sao lưu</a>
+      {% endif %}
+      {% if user.has_role("super_admin") %}
+      <a href="/cdc/tai-khoan" class="small text-decoration-none {% if active == 'tai-khoan' %}fw-semibold{% endif %}">Tài khoản</a>
+      {% endif %}
       <span class="small text-secondary">{{ user.display_name }} &middot; {{ user.role }}</span>
       <form method="post" action="/cdc/logout" class="m-0">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
