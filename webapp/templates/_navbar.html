@@ -4,6 +4,8 @@
     <div class="d-flex align-items-center gap-3">
       <a href="/cdc/dashboard" class="small text-decoration-none {% if active == 'dashboard' %}fw-semibold{% endif %}">Dashboard</a>
       <a href="/cdc/hang-doi" class="small text-decoration-none {% if active == 'hang-doi' %}fw-semibold{% endif %}">Hàng đợi</a>
+      <a href="/cdc/ca-benh" class="small text-decoration-none {% if active == 'ca-benh' %}fw-semibold{% endif %}">Ca bệnh</a>
+      <a href="/cdc/o-dich" class="small text-decoration-none {% if active == 'o-dich' %}fw-semibold{% endif %}">Ổ dịch</a>
       <span class="small text-secondary">{{ user.display_name }} &middot; {{ user.role }}</span>
       <form method="post" action="/cdc/logout" class="m-0">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

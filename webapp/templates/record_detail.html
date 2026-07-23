@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} #{{ record.id }}{% endblock %}
+{% block body %}
+{% include "_navbar.html" %}
+<div class="container py-3">
+  <a href="/cdc/{{ entity_path }}" class="small">&larr; Quay lại danh sách {{ title|lower }}</a>
+  <h1 class="h5 my-3">{{ title }} #{{ record.id }}</h1>
+
+  {% if issues %}
+  <div class="card p-3 mb-3 border-warning">
+    <div class="fw-semibold mb-2 text-warning-emphasis">Cảnh báo chất lượng dữ liệu ({{ issues|length }})</div>
+    <ul class="small mb-0">
+      {% for issue in issues %}<li>[{{ issue.severity }}] {{ issue.issue_type }} — {{ issue.description }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <div class="card p-3 mb-3">
+    <div class="fw-semibold mb-2">Nguồn dữ liệu</div>
+    <div class="small">
+      File: {{ record.source_file or "—" }} &middot; Sheet: {{ record.source_sheet or "—" }} &middot;
+      Dòng: {{ record.source_row or "—" }} &middot; Nhập lúc: {{ record.imported_at or "—" }}
+    </div>
+  </div>
+
+  <div class="card p-3">
+    <div class="fw-semibold mb-2">Chi tiết</div>
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <tbody>
+          {% for label, key, value in fields %}
+          {% if key not in ("id", "source_file", "source_sheet", "source_row", "imported_at", "row_hash") %}
+          <tr><th class="text-secondary fw-normal" style="width:280px">{{ label }}</th><td>{{ value if value is not none else "" }}</td></tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

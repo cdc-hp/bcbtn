@@ -433,6 +433,14 @@ def init_db(db_path: Path | str = DB_PATH) -> None:
             _ensure_column(conn, "cdc_accounts", "locked_until", "TEXT")
             _ensure_column(conn, "audit_log", "ip", "TEXT")
 
+def current_iso_week() -> str:
+    """Tuần ISO-8601 hiện tại dạng "YYYY-Www" — cùng định dạng với tuần báo cáo GAS gửi lên
+    (xem Code.gs: isoWeekString) và với `week` trong `import_queue`. `date.isocalendar()` chuẩn
+    ISO-8601 sẵn có, không cần tự viết thuật toán như phía JavaScript."""
+    year, week, _ = date.today().isocalendar()
+    return f"{year}-W{week:02d}"
+
+
 def strip_text(value: Any) -> str:
     if value is None:
         return ""
@@ -1516,7 +1524,8 @@ def restore_duplicate_action(action_id: int, db_path: Path | str = DB_PATH, acto
 
 
 def list_quality_issues(
-    *, severity: str = "", entity_type: str = "", limit: int = 2000, db_path: Path | str = DB_PATH
+    *, severity: str = "", entity_type: str = "", entity_id: int | None = None,
+    limit: int = 2000, db_path: Path | str = DB_PATH
 ) -> list[dict[str, Any]]:
     where: list[str] = []
     params: list[Any] = []
@@ -1526,6 +1535,9 @@ def list_quality_issues(
     if entity_type:
         where.append("entity_type=?")
         params.append(entity_type)
+    if entity_id is not None:
+        where.append("entity_id=?")
+        params.append(int(entity_id))
     sql_where = " WHERE " + " AND ".join(where) if where else ""
     with _connect(db_path) as conn:
         rows = conn.execute(

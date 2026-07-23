@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block body %}
+{% include "_navbar.html" %}
+<div class="container py-3">
+  <h1 class="h5 mb-3">Tổng quan</h1>
+  <div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+      <div class="card p-3"><div class="text-secondary small">Tổng số ca bệnh</div><div class="fs-4 fw-semibold">{{ "{:,}".format(stats.case_records) }}</div></div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card p-3"><div class="text-secondary small">Tổng số ổ dịch</div><div class="fs-4 fw-semibold">{{ "{:,}".format(stats.outbreak_records) }}</div></div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card p-3"><div class="text-secondary small">File chờ nhập</div>
+        <div class="fs-4 fw-semibold {% if queue_pending %}text-warning-emphasis{% endif %}">{{ queue_pending }}</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card p-3"><div class="text-secondary small">File nhập lỗi</div>
+        <div class="fs-4 fw-semibold {% if queue_error %}text-danger{% endif %}">{{ queue_error }}</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card p-3"><div class="text-secondary small">Ổ dịch đang hoạt động</div><div class="fs-4 fw-semibold">{{ stats.active_outbreaks }}</div></div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card p-3"><div class="text-secondary small">Cảnh báo chất lượng</div><div class="fs-4 fw-semibold">{{ stats.quality_issues }}</div></div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card p-3"><div class="text-secondary small">Lần sao lưu gần nhất</div>
+        <div class="fw-semibold small">{% if latest_backup %}{{ latest_backup.created_at }}{% else %}Chưa có{% endif %}</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card p-3"><div class="text-secondary small">Phiên bản</div><div class="fw-semibold">{{ version }}</div></div>
+    </div>
+  </div>
+
+  <div class="card p-3">
+    <div class="fw-semibold mb-2">Xã đã nộp tuần {{ current_week }} ({{ communes_submitted|length }})</div>
+    {% if communes_submitted %}
+    <div class="d-flex flex-wrap gap-1">
+      {% for c in communes_submitted %}<span class="badge text-bg-light border">{{ c }}</span>{% endfor %}
+    </div>
+    {% else %}
+    <div class="text-secondary small">Chưa có xã nào nộp báo cáo tuần này.</div>
+    {% endif %}
+    <div class="text-secondary small mt-2">
+      Danh sách "chưa nộp" cần danh mục xã chuẩn hoá (xem TASKS.md, backlog "Bảng communes chuẩn hoá") — chưa hiển thị ở đây.
+    </div>
+  </div>
+
+  <div class="mt-3">
+    <a href="/cdc/hang-doi" class="btn btn-sm btn-primary">Xem hàng đợi nhập liệu</a>
+  </div>
+</div>
+{% endblock %}

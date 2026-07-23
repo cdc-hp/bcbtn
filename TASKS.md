@@ -35,8 +35,19 @@ lúc giao việc này — tóm tắt tiến độ theo 11 giai đoạn:
       = super_admin/admin/data_operator, xoá = super_admin/admin. 23 test mới
       (`tests/test_queue_web_extensions.py`, `tests/test_webapp_queue.py`), 102/102 test pass.
       Đã chạy thử server thật xác nhận `/queue/submit` và `/cdc/hang-doi` hoạt động đúng.
-- [ ] **Giai đoạn 4** — Dashboard, Ca bệnh, Ổ dịch (routers thật, thay `dashboard_placeholder.html`).
-- [ ] **Giai đoạn 5** — Lọc trùng + xuất dữ liệu qua Web.
+- [x] **Giai đoạn 4** — `/cdc/dashboard` thật (thay placeholder): tổng ca bệnh/ổ dịch, file chờ
+      nhập/lỗi, xã đã nộp tuần hiện tại (`core.current_iso_week()` mới), lần sao lưu gần nhất,
+      phiên bản. **Chưa có** "xã chưa nộp" (cần danh mục xã chuẩn hoá, đã ghi backlog) và "nhóm
+      nghi trùng" (để Giai đoạn 5, tránh dashboard chậm vì quét trùng toàn bộ mỗi lần tải).
+      `/cdc/ca-benh` + `/cdc/o-dich` (`webapp/routers/records.py`, dùng chung 1 router cho cả 2
+      loại — cấu trúc giống hệt nhau): tìm kiếm, lọc nhiều điều kiện, phân trang phía máy chủ
+      (tái dùng nguyên `core.query_records`/`list_filter_values`/`get_record` có sẵn, không viết
+      lại), xem chi tiết, xem nguồn file, xem lỗi chất lượng (`core.list_quality_issues` thêm
+      tham số `entity_id`). "Xuất theo bộ lọc" chưa làm — gộp vào Giai đoạn 5 (cùng nhóm xuất dữ
+      liệu). 18 test mới (`tests/test_webapp_records.py`), 110/110 test pass. Đã chạy thử server
+      thật xác nhận các trang yêu cầu đăng nhập đúng.
+- [ ] **Giai đoạn 5** — Lọc trùng + xuất dữ liệu qua Web (bao gồm "xuất theo bộ lọc" của Giai
+      đoạn 4 và "nhóm nghi trùng" trên dashboard).
 - [ ] **Giai đoạn 6** — Quản lý tài khoản (`/cdc/tai-khoan`, chỉ `super_admin`), nhật ký
       (`/cdc/nhat-ky` — đã có sẵn cột `ip`/`actor` để lọc), sao lưu/phục hồi qua Web.
 - [ ] **Giai đoạn 7** — `secondary_sync.py` thành tác vụ nền APScheduler (thay

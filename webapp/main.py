@@ -10,7 +10,7 @@ from fastapi.templating import Jinja2Templates
 
 import core
 from webapp.dependencies import ForbiddenError, RedirectException
-from webapp.routers import dashboard, login, queue, submission_api
+from webapp.routers import dashboard, login, queue, records, submission_api
 
 app = FastAPI(title="Giám sát dịch bệnh — CDC Hải Phòng", docs_url=None, redoc_url=None)
 
@@ -18,6 +18,7 @@ app.mount("/static", StaticFiles(directory="webapp/static"), name="static")
 app.include_router(login.router)
 app.include_router(dashboard.router)
 app.include_router(queue.router)
+app.include_router(records.router)
 app.include_router(submission_api.router)
 
 _error_templates = Jinja2Templates(directory="webapp/templates")
