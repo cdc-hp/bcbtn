@@ -184,13 +184,34 @@ CSDL chính luôn là SQLite trên máy chủ chính.
 5. Chỉ cần sửa lại `docs/config.js` khi tạo **deployment mới** (đổi ID). Nếu chỉ deploy lại
    đúng deployment cũ (New version), URL giữ nguyên.
 
-### Mở máy chủ chính ra Internet (để GAS chuyển tiếp trực tiếp)
+### Mở máy chủ chính ra Internet (để GAS chuyển tiếp trực tiếp + máy trạm quản trị ở xa)
 
-Domain/IP công khai (khuyến nghị Dynamic DNS nếu IP động) + port forward cổng LAN (mặc định
-`8765`) trên router CDC + **bắt buộc đặt mật khẩu máy chủ** trước khi bật (đây là lớp xác thực
-duy nhất cho request từ Internet) + khuyến nghị đặt sau reverse proxy HTTPS (Caddy/Nginx +
-Let's Encrypt) vì `lan_server.py` chưa hỗ trợ TLS trực tiếp — rồi trỏ `MAIN_SERVER_URL` vào
-địa chỉ HTTPS đó. Đây là thay đổi có rủi ro bảo mật, cân nhắc kỹ trước khi bật.
+**Domain thật đã có: `cdc-hp.io.vn`.** Kiến trúc: Caddy (reverse proxy, TỰ xin/gia hạn HTTPS
+qua Let's Encrypt — không cần thao tác thủ công) cài **trên chính máy đang chạy chế độ Máy
+chủ**, nghe cổng 80/443 công khai, chuyển tiếp vào `127.0.0.1:8765` (nơi `lan_server.py` đang
+chạy, vẫn chỉ nói HTTP thuần — chưa hỗ trợ TLS trực tiếp, xem TASKS.md mục HTTPS). Router CDC
+port-forward 80+443 về đúng máy đó; DNS `cdc-hp.io.vn` trỏ về IP công khai của mạng CDC
+(Dynamic DNS nếu IP động). Config Caddy có sẵn: `deploy/Caddyfile` (đã kiểm tra hợp lệ bằng
+`caddy validate`) — chỉ cần `caddy run --config deploy/Caddyfile` hoặc `caddy install` để chạy
+nền như dịch vụ Windows. Hướng dẫn từng bước đầy đủ (kể cả cho người không rành kỹ thuật):
+`docs/huong-dan/5-mo-ra-internet.pdf`.
+
+**Bắt buộc trước khi bật**: đặt mật khẩu máy chủ (tab Server) — đây là lớp xác thực duy nhất
+cho request từ Internet khi không có token cá nhân (`cdc_accounts`)/không có `commune_token`.
+Mở thêm rule tường lửa Windows cho TCP 80 và 443 (profile Private — port-forward từ router vẫn
+tới NIC LAN nên Windows vẫn xếp loại Private, không cần mở Public) — `configure_windows_firewall()`
+trong `lan_server.py` hiện chỉ mở đúng 1 cổng LAN (8765) + UDP 8766, KHÔNG tự mở 80/443, phải
+làm thủ công (lệnh mẫu trong `docs/huong-dan/5-mo-ra-internet.pdf`).
+
+Sau khi Caddy chạy và domain xác thực HTTPS thành công:
+- **GAS chuyển tiếp trực tiếp**: đặt Script Property `MAIN_SERVER_URL = https://cdc-hp.io.vn`
+  (không cần ghi cổng, Caddy đã map 443 → 8765) + `MAIN_SERVER_PASSWORD` = mật khẩu máy chủ.
+- **Máy trạm quản trị ở xa** (ngoài LAN CDC): mở app → "Kết nối máy chủ LAN" → đổi "Địa chỉ máy
+  chủ" thành `https://cdc-hp.io.vn` (thay vì IP LAN `192.168.x.x`) — vẫn cùng 1 bản cài
+  `setup-admin.iss`, chỉ khác giá trị nhập lúc cấu hình, không cần build riêng.
+
+Đây là thay đổi có rủi ro bảo mật (máy chủ nhận request công khai từ Internet), cân nhắc kỹ và
+luôn đảm bảo đã đặt mật khẩu trước khi port-forward.
 
 ## Build & test
 

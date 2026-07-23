@@ -1,0 +1,30 @@
+# Reverse proxy HTTPS cho máy chủ chính (lan_server.py, chỉ nói HTTP thuần trên cổng LAN).
+# Cài Caddy TRÊN CHÍNH máy đang chạy chế độ "Máy chủ" (GiamSatDichBenh-Server-Setup-*.exe),
+# domain trỏ thẳng về máy này qua port forward 80+443 trên router CDC. Caddy tự xin và tự gia
+# hạn chứng chỉ Let's Encrypt cho domain bên dưới — không cần cấu hình gì thêm.
+#
+# Xem hướng dẫn đầy đủ: docs/huong-dan/5-mo-ra-internet.pdf hoặc CLAUDE.md mục
+# "Mở máy chủ chính ra Internet".
+#
+# Cách chạy (PowerShell, tại thư mục chứa file này):
+#   caddy run --config Caddyfile
+# Hoặc cài làm dịch vụ Windows chạy nền (khuyến nghị, tự khởi động lại cùng máy):
+#   caddy install --config (Resolve-Path .\Caddyfile)  (yêu cầu quyền Administrator)
+
+cdc-hp.io.vn {
+	reverse_proxy 127.0.0.1:8765 {
+		# Nhập/xuất file lớn (tới 100MB, xem MAX_REQUEST_BYTES trong lan_server.py) và các thao
+		# tác chạy lâu (sao lưu, chuyển máy chủ) cần thời gian dài hơn mặc định của Caddy.
+		transport http {
+			read_timeout 300s
+			write_timeout 300s
+		}
+	}
+
+	log {
+		output file C:/caddy/logs/cdc-hp.io.vn.log {
+			roll_size 10MB
+			roll_keep 5
+		}
+	}
+}

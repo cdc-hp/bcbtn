@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Hướng dẫn mở máy chủ chính ra Internet (cdc-hp.io.vn)</title>
+<style>
+  @page { size: A4; margin: 20mm 18mm; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: #1f2937; line-height: 1.5; font-size: 12.5px; }
+  .cover { text-align: center; padding-top: 60mm; page-break-after: always; }
+  .cover .badge { display: inline-block; background: #1e3a8a; color: #fff; padding: 6px 16px; border-radius: 20px; font-size: 13px; letter-spacing: 0.5px; }
+  .cover h1 { font-size: 26px; margin-top: 24px; color: #1e3a8a; }
+  .cover p.subtitle { font-size: 14px; color: #64748b; margin-top: 8px; }
+  h2 { color: #1e3a8a; border-bottom: 2px solid #dbeafe; padding-bottom: 4px; margin-top: 28px; font-size: 17px; }
+  h3 { color: #1e40af; font-size: 14px; margin-top: 18px; }
+  .step { display: flex; gap: 12px; margin: 14px 0; }
+  .step .num { flex: 0 0 26px; height: 26px; border-radius: 50%; background: #2563eb; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
+  .step .content { flex: 1; }
+  code, .mono { font-family: Consolas, "Courier New", monospace; background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+  pre { font-family: Consolas, "Courier New", monospace; background: #0f172a; color: #e2e8f0; padding: 10px 12px; border-radius: 8px; font-size: 11px; overflow-x: auto; white-space: pre-wrap; }
+  .box { border-radius: 8px; padding: 10px 14px; margin: 14px 0; }
+  .box.info { background: #eff6ff; border-left: 4px solid #2563eb; }
+  .box.warn { background: #fef2f2; border-left: 4px solid #dc2626; }
+  .box.tip { background: #f0fdf4; border-left: 4px solid #16a34a; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 11.5px; }
+  th, td { border: 1px solid #e2e8f0; padding: 5px 8px; text-align: left; }
+  th { background: #f8fafc; }
+  .footer-note { margin-top: 40px; font-size: 10.5px; color: #94a3b8; }
+  ul { margin: 6px 0; padding-left: 20px; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <span class="badge">CDC HẢI PHÒNG</span>
+  <h1>Hướng dẫn mở máy chủ chính ra Internet</h1>
+  <p class="subtitle">Domain: cdc-hp.io.vn — dùng cho GAS chuyển tiếp trực tiếp và máy trạm quản trị ở xa</p>
+  <p class="subtitle">Tài liệu 5/5 — Ứng dụng Giám sát dịch bệnh</p>
+</div>
+
+<h2>1. Vì sao cần làm việc này</h2>
+<p>Mặc định, máy chủ chính chỉ nghe trong mạng LAN của CDC — máy trạm quản trị ở ngoài văn phòng và Google Apps Script không vào thẳng được, phải đi vòng qua đệm Sheet/Drive rồi đồng bộ bù. Mở ra Internet qua domain <b>cdc-hp.io.vn</b> giúp:</p>
+<ul>
+  <li>Google Apps Script <b>chuyển tiếp trực tiếp</b> mỗi lần xã nộp báo cáo — vào thẳng hàng đợi máy chủ chính, không cần chờ đồng bộ bù.</li>
+  <li>Máy trạm quản trị dùng được <b>ở bất cứ đâu có Internet</b>, không chỉ trong LAN của CDC.</li>
+</ul>
+<div class="box warn">Đây là thay đổi có rủi ro bảo mật thật sự (máy chủ nhận kết nối từ Internet công khai). Đọc kỹ Mục 5 (Bảo mật) trước khi làm.</div>
+
+<h2>2. Chuẩn bị</h2>
+<table>
+<tr><th>Việc</th><th>Ghi chú</th></tr>
+<tr><td>Domain</td><td><b>cdc-hp.io.vn</b> — đã đăng ký.</td></tr>
+<tr><td>Máy chủ đang chạy chế độ Máy chủ</td><td>Bản cài <span class="mono">GiamSatDichBenh-Server-Setup-*.exe</span> (xem Tài liệu 2/5) — Caddy sẽ cài <b>trên chính máy này</b>.</td></tr>
+<tr><td>Quyền quản trị router CDC</td><td>Để port-forward cổng 80 và 443.</td></tr>
+<tr><td>IP công khai của mạng CDC</td><td>Cố định hoặc Dynamic DNS nếu IP hay đổi (hỏi nhà mạng nếu chưa rõ).</td></tr>
+</table>
+
+<h2>3. Trỏ domain về mạng CDC (DNS)</h2>
+<div class="step"><div class="num">1</div><div class="content">Đăng nhập trang quản lý DNS của domain <span class="mono">cdc-hp.io.vn</span> (nơi đã đăng ký).</div></div>
+<div class="step"><div class="num">2</div><div class="content">Thêm bản ghi <b>A</b>: Host để trống hoặc <span class="mono">@</span>, trỏ tới <b>địa chỉ IP công khai</b> của mạng CDC.</div></div>
+<div class="step"><div class="num">3</div><div class="content">Nếu IP công khai hay đổi (không cố định), dùng dịch vụ Dynamic DNS (DDNS) của nhà cung cấp router hoặc dịch vụ ngoài, cập nhật bản ghi A tự động khi IP đổi.</div></div>
+<div class="step"><div class="num">4</div><div class="content">Chờ DNS lan truyền (thường vài phút tới vài giờ), kiểm tra bằng <span class="mono">ping cdc-hp.io.vn</span> hoặc trang <span class="mono">whatsmydns.net</span>.</div></div>
+
+<h2>4. Port forward trên router CDC</h2>
+<div class="step"><div class="num">1</div><div class="content">Vào trang quản trị router (thường <span class="mono">192.168.1.1</span> hoặc <span class="mono">192.168.0.1</span>).</div></div>
+<div class="step"><div class="num">2</div><div class="content">Tìm mục <b>Port Forwarding / Virtual Server / NAT</b>.</div></div>
+<div class="step"><div class="num">3</div><div class="content">Thêm 2 quy tắc, cùng trỏ về <b>IP LAN của máy chủ</b> (vd <span class="mono">192.168.1.10</span>):</div></div>
+<table>
+<tr><th>Cổng ngoài (Internet)</th><th>Cổng trong (máy chủ)</th><th>Giao thức</th></tr>
+<tr><td>80</td><td>80</td><td>TCP</td></tr>
+<tr><td>443</td><td>443</td><td>TCP</td></tr>
+</table>
+<div class="box info">Không cần forward cổng 8765 ra Internet — Caddy (cổng 80/443) là cửa duy nhất tiếp xúc Internet, tự chuyển tiếp nội bộ vào 8765 trên chính máy đó.</div>
+
+<h2>5. Bảo mật — bắt buộc làm trước khi bật</h2>
+<div class="step"><div class="num">1</div><div class="content"><b>Đặt mật khẩu máy chủ</b> (nếu chưa có): mở app trên máy chủ → tab <b>Server</b> → điền "Mật khẩu máy trạm" → Lưu cấu hình. Đây là lớp xác thực duy nhất cho request đến từ Internet.</div></div>
+<div class="step"><div class="num">2</div><div class="content">Mở thêm cổng 80/443 trên Windows Firewall (chạy PowerShell với quyền Administrator, trên máy chủ):</div></div>
+<pre>netsh advfirewall firewall add rule name="CDC Caddy HTTP" dir=in action=allow protocol=TCP localport=80 profile=private
+netsh advfirewall firewall add rule name="CDC Caddy HTTPS" dir=in action=allow protocol=TCP localport=443 profile=private</pre>
+<div class="box tip">Port-forward từ router vẫn đi vào đúng card mạng LAN của máy chủ nên Windows vẫn xếp mạng đó là "Private" — không cần mở thêm cho profile "Public".</div>
+
+<h2>6. Cài và chạy Caddy (reverse proxy HTTPS tự động)</h2>
+<p>Caddy tự xin và tự gia hạn chứng chỉ HTTPS (Let's Encrypt) cho <span class="mono">cdc-hp.io.vn</span> — không cần thao tác thủ công với chứng chỉ.</p>
+<div class="step"><div class="num">1</div><div class="content">Tải Caddy cho Windows tại <span class="mono">caddyserver.com/download</span> (chọn bản Windows amd64), giải nén <span class="mono">caddy.exe</span> vào một thư mục cố định trên máy chủ, vd <span class="mono">C:\caddy\</span>.</div></div>
+<div class="step"><div class="num">2</div><div class="content">Copy file <span class="mono">deploy/Caddyfile</span> (có sẵn trong repo mã nguồn) vào cùng thư mục <span class="mono">C:\caddy\</span>.</div></div>
+<div class="step"><div class="num">3</div><div class="content">Đảm bảo máy chủ chính (chế độ Máy chủ trong app) đang chạy, nghe cổng 8765 — kiểm tra ở tab Server.</div></div>
+<div class="step"><div class="num">4</div><div class="content">Mở PowerShell **với quyền Administrator** tại <span class="mono">C:\caddy\</span>, chạy thử trước:</div></div>
+<pre>.\caddy.exe run --config .\Caddyfile</pre>
+<div class="step"><div class="num">5</div><div class="content">Nếu chạy thử ổn (không báo lỗi, thấy dòng log xin chứng chỉ thành công), dừng lại (Ctrl+C) rồi cài làm <b>dịch vụ Windows</b> để tự chạy nền, tự khởi động lại cùng máy:</div></div>
+<pre>.\caddy.exe install --config (Resolve-Path .\Caddyfile)</pre>
+<div class="step"><div class="num">6</div><div class="content">Kiểm tra: mở trình duyệt trên máy khác (ngoài mạng CDC, vd dùng 4G) truy cập <span class="mono">https://cdc-hp.io.vn/health</span> — phải thấy phản hồi JSON (hoặc yêu cầu mật khẩu nếu máy chủ đã đặt), không phải lỗi kết nối.</div></div>
+
+<h2>7. Cập nhật cấu hình sau khi đã chạy</h2>
+<h3>7.1 Google Apps Script (chuyển tiếp trực tiếp)</h3>
+<p><span class="mono">script.google.com</span> → project đang dùng → Project Settings → Script Properties:</p>
+<table>
+<tr><th>Thuộc tính</th><th>Giá trị</th></tr>
+<tr><td><span class="mono">MAIN_SERVER_URL</span></td><td><span class="mono">https://cdc-hp.io.vn</span> (không cần ghi cổng)</td></tr>
+<tr><td><span class="mono">MAIN_SERVER_PASSWORD</span></td><td>Đúng mật khẩu máy chủ đã đặt ở Mục 5</td></tr>
+</table>
+
+<h3>7.2 Máy trạm quản trị ở xa</h3>
+<div class="step"><div class="num">1</div><div class="content">Mở app → "Kết nối máy chủ LAN".</div></div>
+<div class="step"><div class="num">2</div><div class="content">Đổi "Địa chỉ máy chủ" từ IP LAN (vd <span class="mono">http://192.168.1.10:8765</span>) thành <span class="mono">https://cdc-hp.io.vn</span>.</div></div>
+<div class="step"><div class="num">3</div><div class="content">Bấm "Kiểm tra kết nối" để xác nhận trước khi Lưu.</div></div>
+<div class="box tip">Máy trạm vẫn dùng đúng bản cài <span class="mono">GiamSatDichBenh-Admin-Setup-*.exe</span> như trong LAN — chỉ khác địa chỉ nhập vào, không cần cài lại hay build riêng.</div>
+
+<h2>8. Xử lý sự cố thường gặp</h2>
+<table>
+<tr><th>Hiện tượng</th><th>Nguyên nhân thường gặp</th></tr>
+<tr><td>Caddy báo lỗi xin chứng chỉ (ACME)</td><td>DNS chưa trỏ đúng/chưa lan truyền xong (đợi thêm), hoặc cổng 80 chưa mở đúng tới máy chủ (Let's Encrypt xác thực qua cổng 80 trước khi cấp chứng chỉ 443).</td></tr>
+<tr><td>Truy cập từ ngoài bị timeout</td><td>Port forward sai IP nội bộ, hoặc Windows Firewall chưa mở 80/443, hoặc router có thêm lớp NAT/firewall khác (double NAT) cần kiểm tra thêm.</td></tr>
+<tr><td>Truy cập được nhưng báo lỗi 502</td><td>Máy chủ chính (cổng 8765) chưa chạy hoặc đã dừng — mở app, khởi động lại server ở tab Server.</td></tr>
+<tr><td>Muốn đổi máy chủ chính sau này</td><td>Dùng tính năng "Chuyển máy chủ" (Tài liệu 2/5) trên máy cũ trước, sau đó lặp lại Mục 3-6 ở tài liệu này trên máy mới với cùng domain.</td></tr>
+</table>
+
+<p class="footer-note">Ứng dụng Giám sát dịch bệnh — CDC Hải Phòng — Tài liệu 5/5</p>
+</body>
+</html>
