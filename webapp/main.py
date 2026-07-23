@@ -3,18 +3,29 @@ chuyển ứng dụng sang Web App) và CLAUDE.md. Chạy dev: `uvicorn webapp.m
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 import core
+from webapp import scheduler
 from webapp.dependencies import ForbiddenError, RedirectException
 from webapp.routers import (
     accounts, audit_log, backups, dashboard, dedup, login, queue, records, submission_api, xuat_du_lieu,
 )
 
-app = FastAPI(title="Giám sát dịch bệnh — CDC Hải Phòng", docs_url=None, redoc_url=None)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    scheduler.start()
+    yield
+    scheduler.shutdown()
+
+
+app = FastAPI(title="Giám sát dịch bệnh — CDC Hải Phòng", docs_url=None, redoc_url=None, lifespan=lifespan)
 
 app.mount("/static", StaticFiles(directory="webapp/static"), name="static")
 app.include_router(login.router)
@@ -57,9 +68,16 @@ def health():
         database_ok = True
     except Exception:
         database_ok = False
+    status = scheduler.get_status()
+    if not status["scheduler_running"]:
+        scheduler_state = "chua_chay"
+    elif status["running"]:
+        scheduler_state = "dang_dong_bo"
+    else:
+        scheduler_state = "dang_chay"
     return {
         "status": "ok" if database_ok else "error",
         "version": core.VERSION,
         "database": "ok" if database_ok else "loi",
-        "scheduler": "chua_trien_khai",
+        "scheduler": scheduler_state,
     }

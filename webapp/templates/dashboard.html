@@ -61,5 +61,27 @@
   <div class="mt-3">
     <a href="/cdc/hang-doi" class="btn btn-sm btn-primary">Xem hàng đợi nhập liệu</a>
   </div>
+
+  <div class="card p-3 mt-3">
+    <div class="fw-semibold mb-2">Đồng bộ máy chủ phụ</div>
+    {% if not sync_status.configured %}
+    <div class="text-secondary small">Chưa cấu hình máy chủ phụ (secondary_webapp_url/secondary_shared_key).</div>
+    {% else %}
+    <div class="small">
+      Chu kỳ tự động: {{ sync_status.interval_minutes }} phút.
+      {% if sync_status.running %}<span class="text-primary">Đang đồng bộ...</span>
+      {% elif sync_status.last_error %}<span class="text-danger">Lần gần nhất lỗi: {{ sync_status.last_error }} ({{ sync_status.last_run_at }})</span>
+      {% elif sync_status.last_result %}<span class="text-secondary">Lần gần nhất ({{ sync_status.last_success_at }}): kéo {{ sync_status.last_result.pulled_count }}/{{ sync_status.last_result.pending_count }} mục.</span>
+      {% else %}<span class="text-secondary">Chưa chạy lần nào từ khi máy chủ khởi động.</span>{% endif %}
+    </div>
+    {% if sync_status.next_run_at %}<div class="small text-secondary">Lần kế tiếp: {{ sync_status.next_run_at }}</div>{% endif %}
+    {% if can_sync %}
+    <form method="post" action="/cdc/dashboard/dong-bo-may-chu-phu" class="mt-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="btn btn-sm btn-outline-primary" {% if sync_status.running %}disabled{% endif %}>Đồng bộ ngay</button>
+    </form>
+    {% endif %}
+    {% endif %}
+  </div>
 </div>
 {% endblock %}

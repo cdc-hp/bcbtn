@@ -84,9 +84,27 @@ lúc giao việc này — tóm tắt tiến độ theo 11 giai đoạn:
       chạy thử server thật: tạo tài khoản → xem trong nhật ký → sao lưu → phục hồi (xác nhận tài
       khoản tạo sau thời điểm sao lưu biến mất đúng như core-level test đã kiểm) → phiên đăng
       nhập vẫn còn hiệu lực sau khi phục hồi CSDL đang chạy.
-- [ ] **Giai đoạn 7** — `secondary_sync.py` thành tác vụ nền APScheduler (thay
-      `MainWindow.run_auto_secondary_sync` kiểu QTimer hiện tại — không phụ thuộc có mở trình
-      duyệt hay không).
+- [x] **Giai đoạn 7** — `webapp/scheduler.py` mới: đồng bộ máy chủ phụ chạy nền qua
+      `APScheduler` (`BackgroundScheduler`, khởi động/tắt qua `lifespan` của `webapp/main.py`),
+      thay `MainWindow.run_auto_secondary_sync` kiểu `QTimer` — chạy trong tiến trình Uvicorn,
+      không phụ thuộc có ai mở trình duyệt. Đọc lại `secondary_sync_interval_minutes` (5-180
+      phút, đã có sẵn trong `deployment_config.py`) mỗi lần khởi động job; đổi chu kỳ cần khởi
+      động lại tiến trình (APScheduler không tự reschedule job đang chạy). Chống chạy chồng lấp
+      bằng `threading.Lock` không chặn (`_run_lock`) dùng chung cho cả tác vụ định kỳ lẫn nút
+      "Đồng bộ ngay" — idempotent, bỏ qua im lặng nếu đang có lần chạy khác thay vì xếp hàng.
+      Trạng thái (đang chạy/lần gần nhất/lỗi/lần kế tiếp) đọc qua `_state_lock` riêng để việc
+      xem trạng thái không bị treo trong lúc đang đồng bộ. Dashboard: thẻ trạng thái đồng bộ +
+      nút "Đồng bộ ngay" (`POST /cdc/dashboard/dong-bo-may-chu-phu`, vai trò
+      super_admin/admin/data_operator — khai `def` thường KHÔNG `async` vì gọi mạng có thể mất
+      tới 30s/dòng, nếu để `async def` gọi thẳng sẽ chặn cả vòng lặp sự kiện của toàn Web App).
+      `/health` hết hardcode `"chua_trien_khai"`, trả trạng thái thật
+      (`chua_chay`/`dang_chay`/`dang_dong_bo`). 13 test mới (`tests/test_scheduler.py`,
+      `tests/test_webapp_dashboard_sync.py`), 173/173 test pass. Đã chạy thử server thật với 1
+      máy chủ phụ giả lập (`http.server` thuần, mô phỏng đúng API `list_pending`/`mark_synced`
+      của `MayChuPhu.gs`): bấm "Đồng bộ ngay" → kéo đúng 1 mục đang chờ vào `/cdc/hang-doi`,
+      máy chủ phụ giả lập xác nhận đã xoá mục khỏi hàng chờ (`mark_synced` gọi đúng), nhật ký ghi
+      `secondary_sync_pull`, `/health` báo `"scheduler": "dang_chay"` khi chạy qua Uvicorn thật
+      (khác `TestClient` không kích hoạt `lifespan` nên trong test luôn là `chua_chay`).
 - [ ] **Giai đoạn 8** — Windows Service + công cụ cấu hình lần đầu (cổng, domain, GAS URL/API
       key, chu kỳ đồng bộ, thư mục sao lưu).
 - [ ] **Giai đoạn 9** — Installer `CDC-GiamSatDichBenh-Server-Setup-x.y.z.exe` (chỉ 1 file, bỏ
