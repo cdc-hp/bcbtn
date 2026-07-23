@@ -56,6 +56,7 @@ lan_discovery.py       Tự dò máy chủ trong mạng LAN
 remote_core.py         Lớp gọi API, retry và trạng thái kết nối máy trạm
 backup_manager.py      Chính sách, kiểm tra, lưu giữ và phục hồi sao lưu
 duplicate_config.py    Trọng số và ngưỡng lọc trùng
+case_view_config.py    Cấu hình cột hiển thị danh sách ca bệnh (chọn/đổi tên/cột tính toán)
 update_manager.py      Cập nhật ứng dụng
 secondary_sync.py      Đồng bộ hàng đợi từ máy chủ phụ (Google Apps Script) khi online lại
 setup.iss              Bộ cài tổng hợp (3 chế độ: đơn lẻ/máy trạm/máy chủ)
@@ -88,6 +89,17 @@ tests/                 Kiểm thử lõi, lọc trùng, cấu hình, LAN, cdc_ac
 - **`import_queue`** — hàng đợi nhập liệu: `id, commune, week, file_path, source
   ('server_chinh'|'server_phu'), status ('cho_nhap'|'da_nhap'|'loi'), received_at,
   imported_at, imported_by`.
+
+### Cấu hình cột hiển thị danh sách ca bệnh
+
+`case_view_config.py` (JSON cục bộ theo máy, `case_view_config.json` — không đồng bộ qua máy
+chủ, giống `duplicate_config.py`): CDC tự chọn cột nào hiện trong tab "Ca bệnh", đổi tiêu đề,
+và thêm **cột tính toán** từ dữ liệu khác — 3 loại: `age_years` (tuổi = năm hiện tại − năm
+sinh), `days_between` (số ngày giữa 2 mốc thời gian trong `DATE_FIELDS`/`DATETIME_FIELDS`),
+`concat` (nối nhiều cột). Tính lại mỗi lần hiển thị (`compute_row_values`), không lưu vào CSDL.
+`query_records`/`CASE_TABLE_COLUMNS` đã mở rộng để SELECT đủ toàn bộ 48 trường + `birth_year`
+(trước đây chỉ 12 cột cố định) — cần thiết để cột tuỳ chọn/tính toán truy cập được mọi trường.
+Mở từ nút "Cấu hình cột..." trên tab Ca bệnh (`app.CaseColumnsSettingsDialog`).
 
 ### Hai lớp chống trùng
 

@@ -28,6 +28,10 @@ gần đây** (để không làm lại) và **việc còn mở**.
 12. Gộp tài liệu: `CLAUDE.md` (cốt lõi) + `TASKS.md` (file này) thay cho `SCHEMA.md`,
     `WEB_DEDUP_DESIGN.md`, `google_apps_script/README.md` (đã xoá, nội dung gộp vào
     `CLAUDE.md`).
+13. **Cấu hình cột hiển thị danh sách ca bệnh** (`case_view_config.py`): chọn/đổi tên cột, thêm
+    cột tính toán (tuổi, số ngày giữa 2 mốc, nối cột) — xem CLAUDE.md mục "Cấu hình cột hiển thị
+    danh sách ca bệnh". `query_records`/`CASE_TABLE_COLUMNS` mở rộng để SELECT đủ 48 trường +
+    `birth_year` thay vì 12 cột cố định như trước.
 
 ## Backlog — chưa cài đặt
 

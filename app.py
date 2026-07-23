@@ -25,6 +25,8 @@ from PyQt6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
@@ -52,6 +54,7 @@ except ImportError:
 import core as local_core
 import backup_manager
 import update_manager
+import case_view_config as cvc
 from deployment_config import DeploymentConfig, load_config, mode_label, save_config
 from duplicate_config import (
     CASE_CRITERIA_DEFS,
@@ -419,6 +422,337 @@ class OutbreakDialog(QDialog):
         super().accept()
 
 
+class ComputedColumnFormDialog(QDialog):
+    """Tạo/sửa 1 cột tính toán từ (các) cột khác có sẵn trong dữ liệu ca bệnh — xem
+    case_view_config.compute_row_values() để biết cách từng loại được tính."""
+
+    def __init__(self, existing_keys: set[str], column: cvc.ComputedColumn | None = None, parent=None):
+        super().__init__(parent)
+        self.existing_keys = existing_keys - ({column.key} if column else set())
+        self.editing_key = column.key if column else None
+        self.setWindowTitle("Sửa cột tính toán" if column else "Thêm cột tính toán")
+        self.resize(460, 360)
+        root = QVBoxLayout(self)
+        form = QFormLayout()
+        self.label = QLineEdit(column.label if column else "")
+        self.label.setPlaceholderText("Vd: Tuổi, Số ngày khởi phát đến nhập viện...")
+        form.addRow("Tên hiển thị (tiêu đề cột):", self.label)
+        self.kind = QComboBox()
+        for kind in cvc.COMPUTED_KINDS:
+            self.kind.addItem(cvc.COMPUTED_KIND_LABELS[kind], kind)
+        form.addRow("Loại tính toán:", self.kind)
+        root.addLayout(form)
+
+        self.stack = QStackedWidget()
+        # Trang "Tuổi" — không cần chọn gì thêm, luôn tính từ birth_year.
+        age_page = QLabel("Tự động tính: năm hiện tại trừ năm sinh (cột \"Năm sinh\" suy ra từ Ngày sinh lúc nhập dữ liệu).")
+        age_page.setWordWrap(True)
+        self.stack.addWidget(age_page)
+        # Trang "Số ngày giữa 2 mốc".
+        days_page = QWidget()
+        days_form = QFormLayout(days_page)
+        self.from_field = QComboBox()
+        self.to_field = QComboBox()
+        for db in cvc.DATE_LIKE_FIELDS:
+            self.from_field.addItem(cvc.BASE_FIELD_LABELS[db], db)
+            self.to_field.addItem(cvc.BASE_FIELD_LABELS[db], db)
+        days_form.addRow("Từ mốc:", self.from_field)
+        days_form.addRow("Đến mốc:", self.to_field)
+        self.stack.addWidget(days_page)
+        # Trang "Nối cột".
+        concat_page = QWidget()
+        concat_layout = QVBoxLayout(concat_page)
+        concat_layout.addWidget(QLabel("Chọn các cột muốn nối (giữ Ctrl để chọn nhiều, theo đúng thứ tự chọn):"))
+        self.concat_list = QListWidget()
+        self.concat_list.setSelectionMode(self.concat_list.SelectionMode.ExtendedSelection)
+        for db_label, db in cvc.AVAILABLE_BASE_FIELDS:
+            item = QListWidgetItem(f"{db_label} ({db})")
+            item.setData(Qt.ItemDataRole.UserRole, db)
+            self.concat_list.addItem(item)
+        concat_layout.addWidget(self.concat_list, 1)
+        self.separator = QLineEdit(" ")
+        sep_row = QHBoxLayout()
+        sep_row.addWidget(QLabel("Dấu nối:"))
+        sep_row.addWidget(self.separator)
+        concat_layout.addLayout(sep_row)
+        self.stack.addWidget(concat_page)
+        root.addWidget(self.stack, 1)
+
+        self.kind.currentIndexChanged.connect(lambda i: self.stack.setCurrentIndex(i))
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+        if column:
+            idx = self.kind.findData(column.kind)
+            if idx >= 0:
+                self.kind.setCurrentIndex(idx)
+                self.stack.setCurrentIndex(idx)
+            if column.kind == cvc.KIND_DAYS_BETWEEN and len(column.source_fields) == 2:
+                fi = self.from_field.findData(column.source_fields[0])
+                ti = self.to_field.findData(column.source_fields[1])
+                if fi >= 0: self.from_field.setCurrentIndex(fi)
+                if ti >= 0: self.to_field.setCurrentIndex(ti)
+            elif column.kind == cvc.KIND_CONCAT:
+                self.separator.setText(column.separator)
+                for i in range(self.concat_list.count()):
+                    item = self.concat_list.item(i)
+                    if item.data(Qt.ItemDataRole.UserRole) in column.source_fields:
+                        item.setSelected(True)
+
+    def result_column(self) -> cvc.ComputedColumn:
+        kind = self.kind.currentData()
+        key = self.editing_key or self._new_key()
+        if kind == cvc.KIND_AGE:
+            source_fields = ["birth_year"]
+            separator = " "
+        elif kind == cvc.KIND_DAYS_BETWEEN:
+            source_fields = [self.from_field.currentData(), self.to_field.currentData()]
+            separator = " "
+        else:
+            source_fields = [item.data(Qt.ItemDataRole.UserRole) for item in self.concat_list.selectedItems()]
+            separator = self.separator.text() or " "
+        return cvc.ComputedColumn(
+            key=key, label=self.label.text().strip(), kind=kind, source_fields=source_fields, separator=separator,
+        ).normalized()
+
+    def _new_key(self) -> str:
+        base = "computed_" + "".join(ch for ch in self.label.text().strip().lower() if ch.isalnum()) or "computed_col"
+        key = base
+        n = 1
+        while key in self.existing_keys:
+            n += 1
+            key = f"{base}_{n}"
+        return key
+
+    def accept(self):
+        if not self.label.text().strip():
+            QMessageBox.warning(self, "Thiếu tên", "Nhập tên hiển thị cho cột."); return
+        kind = self.kind.currentData()
+        if kind == cvc.KIND_DAYS_BETWEEN and self.from_field.currentData() == self.to_field.currentData():
+            QMessageBox.warning(self, "Chưa hợp lệ", "Chọn 2 mốc thời gian khác nhau."); return
+        if kind == cvc.KIND_CONCAT and not self.concat_list.selectedItems():
+            QMessageBox.warning(self, "Chưa hợp lệ", "Chọn ít nhất 1 cột để nối."); return
+        super().accept()
+
+
+class ColumnPickerDialog(QDialog):
+    """Chọn thêm cột (từ dữ liệu gốc hoặc cột tính toán đã tạo) để đưa vào danh sách hiển thị."""
+
+    def __init__(self, options: list[tuple[str, str]], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Thêm cột hiển thị")
+        self.resize(420, 480)
+        root = QVBoxLayout(self)
+        root.addWidget(QLabel("Chọn cột muốn thêm (giữ Ctrl để chọn nhiều):"))
+        self.list = QListWidget()
+        self.list.setSelectionMode(self.list.SelectionMode.ExtendedSelection)
+        for key, label in options:
+            item = QListWidgetItem(f"{label} ({key})")
+            item.setData(Qt.ItemDataRole.UserRole, (key, label))
+            self.list.addItem(item)
+        root.addWidget(self.list, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+    def selected(self) -> list[tuple[str, str]]:
+        return [item.data(Qt.ItemDataRole.UserRole) for item in self.list.selectedItems()]
+
+
+class CaseColumnsSettingsDialog(QDialog):
+    """Cấu hình cột hiển thị cho danh sách ca bệnh: chọn cột, đổi tiêu đề, thêm cột tính toán từ
+    dữ liệu khác (tuổi, số ngày giữa 2 mốc, nối cột). Lưu cục bộ theo máy, xem case_view_config.py."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Cấu hình cột hiển thị — Danh sách ca bệnh")
+        self.resize(760, 560)
+        self.config = cvc.load_case_view_config()
+        root = QVBoxLayout(self)
+
+        root.addWidget(QLabel("Cột hiển thị (thứ tự trên xuống = trái sang phải trong bảng; bấm đúp ô \"Tiêu đề\" để đổi tên):"))
+        self.selected_table = QTableWidget(0, 2)
+        self.selected_table.setHorizontalHeaderLabels(["Nguồn dữ liệu", "Tiêu đề hiển thị"])
+        self.selected_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.selected_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.selected_table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self.selected_table.setSelectionMode(QTableView.SelectionMode.SingleSelection)
+        root.addWidget(self.selected_table, 1)
+
+        col_btn_row = QHBoxLayout()
+        add_col_btn = QPushButton("Thêm cột..."); add_col_btn.clicked.connect(self.add_columns)
+        remove_col_btn = QPushButton("Xoá cột"); remove_col_btn.setObjectName("secondary"); remove_col_btn.clicked.connect(self.remove_column)
+        up_btn = QPushButton("▲ Lên"); up_btn.setObjectName("secondary"); up_btn.clicked.connect(lambda: self.move_column(-1))
+        down_btn = QPushButton("▼ Xuống"); down_btn.setObjectName("secondary"); down_btn.clicked.connect(lambda: self.move_column(1))
+        for widget in (add_col_btn, remove_col_btn, up_btn, down_btn): col_btn_row.addWidget(widget)
+        col_btn_row.addStretch()
+        root.addLayout(col_btn_row)
+
+        computed_box = QGroupBox("Cột tính toán từ dữ liệu khác (tuổi, số ngày giữa 2 mốc, nối cột...)")
+        computed_layout = QVBoxLayout(computed_box)
+        self.computed_table = QTableWidget(0, 3)
+        self.computed_table.setHorizontalHeaderLabels(["Tên", "Loại", "Chi tiết"])
+        self.computed_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.computed_table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self.computed_table.setSelectionMode(QTableView.SelectionMode.SingleSelection)
+        self.computed_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        computed_layout.addWidget(self.computed_table, 1)
+        computed_btn_row = QHBoxLayout()
+        add_computed_btn = QPushButton("Thêm..."); add_computed_btn.clicked.connect(self.add_computed)
+        edit_computed_btn = QPushButton("Sửa..."); edit_computed_btn.setObjectName("secondary"); edit_computed_btn.clicked.connect(self.edit_computed)
+        remove_computed_btn = QPushButton("Xoá"); remove_computed_btn.setObjectName("secondary"); remove_computed_btn.clicked.connect(self.remove_computed)
+        for widget in (add_computed_btn, edit_computed_btn, remove_computed_btn): computed_btn_row.addWidget(widget)
+        computed_btn_row.addStretch()
+        computed_layout.addLayout(computed_btn_row)
+        root.addWidget(computed_box)
+
+        bottom_row = QHBoxLayout()
+        reset_btn = QPushButton("Khôi phục mặc định"); reset_btn.setObjectName("secondary"); reset_btn.clicked.connect(self.reset_defaults)
+        bottom_row.addWidget(reset_btn)
+        bottom_row.addStretch()
+        root.addLayout(bottom_row)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+        self._reload_selected_table()
+        self._reload_computed_table()
+
+    def _label_for(self, key: str) -> str:
+        if key in cvc.BASE_FIELD_LABELS:
+            return cvc.BASE_FIELD_LABELS[key]
+        for c in self.config.computed:
+            if c.key == key:
+                return c.label
+        return key
+
+    def _reload_selected_table(self):
+        self.selected_table.setRowCount(0)
+        for key, label in self.config.columns:
+            row = self.selected_table.rowCount()
+            self.selected_table.insertRow(row)
+            source_item = QTableWidgetItem(self._label_for(key))
+            source_item.setFlags(source_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            source_item.setData(Qt.ItemDataRole.UserRole, key)
+            self.selected_table.setItem(row, 0, source_item)
+            self.selected_table.setItem(row, 1, QTableWidgetItem(label))
+
+    def _reload_computed_table(self):
+        self.computed_table.setRowCount(0)
+        for column in self.config.computed:
+            row = self.computed_table.rowCount()
+            self.computed_table.insertRow(row)
+            self.computed_table.setItem(row, 0, QTableWidgetItem(column.label))
+            self.computed_table.setItem(row, 1, QTableWidgetItem(cvc.COMPUTED_KIND_LABELS.get(column.kind, column.kind)))
+            if column.kind == cvc.KIND_AGE:
+                detail = "Năm hiện tại − năm sinh"
+            elif column.kind == cvc.KIND_DAYS_BETWEEN:
+                names = [cvc.BASE_FIELD_LABELS.get(f, f) for f in column.source_fields]
+                detail = " → ".join(names)
+            else:
+                names = [cvc.BASE_FIELD_LABELS.get(f, f) for f in column.source_fields]
+                detail = f"\"{column.separator}\".join({', '.join(names)})"
+            self.computed_table.setItem(row, 2, QTableWidgetItem(detail))
+            item0 = self.computed_table.item(row, 0)
+            item0.setData(Qt.ItemDataRole.UserRole, column.key)
+
+    def _selected_keys(self) -> set[str]:
+        return {self.config.columns[r][0] for r in range(len(self.config.columns))}
+
+    def add_columns(self):
+        selected_keys = self._selected_keys()
+        options = [(db, label) for label, db in cvc.AVAILABLE_BASE_FIELDS if db not in selected_keys]
+        options += [(c.key, c.label) for c in self.config.computed if c.key not in selected_keys]
+        if not options:
+            QMessageBox.information(self, "Hết cột", "Đã thêm tất cả cột có sẵn."); return
+        dialog = ColumnPickerDialog(options, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        for key, label in dialog.selected():
+            self.config.columns.append((key, label))
+        self._reload_selected_table()
+
+    def remove_column(self):
+        row = self.selected_table.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "Chưa chọn", "Chọn 1 cột trong danh sách để xoá."); return
+        del self.config.columns[row]
+        self._reload_selected_table()
+
+    def move_column(self, delta: int):
+        row = self.selected_table.currentRow()
+        target = row + delta
+        if row < 0 or not (0 <= target < len(self.config.columns)):
+            return
+        self.config.columns[row], self.config.columns[target] = self.config.columns[target], self.config.columns[row]
+        self._reload_selected_table()
+        self.selected_table.selectRow(target)
+
+    def _sync_labels_from_table(self):
+        """Đọc lại tiêu đề đã sửa trực tiếp trong bảng (bấm đúp ô) trước khi lưu."""
+        updated = []
+        for row in range(self.selected_table.rowCount()):
+            key = self.selected_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+            label = self.selected_table.item(row, 1).text().strip() or self._label_for(key)
+            updated.append((key, label))
+        self.config.columns = updated
+
+    def add_computed(self):
+        existing_keys = {c.key for c in self.config.computed}
+        dialog = ComputedColumnFormDialog(existing_keys, parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.config.computed.append(dialog.result_column())
+        self._reload_computed_table()
+
+    def edit_computed(self):
+        row = self.computed_table.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "Chưa chọn", "Chọn 1 cột tính toán để sửa."); return
+        column = self.config.computed[row]
+        existing_keys = {c.key for c in self.config.computed}
+        dialog = ComputedColumnFormDialog(existing_keys, column=column, parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        new_column = dialog.result_column()
+        old_key = column.key
+        self.config.computed[row] = new_column
+        if new_column.key != old_key:
+            self.config.columns = [(new_column.key if k == old_key else k, l) for k, l in self.config.columns]
+        self._reload_selected_table()
+        self._reload_computed_table()
+
+    def remove_computed(self):
+        row = self.computed_table.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "Chưa chọn", "Chọn 1 cột tính toán để xoá."); return
+        key = self.config.computed[row].key
+        if any(k == key for k, _ in self.config.columns):
+            QMessageBox.warning(self, "Đang được dùng", "Cột này đang hiển thị trong danh sách — xoá khỏi \"Cột hiển thị\" trước.")
+            return
+        del self.config.computed[row]
+        self._reload_computed_table()
+
+    def reset_defaults(self):
+        if QMessageBox.question(self, "Khôi phục mặc định", "Xoá toàn bộ tuỳ chỉnh, quay về danh sách cột mặc định?") != QMessageBox.StandardButton.Yes:
+            return
+        self.config = cvc.default_config()
+        self._reload_selected_table()
+        self._reload_computed_table()
+
+    def accept(self):
+        self._sync_labels_from_table()
+        self.config.normalized()
+        if not self.config.columns:
+            QMessageBox.warning(self, "Chưa có cột nào", "Chọn ít nhất 1 cột để hiển thị."); return
+        try:
+            cvc.save_case_view_config(self.config)
+        except Exception as exc:
+            QMessageBox.critical(self, "Không thể lưu", str(exc)); return
+        super().accept()
+
+
 class RecordsTab(QWidget):
     def __init__(self, entity_type: str):
         super().__init__()
@@ -453,6 +787,11 @@ class RecordsTab(QWidget):
         filters.addWidget(self.area, 2)
         filters.addWidget(btn_search)
         filters.addWidget(btn_export)
+        if entity_type == "case":
+            btn_columns = QPushButton("Cấu hình cột...")
+            btn_columns.setObjectName("secondary")
+            btn_columns.clicked.connect(self.open_column_settings)
+            filters.addWidget(btn_columns)
         root.addWidget(filter_box)
 
         action_row = QHBoxLayout()
@@ -480,12 +819,8 @@ class RecordsTab(QWidget):
         self.table.setSelectionMode(QTableView.SelectionMode.SingleSelection)
         self.table.doubleClicked.connect(self.show_details)
         if entity_type == "case":
-            columns = [
-                ("case_code", "Mã số"), ("full_name", "Họ tên"), ("birth_date_raw", "Ngày sinh"),
-                ("gender", "Giới"), ("commune", "Xã/Phường"), ("main_diagnosis", "Chẩn đoán"),
-                ("onset_date", "Khởi phát"), ("current_status", "Tình trạng"),
-                ("report_datetime", "Báo cáo"), ("reporting_unit", "Đơn vị báo cáo"),
-            ]
+            self.view_config = cvc.load_case_view_config()
+            columns = list(self.view_config.columns)
         else:
             columns = [
                 ("disease", "Tên bệnh"), ("location", "Địa điểm"), ("admin_area", "Địa bàn"),
@@ -499,8 +834,9 @@ class RecordsTab(QWidget):
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         if entity_type == "case":
-            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-            header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+            # Số cột/thứ tự giờ tuỳ CDC cấu hình (xem CaseColumnsSettingsDialog) nên không còn
+            # cố định chỉ số cột để giãn — giãn cột cuối cùng thay vì chỉ số cột cụ thể.
+            header.setStretchLastSection(True)
         else:
             header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
@@ -523,6 +859,13 @@ class RecordsTab(QWidget):
 
     def _filter_changed(self):
         self.page = 1
+        self.refresh()
+
+    def open_column_settings(self):
+        dialog = CaseColumnsSettingsDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.view_config = cvc.load_case_view_config()
         self.refresh()
 
     def refresh_filters(self):
@@ -559,7 +902,13 @@ class RecordsTab(QWidget):
             page_size=self.page_size,
         )
         self.total = total
-        self.model.set_data(rows)
+        if self.entity_type == "case" and self.view_config.computed:
+            for row in rows:
+                row.update(cvc.compute_row_values(row, self.view_config.computed))
+        if self.entity_type == "case":
+            self.model.set_data(rows, columns=list(self.view_config.columns))
+        else:
+            self.model.set_data(rows)
         pages = max(1, math.ceil(total / self.page_size))
         if self.page > pages:
             self.page = pages

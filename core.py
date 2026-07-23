@@ -867,14 +867,8 @@ def recent_active_outbreaks(db_path: Path | str = DB_PATH, limit: int = 20) -> l
         return [dict(r) for r in rows]
 
 
-CASE_TABLE_COLUMNS = [
-    "id", "case_code", "full_name", "birth_date_raw", "gender", "province", "commune",
-    "main_diagnosis", "onset_date", "current_status", "report_datetime", "reporting_unit",
-]
-OUTBREAK_TABLE_COLUMNS = [
-    "id", "disease", "location", "admin_area", "first_onset_date", "last_onset_date", "end_date",
-    "status", "case_count", "death_count", "sample_count", "positive_count", "report_datetime", "reporting_unit",
-]
+CASE_TABLE_COLUMNS = ["id", *[db for _, db in CASE_FIELDS], "birth_year"]
+OUTBREAK_TABLE_COLUMNS = ["id", *[db for _, db in OUTBREAK_FIELDS]]
 
 
 def _safe_table(entity_type: str) -> tuple[str, list[str]]:
