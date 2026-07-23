@@ -14,7 +14,7 @@ import core
 from webapp import scheduler
 from webapp.dependencies import ForbiddenError, RedirectException
 from webapp.routers import (
-    accounts, audit_log, backups, dashboard, dedup, login, queue, records, submission_api, xuat_du_lieu,
+    accounts, audit_log, backups, dashboard, dedup, login, queue, records, settings, submission_api, xuat_du_lieu,
 )
 
 
@@ -37,6 +37,7 @@ app.include_router(xuat_du_lieu.router)
 app.include_router(accounts.router)
 app.include_router(audit_log.router)
 app.include_router(backups.router)
+app.include_router(settings.router)
 app.include_router(submission_api.router)
 
 _error_templates = Jinja2Templates(directory="webapp/templates")

@@ -105,8 +105,31 @@ lúc giao việc này — tóm tắt tiến độ theo 11 giai đoạn:
       máy chủ phụ giả lập xác nhận đã xoá mục khỏi hàng chờ (`mark_synced` gọi đúng), nhật ký ghi
       `secondary_sync_pull`, `/health` báo `"scheduler": "dang_chay"` khi chạy qua Uvicorn thật
       (khác `TestClient` không kích hoạt `lifespan` nên trong test luôn là `chua_chay`).
-- [ ] **Giai đoạn 8** — Windows Service + công cụ cấu hình lần đầu (cổng, domain, GAS URL/API
-      key, chu kỳ đồng bộ, thư mục sao lưu).
+- [x] **Giai đoạn 8** — `service_windows.py` mới: dịch vụ Windows (`CDCGiamSatDichBenh`, dùng
+      `pywin32`/`win32serviceutil.ServiceFramework`) chạy `webapp.main:app` qua Uvicorn —
+      `run_server()` là phần lõi dùng chung cho cả `SvcDoRun` (chạy như dịch vụ thật) lẫn lệnh
+      `python service_windows.py run` (chạy tay để phát triển/kiểm thử, không cần đăng ký với
+      Windows) để 2 đường chạy không lệch hành vi. Lệnh dòng lệnh chuẩn pywin32:
+      `install`/`start`/`stop`/`remove`/`debug`. `/cdc/cau-hinh` (`webapp/routers/settings.py`,
+      chỉ super_admin): cổng/địa chỉ lắng nghe, tên miền công khai, khoá API GAS, URL/khoá +
+      chu kỳ máy chủ phụ, thư mục sao lưu — khoá bí mật (GAS API key, khoá máy chủ phụ) KHÔNG
+      bao giờ hiện lại giá trị thật lên trang (ô mật khẩu trống, để trống khi lưu = giữ nguyên
+      giá trị cũ, chỉ ghi đè khi nhập giá trị mới). Nút "Khởi động lại dịch vụ" gọi
+      `service_windows.restart_service()`, báo lỗi rõ ràng khi chưa cài đặt dịch vụ/thiếu quyền
+      Administrator thay vì giả vờ thành công. Tài khoản super_admin đầu tiên đã có sẵn từ
+      `/cdc/setup` (Giai đoạn 2) — trang này không lặp lại bước đó, chỉ thêm phần cấu hình triển
+      khai. 13 test mới (`tests/test_service_windows.py`, `tests/test_webapp_settings.py`),
+      186/186 test pass. Đã chạy thử server thật xác nhận: `python service_windows.py run` khởi
+      động đúng Uvicorn theo `server_host`/`server_port` đọc từ cấu hình (dùng đúng code path
+      `SvcDoRun` sẽ dùng), trang `/cdc/cau-hinh` lưu/hiển thị đúng (khoá bí mật không lộ ra
+      HTML), nút "Khởi động lại dịch vụ" gọi thật vào Windows Service Control Manager và nhận
+      lỗi thật (`OpenSCManager: Access is denied` — do sandbox chạy không có quyền Administrator
+      và dịch vụ chưa được cài) thay vì lỗi giả lập.
+      **CHƯA kiểm thử**: cài đặt/gỡ dịch vụ Windows thật (`python service_windows.py
+      install`/`start`/`stop`/`remove`) — cần quyền Administrator mà sandbox hiện tại không có,
+      và đây là thao tác ảnh hưởng trạng thái hệ thống dùng chung nên cố tình không tự ý thực
+      hiện. Cần người có quyền Administrator trên máy Windows thật chạy thử trước khi coi Giai
+      đoạn 8 là "đã xác minh đầy đủ" — việc này sẽ được kiểm thử gián tiếp qua bộ cài ở Giai đoạn 9.
 - [ ] **Giai đoạn 9** — Installer `CDC-GiamSatDichBenh-Server-Setup-x.y.z.exe` (chỉ 1 file, bỏ
       `setup-admin.iss`/khái niệm máy trạm quản trị).
 - [ ] **Giai đoạn 10** — Cập nhật `.github/workflows/release.yml` cho bộ cài mới.

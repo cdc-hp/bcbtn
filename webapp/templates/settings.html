@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Cấu hình triển khai{% endblock %}
+{% block body %}
+{% include "_navbar.html" %}
+<div class="container py-3">
+  <h1 class="h5 mb-3">Cấu hình triển khai</h1>
+
+  {% if msg %}<div class="alert alert-success py-2 small">{{ msg }}</div>{% endif %}
+  {% if err %}<div class="alert alert-danger py-2 small">{{ err }}</div>{% endif %}
+
+  <div class="card p-3 mb-3">
+    <div class="fw-semibold mb-1">Dịch vụ Windows</div>
+    <div class="small">
+      Trạng thái: <strong>{{ service_status.state }}</strong>
+      {% if not service_status.installed %}
+      <span class="text-secondary">— chưa cài đặt làm dịch vụ Windows (đang chạy phát triển/thủ công).</span>
+      {% endif %}
+    </div>
+    <form method="post" action="/cdc/cau-hinh/khoi-dong-lai" class="mt-2" onsubmit="return confirm('Khởi động lại dịch vụ? Web App sẽ gián đoạn vài giây.');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="btn btn-sm btn-outline-warning">Khởi động lại dịch vụ</button>
+    </form>
+  </div>
+
+  <form method="post" action="/cdc/cau-hinh">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div class="card p-3 mb-3">
+      <div class="fw-semibold mb-2">Máy chủ</div>
+      <div class="text-secondary small mb-2">Đổi địa chỉ/cổng cần khởi động lại dịch vụ để có hiệu lực.</div>
+      <div class="row g-3" style="max-width:640px;">
+        <div class="col-6">
+          <label class="form-label small mb-0">Địa chỉ lắng nghe (host)</label>
+          <input type="text" name="server_host" value="{{ config.server_host }}" class="form-control form-control-sm">
+        </div>
+        <div class="col-6">
+          <label class="form-label small mb-0">Cổng</label>
+          <input type="number" name="server_port" min="1" max="65535" value="{{ config.server_port }}" class="form-control form-control-sm">
+        </div>
+        <div class="col-12">
+          <label class="form-label small mb-0">Tên miền công khai (vd. https://cdc-hp.io.vn)</label>
+          <input type="text" name="public_url" value="{{ config.public_url }}" class="form-control form-control-sm" placeholder="https://cdc-hp.io.vn">
+        </div>
+      </div>
+    </div>
+
+    <div class="card p-3 mb-3">
+      <div class="fw-semibold mb-2">Google Apps Script (nộp dữ liệu từ xã)</div>
+      <div class="row g-3" style="max-width:640px;">
+        <div class="col-12">
+          <label class="form-label small mb-0">Khoá API cho POST /queue/submit</label>
+          <input type="password" name="gas_api_key" value="" placeholder="{% if config.gas_api_key %}●●●●●●●● (để trống nếu giữ nguyên){% else %}Chưa cấu hình{% endif %}" class="form-control form-control-sm">
+        </div>
+      </div>
+    </div>
+
+    <div class="card p-3 mb-3">
+      <div class="fw-semibold mb-2">Máy chủ phụ (GAS/Sheet/Drive)</div>
+      <div class="row g-3" style="max-width:640px;">
+        <div class="col-12">
+          <label class="form-label small mb-0">Địa chỉ Web App máy chủ phụ</label>
+          <input type="text" name="secondary_webapp_url" value="{{ config.secondary_webapp_url }}" class="form-control form-control-sm" placeholder="https://script.google.com/macros/s/.../exec">
+        </div>
+        <div class="col-6">
+          <label class="form-label small mb-0">Khoá dùng chung</label>
+          <input type="password" name="secondary_shared_key" value="" placeholder="{% if config.secondary_shared_key %}●●●●●●●● (để trống nếu giữ nguyên){% else %}Chưa cấu hình{% endif %}" class="form-control form-control-sm">
+        </div>
+        <div class="col-6">
+          <label class="form-label small mb-0">Chu kỳ đồng bộ (phút)</label>
+          <input type="number" name="secondary_sync_interval_minutes" min="5" max="180" value="{{ config.secondary_sync_interval_minutes }}" class="form-control form-control-sm">
+        </div>
+      </div>
+    </div>
+
+    <div class="card p-3 mb-3">
+      <div class="fw-semibold mb-2">Sao lưu</div>
+      <div class="row g-3" style="max-width:640px;">
+        <div class="col-12">
+          <label class="form-label small mb-0">Thư mục lưu bản sao lưu</label>
+          <input type="text" name="backup_destination" value="{{ backup_destination }}" class="form-control form-control-sm">
+        </div>
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-sm btn-primary">Lưu cấu hình</button>
+  </form>
+</div>
+{% endblock %}
