@@ -120,7 +120,9 @@ begin
     '  "discovery_enabled": true,' + #13#10 +
     '  "auto_reconnect": true,' + #13#10 +
     '  "reconnect_attempts": 3,' + #13#10 +
-    '  "reconnect_delay_seconds": 1.0' + #13#10 +
+    '  "reconnect_delay_seconds": 1.0,' + #13#10 +
+    '  "minimize_to_tray": true,' + #13#10 +
+    '  "prevent_sleep": true' + #13#10 +
     '}';
   SaveStringToFile(ConfigPath, Json, False);
 end;

@@ -134,7 +134,7 @@ end;
 
 procedure WriteDeploymentConfig;
 var
-  ConfigDir, ConfigPath, Mode, Port, ServerUrl, Password, ServerName, Json: String;
+  ConfigDir, ConfigPath, Mode, Port, ServerUrl, Password, ServerName, ServerFlags, Json: String;
 begin
   ConfigDir := ExpandConstant('{localappdata}\CDC_HaiPhong\GiamSatDichBenh');
   ConfigPath := ConfigDir + '\deployment.json';
@@ -145,6 +145,7 @@ begin
   ServerUrl := 'http://127.0.0.1:8765';
   Password := '';
   ServerName := GetComputerNameString;
+  ServerFlags := 'false';
 
   if ModePage.SelectedValueIndex = 1 then
   begin
@@ -159,6 +160,9 @@ begin
     Port := ServerPage.Values[1];
     Password := ServerPage.Values[2];
     ServerUrl := 'http://127.0.0.1:' + Port;
+    // Máy đóng vai trò Máy chủ: mặc định tránh vô tình tắt server (đóng cửa sổ = thu vào khay)
+    // và tránh máy tự ngủ làm rớt kết nối các máy trạm/GAS — sửa lại trong tab Server nếu cần.
+    ServerFlags := 'true';
   end;
 
   Json := '{' + #13#10 +
@@ -172,7 +176,9 @@ begin
     '  "discovery_enabled": true,' + #13#10 +
     '  "auto_reconnect": true,' + #13#10 +
     '  "reconnect_attempts": 3,' + #13#10 +
-    '  "reconnect_delay_seconds": 1.0' + #13#10 +
+    '  "reconnect_delay_seconds": 1.0,' + #13#10 +
+    '  "minimize_to_tray": ' + ServerFlags + ',' + #13#10 +
+    '  "prevent_sleep": ' + ServerFlags + #13#10 +
     '}';
   SaveStringToFile(ConfigPath, Json, False);
 end;

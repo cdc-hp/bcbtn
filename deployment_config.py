@@ -47,6 +47,11 @@ class DeploymentConfig:
     # Địa chỉ Internet công khai của máy chủ này (vd. qua Cloudflare Tunnel), dùng để tự kiểm tra
     # kết nối ra ngoài và điền vào MAIN_SERVER_URL của Google Apps Script.
     public_url: str = ""
+    # Đóng cửa sổ (nút X) chỉ ẩn xuống khay hệ thống thay vì thoát hẳn — tránh vô tình tắt máy
+    # chủ khi chỉ định đóng cửa sổ. Áp dụng từ lần mở ứng dụng kế tiếp sau khi bật.
+    minimize_to_tray: bool = False
+    # Giữ máy không vào chế độ ngủ trong lúc server đang chạy (không giữ màn hình sáng).
+    prevent_sleep: bool = False
 
     @property
     def is_standalone(self) -> bool:
@@ -97,6 +102,8 @@ def load_config() -> DeploymentConfig:
         admin_token=str(raw.get("admin_token", "") or ""),
         retired_redirect_url=str(raw.get("retired_redirect_url", "") or ""),
         public_url=str(raw.get("public_url", "") or "").strip().rstrip("/"),
+        minimize_to_tray=bool(raw.get("minimize_to_tray", False)),
+        prevent_sleep=bool(raw.get("prevent_sleep", False)),
     )
 
 

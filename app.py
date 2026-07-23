@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QProgressDialog,
@@ -35,6 +36,8 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QSplitter,
     QStackedWidget,
+    QStyle,
+    QSystemTrayIcon,
     QTableView,
     QTableWidget,
     QTableWidgetItem,
@@ -67,7 +70,7 @@ from duplicate_config import (
 )
 from lan_server import (
     LanServerController, check_cloudflared_service, check_public_url,
-    configure_windows_firewall, port_available, set_cloudflared_service,
+    configure_windows_firewall, port_available, set_cloudflared_service, set_prevent_sleep,
 )
 
 DEPLOYMENT_CONFIG = load_config()
@@ -2042,7 +2045,12 @@ class ServerTab(QWidget):
         self.password = QLineEdit(config.password); self.password.setEchoMode(QLineEdit.EchoMode.Password); self.password.setPlaceholderText("Để trống = không yêu cầu mật khẩu")
         self.auto_start = QCheckBox("Tự khởi động server khi mở ứng dụng"); self.auto_start.setChecked(config.auto_start_server)
         self.discovery = QCheckBox("Cho phép máy trạm tự tìm server trong LAN"); self.discovery.setChecked(config.discovery_enabled)
+        self.minimize_to_tray = QCheckBox("Đóng cửa sổ (nút X) chỉ thu vào khay hệ thống, không thoát hẳn — cần mở lại ứng dụng để áp dụng")
+        self.minimize_to_tray.setChecked(config.minimize_to_tray)
+        self.prevent_sleep = QCheckBox("Ngăn máy tính vào chế độ ngủ khi server đang chạy")
+        self.prevent_sleep.setChecked(config.prevent_sleep)
         form.addRow("Tên máy chủ:", self.server_name); form.addRow("Cổng LAN:", self.port); form.addRow("Mật khẩu máy trạm:", self.password); form.addRow("", self.auto_start); form.addRow("", self.discovery)
+        form.addRow("", self.minimize_to_tray); form.addRow("", self.prevent_sleep)
         root.addWidget(box)
         secondary_box = QGroupBox("Máy chủ phụ (Google Apps Script) — dự phòng khi offline")
         secondary_form = QFormLayout(secondary_box)
@@ -2106,6 +2114,7 @@ class ServerTab(QWidget):
     def _apply_fields(self):
         self.config.server_name = self.server_name.text().strip(); self.config.server_port = self.port.value(); self.config.password = self.password.text()
         self.config.auto_start_server = self.auto_start.isChecked(); self.config.discovery_enabled = self.discovery.isChecked()
+        self.config.minimize_to_tray = self.minimize_to_tray.isChecked(); self.config.prevent_sleep = self.prevent_sleep.isChecked()
         self.config.secondary_webapp_url = self.secondary_url.text().strip(); self.config.secondary_shared_key = self.secondary_key.text()
         self.config.secondary_sync_interval_minutes = self.secondary_interval.value()
         self.config.public_url = self.public_url.text().strip().rstrip("/")
@@ -2123,10 +2132,11 @@ class ServerTab(QWidget):
             self._apply_fields()
             if not port_available(self.config.server_host, self.config.server_port): raise OSError(f"Cổng {self.config.server_port} đang được sử dụng.")
             address = self.controller.start(); self.status.setText(f"Server đang hoạt động tại <b>{address}</b>.")
+            set_prevent_sleep(self.config.prevent_sleep)
         except Exception as exc: self.status.setText(f"Không khởi động được server: {exc}")
         self.refresh_buttons()
 
-    def stop_server(self): self.controller.stop(); self.refresh()
+    def stop_server(self): self.controller.stop(); set_prevent_sleep(False); self.refresh()
     def auto_start_server(self):
         if self.config.auto_start_server and not self.controller.running: self.start_server()
     def refresh_buttons(self): self.start_button.setEnabled(not self.controller.running); self.stop_button.setEnabled(self.controller.running)
@@ -2474,6 +2484,19 @@ class MainWindow(QMainWindow):
         self.server_controller = LanServerController(config) if config.is_server else None
         self.setWindowTitle(APP_TITLE)
         self.resize(1500, 900)
+        self._force_quit = False
+        self.tray_icon = None
+        if config.minimize_to_tray and QSystemTrayIcon.isSystemTrayAvailable():
+            self.tray_icon = QSystemTrayIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon), self)
+            self.tray_icon.setToolTip(APP_TITLE)
+            tray_menu = QMenu()
+            restore_action = QAction("Mở cửa sổ", self); restore_action.triggered.connect(self.restore_from_tray)
+            quit_action = QAction("Thoát hẳn", self); quit_action.triggered.connect(self.quit_app)
+            tray_menu.addAction(restore_action); tray_menu.addSeparator(); tray_menu.addAction(quit_action)
+            self.tray_icon.setContextMenu(tray_menu)
+            self.tray_icon.activated.connect(self.on_tray_activated)
+            self.tray_icon.show()
+            QApplication.instance().setQuitOnLastWindowClosed(False)
         toolbar = QToolBar()
         toolbar.setMovable(False)
         toolbar.addWidget(QLabel(f"CDC • GIÁM SÁT DỊCH BỆNH • {mode_label(config.mode).upper()}"))
@@ -2537,7 +2560,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(open_data)
         file_menu.addSeparator()
         exit_action = QAction("Thoát", self)
-        exit_action.triggered.connect(self.close)
+        exit_action.triggered.connect(self.quit_app)
         file_menu.addAction(exit_action)
 
         tools_menu = self.menuBar().addMenu("&Công cụ")
@@ -2660,9 +2683,29 @@ class MainWindow(QMainWindow):
             except Exception as exc:
                 self.statusBar().showMessage(f"Không làm mới được dữ liệu: {exc}")
 
+    def restore_from_tray(self):
+        self.showNormal(); self.activateWindow(); self.raise_()
+
+    def on_tray_activated(self, reason):
+        if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick):
+            self.restore_from_tray()
+
+    def quit_app(self):
+        self._force_quit = True
+        self.close()
+
     def closeEvent(self, event):  # noqa: N802
+        if self.tray_icon and not self._force_quit:
+            event.ignore()
+            self.hide()
+            self.tray_icon.showMessage(
+                APP_TITLE, "Ứng dụng vẫn chạy trong khay hệ thống — nháy đúp biểu tượng để mở lại.",
+                QSystemTrayIcon.MessageIcon.Information, 4000,
+            )
+            return
         if self.server_controller:
             self.server_controller.stop()
+        set_prevent_sleep(False)
         super().closeEvent(event)
 
 

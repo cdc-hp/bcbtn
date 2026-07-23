@@ -456,6 +456,21 @@ def configure_windows_firewall(port: int) -> dict[str, Any]:
         return {"ok": False, "message": str(exc)}
 
 
+ES_CONTINUOUS = 0x80000000
+ES_SYSTEM_REQUIRED = 0x00000001
+
+
+def set_prevent_sleep(enabled: bool) -> None:
+    """Ngăn máy vào chế độ ngủ trong lúc server đang chạy (không giữ màn hình sáng — chỉ giữ hệ
+    thống thức để không rớt kết nối máy trạm/GAS). Gọi lại enabled=False để trả quyền quản lý
+    nguồn về Windows (vd. khi dừng server hoặc đóng ứng dụng)."""
+    if os.name != "nt":
+        return
+    import ctypes
+    flags = (ES_CONTINUOUS | ES_SYSTEM_REQUIRED) if enabled else ES_CONTINUOUS
+    ctypes.windll.kernel32.SetThreadExecutionState(flags)
+
+
 CLOUDFLARED_SERVICE_NAME = "Cloudflared"
 
 
