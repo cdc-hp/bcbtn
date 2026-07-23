@@ -1,10 +1,14 @@
+# PHƯƠNG ÁN DỰ PHÒNG — hiện KHÔNG dùng, xem deploy/cloudflared-config.example.yml cho phương án
+# đang áp dụng (Cloudflare Tunnel, không cần port-forward). Giữ lại file này cho tình huống sau
+# này CDC có máy chủ cố định + quyền quản trị router (port-forward được), khi đó reverse proxy
+# HTTPS truyền thống qua Caddy sẽ đơn giản/ít phụ thuộc bên thứ ba hơn Cloudflare.
+#
 # Reverse proxy HTTPS cho máy chủ chính (lan_server.py, chỉ nói HTTP thuần trên cổng LAN).
 # Cài Caddy TRÊN CHÍNH máy đang chạy chế độ "Máy chủ" (GiamSatDichBenh-Server-Setup-*.exe),
 # domain trỏ thẳng về máy này qua port forward 80+443 trên router CDC. Caddy tự xin và tự gia
 # hạn chứng chỉ Let's Encrypt cho domain bên dưới — không cần cấu hình gì thêm.
 #
-# Xem hướng dẫn đầy đủ: docs/huong-dan/5-mo-ra-internet.pdf hoặc CLAUDE.md mục
-# "Mở máy chủ chính ra Internet".
+# Xem CLAUDE.md mục "Mở máy chủ chính ra Internet" để biết khi nào dùng phương án này.
 #
 # Cách chạy (PowerShell, tại thư mục chứa file này):
 #   caddy run --config Caddyfile

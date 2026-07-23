@@ -72,7 +72,7 @@
 <div class="box tip">Chỉ cần sửa <span class="mono">config.js</span> khi tạo <i>deployment mới</i> (URL đổi). Nếu chỉ cập nhật code rồi <b>Deploy lại đúng deployment cũ</b> (Manage deployments → Edit → New version), URL giữ nguyên, không cần sửa gì trên GitHub Pages.</div>
 
 <h2>4. Mở máy chủ chính ra Internet (tuỳ chọn nâng cao)</h2>
-<p>Mặc định, mọi báo cáo nộp qua Apps Script đều lưu tạm vào Sheet/Drive rồi CDC đồng bộ bù thủ công. Nếu muốn báo cáo vào thẳng máy chủ chính ngay khi nộp (không cần đồng bộ bù), cần mở máy chủ chính ra Internet qua domain <span class="mono">cdc-hp.io.vn</span> — hướng dẫn từng bước đầy đủ (DNS, port forward, cài Caddy tự động HTTPS): xem <b>Tài liệu 5/5</b>. Sau khi hoàn tất, chỉ cần đặt 2 Script Property ở Mục 2.2: <span class="mono">MAIN_SERVER_URL = https://cdc-hp.io.vn</span> và <span class="mono">MAIN_SERVER_PASSWORD</span>.</p>
+<p>Mặc định, mọi báo cáo nộp qua Apps Script đều lưu tạm vào Sheet/Drive rồi CDC đồng bộ bù thủ công. Nếu muốn báo cáo vào thẳng máy chủ chính ngay khi nộp (không cần đồng bộ bù), cần mở máy chủ chính ra Internet qua domain <span class="mono">cdc-hp.io.vn</span> — hướng dẫn từng bước đầy đủ (Cloudflare Tunnel, không cần port-forward): xem <b>Tài liệu 5/5</b>. Sau khi hoàn tất, chỉ cần đặt 2 Script Property ở Mục 2.2: <span class="mono">MAIN_SERVER_URL = https://cdc-hp.io.vn</span> và <span class="mono">MAIN_SERVER_PASSWORD</span>.</p>
 <div class="box warn">Đây là thay đổi có rủi ro bảo mật (máy chủ nhận request từ Internet công khai) — chỉ nên bật khi đã cân nhắc kỹ, và luôn đi kèm mật khẩu máy chủ (xem Tài liệu 5/5, Mục 5).</div>
 
 <h2>5. Vận hành hằng ngày</h2>

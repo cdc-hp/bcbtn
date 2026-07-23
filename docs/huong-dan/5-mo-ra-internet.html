@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
 <meta charset="utf-8">
-<title>Hướng dẫn mở máy chủ chính ra Internet (cdc-hp.io.vn)</title>
+<title>Hướng dẫn mở máy chủ chính ra Internet (Cloudflare Tunnel)</title>
 <style>
   @page { size: A4; margin: 20mm 18mm; }
   body { font-family: "Segoe UI", Arial, sans-serif; color: #1f2937; line-height: 1.5; font-size: 12.5px; }
@@ -33,84 +33,83 @@
 <div class="cover">
   <span class="badge">CDC HẢI PHÒNG</span>
   <h1>Hướng dẫn mở máy chủ chính ra Internet</h1>
-  <p class="subtitle">Domain: cdc-hp.io.vn — dùng cho GAS chuyển tiếp trực tiếp và máy trạm quản trị ở xa</p>
+  <p class="subtitle">Cloudflare Tunnel — không cần port-forward, không cần IP tĩnh, không cần liên hệ nhà mạng</p>
   <p class="subtitle">Tài liệu 5/5 — Ứng dụng Giám sát dịch bệnh</p>
 </div>
 
-<h2>1. Vì sao cần làm việc này</h2>
-<p>Mặc định, máy chủ chính chỉ nghe trong mạng LAN của CDC — máy trạm quản trị ở ngoài văn phòng và Google Apps Script không vào thẳng được, phải đi vòng qua đệm Sheet/Drive rồi đồng bộ bù. Mở ra Internet qua domain <b>cdc-hp.io.vn</b> giúp:</p>
-<ul>
-  <li>Google Apps Script <b>chuyển tiếp trực tiếp</b> mỗi lần xã nộp báo cáo — vào thẳng hàng đợi máy chủ chính, không cần chờ đồng bộ bù.</li>
-  <li>Máy trạm quản trị dùng được <b>ở bất cứ đâu có Internet</b>, không chỉ trong LAN của CDC.</li>
-</ul>
-<div class="box warn">Đây là thay đổi có rủi ro bảo mật thật sự (máy chủ nhận kết nối từ Internet công khai). Đọc kỹ Mục 5 (Bảo mật) trước khi làm.</div>
+<h2>1. Vì sao chọn Cloudflare Tunnel</h2>
+<p>Cách thông thường (port-forward trên router) cần quyền quản trị thiết bị mạng — nhiều nơi (như CDC Hải Phòng, mạng do VNPT/nhà mạng quản lý) không có quyền này hoặc phải xin qua nhiều bước. Cloudflare Tunnel làm ngược lại: <b>máy chủ tự kết nối ra ngoài</b> tới Cloudflare (kết nối đi ra thì mạng nào cũng cho phép sẵn), Cloudflare nhận request từ domain rồi chuyển vào qua đúng đường kết nối đó — không cần mở cổng, không cần IP công khai cố định, không cần xin nhà mạng.</p>
+<table>
+<tr><th></th><th>Port-forward + Caddy</th><th>Cloudflare Tunnel</th></tr>
+<tr><td>Cần quyền router</td><td>Có</td><td><b>Không</b></td></tr>
+<tr><td>Cần IP công khai/tĩnh</td><td>Có (hoặc Dynamic DNS)</td><td><b>Không</b></td></tr>
+<tr><td>HTTPS</td><td>Caddy tự xin (Let's Encrypt)</td><td>Cloudflare tự lo</td></tr>
+<tr><td>Liên hệ nhà mạng</td><td>Thường cần</td><td><b>Không cần</b></td></tr>
+</table>
+<div class="box info">Vẫn cần domain <span class="mono">cdc-hp.io.vn</span> đã đăng ký (đã có) — chỉ khác cách trỏ domain.</div>
 
 <h2>2. Chuẩn bị</h2>
+<ul>
+  <li>Tài khoản Cloudflare (miễn phí) — đăng ký tại <span class="mono">cloudflare.com</span> nếu chưa có.</li>
+  <li>Máy đang chạy chế độ <b>Máy chủ</b> (app <span class="mono">GiamSatDichBenh-Server-Setup-*.exe</span>) — cloudflared cài trên chính máy này.</li>
+</ul>
+
+<h2>3. Chuyển domain sang Cloudflare quản lý DNS</h2>
+<div class="step"><div class="num">1</div><div class="content">Đăng nhập <span class="mono">dash.cloudflare.com</span> → <b>Add a site</b> → gõ <span class="mono">cdc-hp.io.vn</span>.</div></div>
+<div class="step"><div class="num">2</div><div class="content">Cloudflare tự quét các bản ghi DNS hiện có (kể cả bản ghi A đã thêm trước đó) — chọn gói <b>Free</b>, bấm Continue.</div></div>
+<div class="step"><div class="num">3</div><div class="content">Cloudflare hiện ra <b>2 nameserver</b> (dạng <span class="mono">xxx.ns.cloudflare.com</span>). Copy lại.</div></div>
+<div class="step"><div class="num">4</div><div class="content">Quay lại trang quản lý domain (nơi đã đăng ký <span class="mono">cdc-hp.io.vn</span>) → tìm mục đổi <b>Nameserver</b> (khác với "DNS Manager" đã dùng lúc trước) → thay 2 nameserver cũ bằng 2 nameserver Cloudflare vừa copy.</div></div>
+<div class="step"><div class="num">5</div><div class="content">Chờ Cloudflare xác nhận domain đã hoạt động (thường vài phút tới vài giờ, đôi khi tới 24 giờ) — Cloudflare tự gửi email báo khi xong.</div></div>
+<div class="box tip">Bản ghi A đã thêm ở bước trước (trỏ về <span class="mono">14.224.232.9</span>) không còn cần thiết nữa sau bước này — Cloudflare Tunnel sẽ tự quản lý bản ghi DNS của domain theo cách khác (Mục 5), không dùng IP đó nữa.</div>
+
+<h2>4. Cài cloudflared trên máy chủ</h2>
+<div class="step"><div class="num">1</div><div class="content">Tải <span class="mono">cloudflared</span> cho Windows tại <span class="mono">github.com/cloudflare/cloudflared/releases/latest</span> (file <span class="mono">cloudflared-windows-amd64.exe</span>), đổi tên thành <span class="mono">cloudflared.exe</span>, đặt vào thư mục cố định vd <span class="mono">C:\cloudflared\</span>.</div></div>
+<div class="step"><div class="num">2</div><div class="content">Đảm bảo máy chủ chính (app, chế độ Máy chủ) đang chạy, nghe cổng 8765 — kiểm tra ở tab Server.</div></div>
+
+<h2>5. Tạo Tunnel (làm trên trang web Cloudflare)</h2>
+<div class="step"><div class="num">1</div><div class="content">Vào <span class="mono">one.dash.cloudflare.com</span> → chọn tài khoản → mục <b>Networks → Tunnels</b> (tên mục có thể hơi khác nếu Cloudflare đổi giao diện, tìm chữ "Tunnels").</div></div>
+<div class="step"><div class="num">2</div><div class="content">Bấm <b>Create a tunnel</b> → chọn loại <b>Cloudflared</b> → đặt tên vd <span class="mono">cdc-hp-server</span>.</div></div>
+<div class="step"><div class="num">3</div><div class="content">Cloudflare hiện ra 1 lệnh cài đặt cho Windows, dạng:</div></div>
+<pre>cloudflared.exe service install eyJhIjoixxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx...</pre>
+<div class="step"><div class="num">4</div><div class="content">Mở PowerShell <b>với quyền Administrator</b> tại <span class="mono">C:\cloudflared\</span>, dán và chạy đúng lệnh đó (chuỗi dài sau <span class="mono">service install</span> là mã riêng của tunnel bạn vừa tạo — copy nguyên văn từ trang Cloudflare, không gõ tay).</div></div>
+<div class="step"><div class="num">5</div><div class="content">Quay lại trang Cloudflare, tunnel chuyển trạng thái <b>Connected</b> (màu xanh) — nghĩa là máy chủ đã kết nối thành công tới Cloudflare.</div></div>
+<div class="step"><div class="num">6</div><div class="content">Vẫn trong trang cấu hình tunnel đó, sang tab <b>Public Hostname</b> → <b>Add a public hostname</b>:</div></div>
 <table>
-<tr><th>Việc</th><th>Ghi chú</th></tr>
-<tr><td>Domain</td><td><b>cdc-hp.io.vn</b> — đã đăng ký.</td></tr>
-<tr><td>Máy chủ đang chạy chế độ Máy chủ</td><td>Bản cài <span class="mono">GiamSatDichBenh-Server-Setup-*.exe</span> (xem Tài liệu 2/5) — Caddy sẽ cài <b>trên chính máy này</b>.</td></tr>
-<tr><td>Quyền quản trị router CDC</td><td>Để port-forward cổng 80 và 443.</td></tr>
-<tr><td>IP công khai của mạng CDC</td><td>Cố định hoặc Dynamic DNS nếu IP hay đổi (hỏi nhà mạng nếu chưa rõ).</td></tr>
+<tr><th>Trường</th><th>Giá trị</th></tr>
+<tr><td>Subdomain</td><td>để trống</td></tr>
+<tr><td>Domain</td><td><span class="mono">cdc-hp.io.vn</span></td></tr>
+<tr><td>Type</td><td><span class="mono">HTTP</span></td></tr>
+<tr><td>URL</td><td><span class="mono">localhost:8765</span></td></tr>
 </table>
+<div class="step"><div class="num">7</div><div class="content">Lưu lại — Cloudflare tự tạo bản ghi DNS cần thiết, không cần vào lại DNS Manager thêm gì nữa.</div></div>
+<div class="step"><div class="num">8</div><div class="content">Kiểm tra: mở trình duyệt trên máy khác (ngoài mạng CDC, vd dùng 4G) truy cập <span class="mono">https://cdc-hp.io.vn/health</span> — phải thấy phản hồi JSON (hoặc yêu cầu mật khẩu nếu máy chủ đã đặt), không phải lỗi kết nối.</div></div>
 
-<h2>3. Trỏ domain về mạng CDC (DNS)</h2>
-<div class="step"><div class="num">1</div><div class="content">Đăng nhập trang quản lý DNS của domain <span class="mono">cdc-hp.io.vn</span> (nơi đã đăng ký).</div></div>
-<div class="step"><div class="num">2</div><div class="content">Thêm bản ghi <b>A</b>: Host để trống hoặc <span class="mono">@</span>, trỏ tới <b>địa chỉ IP công khai</b> của mạng CDC.</div></div>
-<div class="step"><div class="num">3</div><div class="content">Nếu IP công khai hay đổi (không cố định), dùng dịch vụ Dynamic DNS (DDNS) của nhà cung cấp router hoặc dịch vụ ngoài, cập nhật bản ghi A tự động khi IP đổi.</div></div>
-<div class="step"><div class="num">4</div><div class="content">Chờ DNS lan truyền (thường vài phút tới vài giờ), kiểm tra bằng <span class="mono">ping cdc-hp.io.vn</span> hoặc trang <span class="mono">whatsmydns.net</span>.</div></div>
+<div class="box warn">Từ bước 4, <span class="mono">cloudflared</span> chạy nền như dịch vụ Windows — tự khởi động lại cùng máy, không cần mở cửa sổ PowerShell chờ sẵn.</div>
 
-<h2>4. Port forward trên router CDC</h2>
-<div class="step"><div class="num">1</div><div class="content">Vào trang quản trị router (thường <span class="mono">192.168.1.1</span> hoặc <span class="mono">192.168.0.1</span>).</div></div>
-<div class="step"><div class="num">2</div><div class="content">Tìm mục <b>Port Forwarding / Virtual Server / NAT</b>.</div></div>
-<div class="step"><div class="num">3</div><div class="content">Thêm 2 quy tắc, cùng trỏ về <b>IP LAN của máy chủ</b> (vd <span class="mono">192.168.1.10</span>):</div></div>
-<table>
-<tr><th>Cổng ngoài (Internet)</th><th>Cổng trong (máy chủ)</th><th>Giao thức</th></tr>
-<tr><td>80</td><td>80</td><td>TCP</td></tr>
-<tr><td>443</td><td>443</td><td>TCP</td></tr>
-</table>
-<div class="box info">Không cần forward cổng 8765 ra Internet — Caddy (cổng 80/443) là cửa duy nhất tiếp xúc Internet, tự chuyển tiếp nội bộ vào 8765 trên chính máy đó.</div>
-
-<h2>5. Bảo mật — bắt buộc làm trước khi bật</h2>
-<div class="step"><div class="num">1</div><div class="content"><b>Đặt mật khẩu máy chủ</b> (nếu chưa có): mở app trên máy chủ → tab <b>Server</b> → điền "Mật khẩu máy trạm" → Lưu cấu hình. Đây là lớp xác thực duy nhất cho request đến từ Internet.</div></div>
-<div class="step"><div class="num">2</div><div class="content">Mở thêm cổng 80/443 trên Windows Firewall (chạy PowerShell với quyền Administrator, trên máy chủ):</div></div>
-<pre>netsh advfirewall firewall add rule name="CDC Caddy HTTP" dir=in action=allow protocol=TCP localport=80 profile=private
-netsh advfirewall firewall add rule name="CDC Caddy HTTPS" dir=in action=allow protocol=TCP localport=443 profile=private</pre>
-<div class="box tip">Port-forward từ router vẫn đi vào đúng card mạng LAN của máy chủ nên Windows vẫn xếp mạng đó là "Private" — không cần mở thêm cho profile "Public".</div>
-
-<h2>6. Cài và chạy Caddy (reverse proxy HTTPS tự động)</h2>
-<p>Caddy tự xin và tự gia hạn chứng chỉ HTTPS (Let's Encrypt) cho <span class="mono">cdc-hp.io.vn</span> — không cần thao tác thủ công với chứng chỉ.</p>
-<div class="step"><div class="num">1</div><div class="content">Tải Caddy cho Windows tại <span class="mono">caddyserver.com/download</span> (chọn bản Windows amd64), giải nén <span class="mono">caddy.exe</span> vào một thư mục cố định trên máy chủ, vd <span class="mono">C:\caddy\</span>.</div></div>
-<div class="step"><div class="num">2</div><div class="content">Copy file <span class="mono">deploy/Caddyfile</span> (có sẵn trong repo mã nguồn) vào cùng thư mục <span class="mono">C:\caddy\</span>.</div></div>
-<div class="step"><div class="num">3</div><div class="content">Đảm bảo máy chủ chính (chế độ Máy chủ trong app) đang chạy, nghe cổng 8765 — kiểm tra ở tab Server.</div></div>
-<div class="step"><div class="num">4</div><div class="content">Mở PowerShell **với quyền Administrator** tại <span class="mono">C:\caddy\</span>, chạy thử trước:</div></div>
-<pre>.\caddy.exe run --config .\Caddyfile</pre>
-<div class="step"><div class="num">5</div><div class="content">Nếu chạy thử ổn (không báo lỗi, thấy dòng log xin chứng chỉ thành công), dừng lại (Ctrl+C) rồi cài làm <b>dịch vụ Windows</b> để tự chạy nền, tự khởi động lại cùng máy:</div></div>
-<pre>.\caddy.exe install --config (Resolve-Path .\Caddyfile)</pre>
-<div class="step"><div class="num">6</div><div class="content">Kiểm tra: mở trình duyệt trên máy khác (ngoài mạng CDC, vd dùng 4G) truy cập <span class="mono">https://cdc-hp.io.vn/health</span> — phải thấy phản hồi JSON (hoặc yêu cầu mật khẩu nếu máy chủ đã đặt), không phải lỗi kết nối.</div></div>
+<h2>6. Bảo mật</h2>
+<p><b>Bắt buộc đặt mật khẩu máy chủ</b> (tab Server trong app) trước khi hoàn tất — đây là lớp xác thực duy nhất cho request đến từ Internet, vì Cloudflare Tunnel chỉ lo việc kết nối, không thay được việc xác thực của ứng dụng.</p>
 
 <h2>7. Cập nhật cấu hình sau khi đã chạy</h2>
 <h3>7.1 Google Apps Script (chuyển tiếp trực tiếp)</h3>
 <p><span class="mono">script.google.com</span> → project đang dùng → Project Settings → Script Properties:</p>
 <table>
 <tr><th>Thuộc tính</th><th>Giá trị</th></tr>
-<tr><td><span class="mono">MAIN_SERVER_URL</span></td><td><span class="mono">https://cdc-hp.io.vn</span> (không cần ghi cổng)</td></tr>
-<tr><td><span class="mono">MAIN_SERVER_PASSWORD</span></td><td>Đúng mật khẩu máy chủ đã đặt ở Mục 5</td></tr>
+<tr><td><span class="mono">MAIN_SERVER_URL</span></td><td><span class="mono">https://cdc-hp.io.vn</span></td></tr>
+<tr><td><span class="mono">MAIN_SERVER_PASSWORD</span></td><td>Đúng mật khẩu máy chủ đã đặt ở Mục 6</td></tr>
 </table>
 
 <h3>7.2 Máy trạm quản trị ở xa</h3>
 <div class="step"><div class="num">1</div><div class="content">Mở app → "Kết nối máy chủ LAN".</div></div>
-<div class="step"><div class="num">2</div><div class="content">Đổi "Địa chỉ máy chủ" từ IP LAN (vd <span class="mono">http://192.168.1.10:8765</span>) thành <span class="mono">https://cdc-hp.io.vn</span>.</div></div>
+<div class="step"><div class="num">2</div><div class="content">Đổi "Địa chỉ máy chủ" thành <span class="mono">https://cdc-hp.io.vn</span>.</div></div>
 <div class="step"><div class="num">3</div><div class="content">Bấm "Kiểm tra kết nối" để xác nhận trước khi Lưu.</div></div>
-<div class="box tip">Máy trạm vẫn dùng đúng bản cài <span class="mono">GiamSatDichBenh-Admin-Setup-*.exe</span> như trong LAN — chỉ khác địa chỉ nhập vào, không cần cài lại hay build riêng.</div>
 
 <h2>8. Xử lý sự cố thường gặp</h2>
 <table>
 <tr><th>Hiện tượng</th><th>Nguyên nhân thường gặp</th></tr>
-<tr><td>Caddy báo lỗi xin chứng chỉ (ACME)</td><td>DNS chưa trỏ đúng/chưa lan truyền xong (đợi thêm), hoặc cổng 80 chưa mở đúng tới máy chủ (Let's Encrypt xác thực qua cổng 80 trước khi cấp chứng chỉ 443).</td></tr>
-<tr><td>Truy cập từ ngoài bị timeout</td><td>Port forward sai IP nội bộ, hoặc Windows Firewall chưa mở 80/443, hoặc router có thêm lớp NAT/firewall khác (double NAT) cần kiểm tra thêm.</td></tr>
-<tr><td>Truy cập được nhưng báo lỗi 502</td><td>Máy chủ chính (cổng 8765) chưa chạy hoặc đã dừng — mở app, khởi động lại server ở tab Server.</td></tr>
-<tr><td>Muốn đổi máy chủ chính sau này</td><td>Dùng tính năng "Chuyển máy chủ" (Tài liệu 2/5) trên máy cũ trước, sau đó lặp lại Mục 3-6 ở tài liệu này trên máy mới với cùng domain.</td></tr>
+<tr><td>Domain báo "chưa hoạt động" trên Cloudflare</td><td>Nameserver ở nơi đăng ký domain chưa đổi đúng, hoặc chưa lan truyền xong — chờ thêm, kiểm tra lại đúng 2 nameserver đã copy.</td></tr>
+<tr><td>Tunnel không chuyển "Connected"</td><td>Kiểm tra máy chủ có Internet ra ngoài không (cloudflared cần kết nối ra được cổng 443); thử chạy lại lệnh <span class="mono">service install</span>.</td></tr>
+<tr><td>Truy cập <span class="mono">cdc-hp.io.vn</span> báo lỗi 502/503</td><td>Máy chủ chính (cổng 8765) chưa chạy hoặc đã dừng — mở app, khởi động lại server ở tab Server.</td></tr>
+<tr><td>Đổi máy chủ khác sau này</td><td>Dùng "Chuyển máy chủ" (Tài liệu 2/5) trên máy cũ trước; sau đó cài cloudflared + lặp lại Mục 5 trên máy mới (tạo tunnel mới hoặc trỏ lại Public Hostname sang máy mới).</td></tr>
 </table>
 
 <p class="footer-note">Ứng dụng Giám sát dịch bệnh — CDC Hải Phòng — Tài liệu 5/5</p>

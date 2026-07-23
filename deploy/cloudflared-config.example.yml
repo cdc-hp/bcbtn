@@ -1,0 +1,23 @@
+# Mẫu cấu hình Cloudflare Tunnel — phương án ĐANG DÙNG để mở máy chủ chính ra Internet, không
+# cần port-forward/quyền router (xem docs/huong-dan/5-mo-ra-internet.pdf để biết lý do và các
+# bước làm đầy đủ). Đa số CDC sẽ không cần đụng tới file này — cách khuyến nghị trong tài liệu
+# là tạo Tunnel + "Public Hostname" hoàn toàn qua dashboard (one.dash.cloudflare.com), Cloudflare
+# tự lo phần cấu hình này. File mẫu ở đây chỉ dành cho ai muốn tự quản lý bằng dòng lệnh
+# (cloudflared tunnel create / route dns / run) thay vì qua dashboard.
+#
+# Cách dùng nếu chọn đường dòng lệnh:
+#   cloudflared tunnel login
+#   cloudflared tunnel create cdc-hp-server
+#   cloudflared tunnel route dns cdc-hp-server cdc-hp.io.vn
+#   copy file này thành config.yml, điền đúng <TUNNEL_ID> (in ra sau lệnh create) rồi:
+#   cloudflared tunnel run --config config.yml cdc-hp-server
+#   (hoặc "cloudflared service install" để chạy nền như dịch vụ Windows)
+
+tunnel: <TUNNEL_ID>
+credentials-file: C:\cloudflared\<TUNNEL_ID>.json
+
+ingress:
+  # Máy chủ chính (lan_server.py) — luôn để cuối cùng phải có rule "catch-all" (service: http_status:404).
+  - hostname: cdc-hp.io.vn
+    service: http://localhost:8765
+  - service: http_status:404

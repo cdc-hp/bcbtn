@@ -186,32 +186,40 @@ CSDL chính luôn là SQLite trên máy chủ chính.
 
 ### Mở máy chủ chính ra Internet (để GAS chuyển tiếp trực tiếp + máy trạm quản trị ở xa)
 
-**Domain thật đã có: `cdc-hp.io.vn`.** Kiến trúc: Caddy (reverse proxy, TỰ xin/gia hạn HTTPS
-qua Let's Encrypt — không cần thao tác thủ công) cài **trên chính máy đang chạy chế độ Máy
-chủ**, nghe cổng 80/443 công khai, chuyển tiếp vào `127.0.0.1:8765` (nơi `lan_server.py` đang
-chạy, vẫn chỉ nói HTTP thuần — chưa hỗ trợ TLS trực tiếp, xem TASKS.md mục HTTPS). Router CDC
-port-forward 80+443 về đúng máy đó; DNS `cdc-hp.io.vn` trỏ về IP công khai của mạng CDC
-(Dynamic DNS nếu IP động). Config Caddy có sẵn: `deploy/Caddyfile` (đã kiểm tra hợp lệ bằng
-`caddy validate`) — chỉ cần `caddy run --config deploy/Caddyfile` hoặc `caddy install` để chạy
-nền như dịch vụ Windows. Hướng dẫn từng bước đầy đủ (kể cả cho người không rành kỹ thuật):
-`docs/huong-dan/5-mo-ra-internet.pdf`.
+**Domain thật đã có: `cdc-hp.io.vn`. Phương án đang dùng: Cloudflare Tunnel** — KHÔNG
+port-forward, KHÔNG cần IP tĩnh/Dynamic DNS, KHÔNG cần quyền quản trị router. Lý do đổi từ
+Caddy+port-forward sang phương án này: mạng CDC do nhà mạng (VNPT) quản lý thiết bị đầu cuối,
+CDC không có quyền đăng nhập router để tự port-forward — Cloudflare Tunnel để máy chủ TỰ kết
+nối ra ngoài tới Cloudflare (luôn được phép, không cần cấu hình gì ở phía mạng CDC), Cloudflare
+nhận request từ domain rồi chuyển vào qua đúng đường kết nối đó.
+
+Cài đặt: `cloudflared` (daemon nhỏ của Cloudflare) chạy **trên chính máy đang chạy chế độ Máy
+chủ**, đăng ký làm dịch vụ Windows qua lệnh `cloudflared.exe service install <token>` (token lấy
+từ dashboard `one.dash.cloudflare.com` lúc tạo Tunnel — mỗi CDC/mỗi lần tạo tunnel có token
+riêng, không dùng chung). Cấu hình "Public Hostname" trỏ `cdc-hp.io.vn` → `localhost:8765` làm
+trực tiếp trên dashboard Cloudflare (không cần sửa file .yml thủ công cho cách làm khuyến nghị).
+File mẫu cho ai muốn cấu hình bằng dòng lệnh thay vì dashboard:
+`deploy/cloudflared-config.example.yml` (đã kiểm tra hợp lệ). Hướng dẫn từng bước đầy đủ (kể cả
+cho người không rành kỹ thuật): `docs/huong-dan/5-mo-ra-internet.pdf`.
 
 **Bắt buộc trước khi bật**: đặt mật khẩu máy chủ (tab Server) — đây là lớp xác thực duy nhất
 cho request từ Internet khi không có token cá nhân (`cdc_accounts`)/không có `commune_token`.
-Mở thêm rule tường lửa Windows cho TCP 80 và 443 (profile Private — port-forward từ router vẫn
-tới NIC LAN nên Windows vẫn xếp loại Private, không cần mở Public) — `configure_windows_firewall()`
-trong `lan_server.py` hiện chỉ mở đúng 1 cổng LAN (8765) + UDP 8766, KHÔNG tự mở 80/443, phải
-làm thủ công (lệnh mẫu trong `docs/huong-dan/5-mo-ra-internet.pdf`).
+Cloudflare Tunnel chỉ lo việc kết nối, không thay được xác thực của ứng dụng.
 
-Sau khi Caddy chạy và domain xác thực HTTPS thành công:
+Sau khi tunnel "Connected" và Public Hostname đã cấu hình:
 - **GAS chuyển tiếp trực tiếp**: đặt Script Property `MAIN_SERVER_URL = https://cdc-hp.io.vn`
-  (không cần ghi cổng, Caddy đã map 443 → 8765) + `MAIN_SERVER_PASSWORD` = mật khẩu máy chủ.
+  + `MAIN_SERVER_PASSWORD` = mật khẩu máy chủ.
 - **Máy trạm quản trị ở xa** (ngoài LAN CDC): mở app → "Kết nối máy chủ LAN" → đổi "Địa chỉ máy
-  chủ" thành `https://cdc-hp.io.vn` (thay vì IP LAN `192.168.x.x`) — vẫn cùng 1 bản cài
-  `setup-admin.iss`, chỉ khác giá trị nhập lúc cấu hình, không cần build riêng.
+  chủ" thành `https://cdc-hp.io.vn` (thay vì IP LAN) — vẫn cùng 1 bản cài `setup-admin.iss`,
+  chỉ khác giá trị nhập lúc cấu hình, không cần build riêng.
+
+**Phương án dự phòng** (nếu sau này CDC có máy chủ cố định + quyền quản trị router thật):
+Caddy + port-forward truyền thống, cấu hình có sẵn ở `deploy/Caddyfile` (đã `caddy validate`
+hợp lệ) nhưng hiện KHÔNG dùng — ít phụ thuộc bên thứ ba hơn nhưng cần hạ tầng mạng CDC không có
+ở thời điểm hiện tại.
 
 Đây là thay đổi có rủi ro bảo mật (máy chủ nhận request công khai từ Internet), cân nhắc kỹ và
-luôn đảm bảo đã đặt mật khẩu trước khi port-forward.
+luôn đảm bảo đã đặt mật khẩu trước khi bật.
 
 ## Build & test
 
