@@ -15,14 +15,21 @@ xin quyền nâng cao):
 
 `run_server()` là phần lõi thật sự chạy Uvicorn — dùng chung cho cả `SvcDoRun` (khi chạy như
 dịch vụ) lẫn lệnh `run` (khi chạy tay) để đảm bảo 2 đường chạy giống hệt nhau, không lệch hành vi
-giữa "chạy thử" và "chạy thật"."""
+giữa "chạy thử" và "chạy thật".
+
+Khi chạy như dịch vụ thật (mọi lệnh trừ `run`), mặc định dùng
+``C:\\ProgramData\\CDC Hai Phong\\GiamSatDichBenh`` làm thư mục dữ liệu (đúng yêu cầu triển khai
+máy chủ tập trung) thay vì `%LOCALAPPDATA%` của app desktop cũ — ProgramData không gắn với 1 tài
+khoản Windows cụ thể, phù hợp với tiến trình dịch vụ chạy dưới tài khoản hệ thống. Phải đặt biến
+môi trường TRƯỚC khi `deployment_config`/`core`/... được import lần đầu (các module đó tính
+đường dẫn ngay lúc import, không phải lười) — vì vậy `deployment_config` KHÔNG import ở đầu file
+này mà import cục bộ trong `run_server()`, sau khi `__main__` đã kịp đặt biến môi trường."""
 
 from __future__ import annotations
 
+import os
 import sys
 from typing import Any
-
-import deployment_config
 
 SERVICE_NAME = "CDCGiamSatDichBenh"
 SERVICE_DISPLAY_NAME = "CDC Hải Phòng - Giám sát dịch bệnh"
@@ -30,6 +37,7 @@ SERVICE_DESCRIPTION = (
     "Web App tập trung quản lý ca bệnh/ổ dịch CDC Hải Phòng (FastAPI/Uvicorn). "
     "Quản trị qua trình duyệt tại /cdc/login."
 )
+DEFAULT_SERVICE_DATA_DIR = r"C:\ProgramData\CDC Hai Phong\GiamSatDichBenh"
 
 
 def run_server(service: Any = None) -> None:
@@ -37,6 +45,8 @@ def run_server(service: Any = None) -> None:
     server_port trong deployment_config.py); trả về khi `server.should_exit` được đặt (do
     `service.SvcStop()` gọi, hoặc Ctrl+C ở chế độ chạy tay)."""
     import uvicorn
+
+    import deployment_config
 
     config = deployment_config.load_config()
     uv_config = uvicorn.Config(
@@ -130,10 +140,19 @@ def _build_service_class():
     return CDCWebAppService
 
 
+def _resolve_cli_mode(argv: list[str]) -> str:
+    """"run" = chạy tay để phát triển/kiểm thử (giữ nguyên GIAM_SAT_DICH_BENH_DATA_DIR hiện có,
+    hoặc mặc định LOCALAPPDATA như trước) — bất kỳ lệnh nào khác (install/start/stop/remove/
+    debug, hoặc do SCM tự gọi lại khi thật sự khởi động dịch vụ) đều coi là "service", ép mặc
+    định thư mục dữ liệu sang ProgramData nếu chưa có override."""
+    return "run" if len(argv) > 1 and argv[1] == "run" else "service"
+
+
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "run":
+    if _resolve_cli_mode(sys.argv) == "run":
         run_server()
     else:
+        os.environ.setdefault("GIAM_SAT_DICH_BENH_DATA_DIR", DEFAULT_SERVICE_DATA_DIR)
         ServiceClass = _build_service_class()
         import win32serviceutil
 

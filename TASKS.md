@@ -130,8 +130,47 @@ lúc giao việc này — tóm tắt tiến độ theo 11 giai đoạn:
       và đây là thao tác ảnh hưởng trạng thái hệ thống dùng chung nên cố tình không tự ý thực
       hiện. Cần người có quyền Administrator trên máy Windows thật chạy thử trước khi coi Giai
       đoạn 8 là "đã xác minh đầy đủ" — việc này sẽ được kiểm thử gián tiếp qua bộ cài ở Giai đoạn 9.
-- [ ] **Giai đoạn 9** — Installer `CDC-GiamSatDichBenh-Server-Setup-x.y.z.exe` (chỉ 1 file, bỏ
-      `setup-admin.iss`/khái niệm máy trạm quản trị).
+      **Bổ sung khi làm Giai đoạn 9**: `service_windows.py` giờ mặc định thư mục dữ liệu là
+      `C:\ProgramData\CDC Hai Phong\GiamSatDichBenh` khi chạy như dịch vụ thật (đúng yêu cầu ban
+      đầu, trước đó lỡ vẫn dùng `%LOCALAPPDATA%` kế thừa từ app desktop) — chỉ áp dụng cho nhánh
+      `install`/`start`/`stop`/`remove`/`debug`; lệnh `run` (phát triển/kiểm thử) vẫn giữ hành vi
+      cũ (tôn trọng `GIAM_SAT_DICH_BENH_DATA_DIR` đã đặt hoặc mặc định LOCALAPPDATA), 4 test mới
+      xác nhận đúng (`_resolve_cli_mode`, import không có tác dụng phụ, `run` không tự ép
+      ProgramData — đã chạy thử subprocess thật xác nhận).
+- [x] **Giai đoạn 9** — `setup-webapp-server.iss` mới: bộ cài DUY NHẤT cho Web App tập trung,
+      `CDC-GiamSatDichBenh-Server-Setup-v{version}.exe`, `PrivilegesRequired=admin` (khác 3 bộ
+      cài desktop cũ đều `lowest`) vì phải đăng ký dịch vụ Windows. Wizard chỉ hỏi ĐÚNG 1 câu
+      (cổng lắng nghe) — không hỏi tài khoản/GAS/đồng bộ/thư mục sao lưu như installer cũ, vì
+      những cái đó nay cấu hình qua trình duyệt (`/cdc/setup`, `/cdc/cau-hinh`, Giai đoạn 2 và
+      8) đúng triết lý "quản trị chỉ cần trình duyệt". Cài đặt: dừng+gỡ dịch vụ cũ TRƯỚC khi copy
+      file (`PrepareToInstall`, tránh lỗi file đang bị khoá lúc nâng cấp), ghi
+      `C:\ProgramData\CDC Hai Phong\GiamSatDichBenh\deployment.json` CHỈ khi máy chưa từng cài
+      (giữ nguyên cấu hình/khoá bí mật cũ khi nâng cấp — cùng triết lý với `setup-server.iss`),
+      mở tường lửa cho cổng đã chọn, đăng ký+khởi động dịch vụ, cuối cùng mở trình duyệt tới
+      `/cdc/login`. Gỡ cài đặt: dừng+gỡ dịch vụ trước khi xoá file, KHÔNG tự xoá thư mục dữ liệu
+      (an toàn dữ liệu — admin tự xoá tay nếu thật sự muốn). `build.bat` thêm bước PyInstaller
+      riêng cho `service_windows.py` (`--console`, không phải `--windowed`; loại trừ
+      `PyQt5`/`PyQt6` — máy build có cả 2 khiến PyInstaller từ chối build vì xung đột Qt binding,
+      dù webapp/ không dùng Qt) + gọi ISCC cho `.iss` mới.
+      Đã build + chạy thử THẬT: PyInstaller build thành công (loại bỏ `PyQt5`/`PyQt6` sau khi
+      gặp đúng lỗi xung đột này), chạy trực tiếp file `.exe` đã đóng gói (`CDCGiamSatDichBenh.exe
+      run`) xác nhận phục vụ đúng qua HTTP — static asset, template Jinja, toàn luồng thiết lập →
+      đăng nhập → dashboard đều hoạt động; phát hiện và sửa 1 lỗi thật khi build (thiếu
+      `VERSION.txt` cạnh `.exe` khiến `/health` báo `"version": "0.0.0"` — đã thêm bước copy vào
+      `build.bat`, xác nhận lại báo đúng `0.10.1`).
+      **CHƯA kiểm thử được**: không compile được bằng Inno Setup (`ISCC.exe`) trong sandbox này —
+      đã thử cài Inno Setup 6.7.3 cả bằng bộ cài đầy đủ (`/CURRENTUSER`) lẫn chế độ giải nén
+      portable (`/PORTABLE=1`), cả 2 cách đều treo ở bước tự giải nén rất sớm (không tạo được cả
+      file log), có vẻ là giới hạn của môi trường sandbox (không có phiên desktop tương tác đầy
+      đủ cho ứng dụng GUI) chứ không phải lỗi kịch bản `.iss`. Đã tự soát kỹ cú pháp Pascal
+      Script (đặc biệt sửa 1 lỗi thứ tự thực thi thật: `[Icons]` được engine xử lý TRƯỚC bước
+      `ssPostInstall`, ban đầu `ResolvedPort` tính ở `ssPostInstall` nên shortcut sẽ thiếu cổng —
+      đã sửa tính `ResolvedPort` sớm hơn ở `NextButtonClick`). Cần máy Windows thật (có Inno
+      Setup cài sẵn hoặc cài được qua `choco install innosetup` như CI đang dùng) chạy
+      `build.bat` toàn bộ, cài thử `CDC-GiamSatDichBenh-Server-Setup-v{version}.exe` với quyền
+      Administrator, và xác nhận dịch vụ khởi động đúng + `/cdc/login` mở được — việc này sẽ được
+      CI (Giai đoạn 10, chạy trên `windows-latest` có đủ điều kiện) thực hiện thay, nhưng vẫn nên
+      có người xác nhận cài thật trên máy CDC trước khi phát hành chính thức.
 - [ ] **Giai đoạn 10** — Cập nhật `.github/workflows/release.yml` cho bộ cài mới.
 - [ ] **Giai đoạn 11** — Hoàn thiện test + tài liệu (README/CLAUDE.md/hướng dẫn PDF theo kiến
       trúc mới).

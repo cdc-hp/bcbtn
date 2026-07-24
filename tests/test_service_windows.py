@@ -39,6 +39,28 @@ def test_service_class_has_correct_win32_conventions():
     assert hasattr(service_class, "SvcDoRun")
 
 
+def test_resolve_cli_mode():
+    assert service_windows._resolve_cli_mode(["service_windows.py"]) == "service"
+    assert service_windows._resolve_cli_mode(["service_windows.py", "install"]) == "service"
+    assert service_windows._resolve_cli_mode(["service_windows.py", "debug"]) == "service"
+    assert service_windows._resolve_cli_mode(["service_windows.py", "run"]) == "run"
+
+
+def test_importing_module_has_no_side_effects():
+    """Import module không được tự ý đặt GIAM_SAT_DICH_BENH_DATA_DIR — chỉ nhánh `service` của
+    `__main__` mới làm việc đó, để `import service_windows` từ test khác không bị ảnh hưởng."""
+    import importlib
+    import os
+
+    had_key_before = "GIAM_SAT_DICH_BENH_DATA_DIR" in os.environ
+    value_before = os.environ.get("GIAM_SAT_DICH_BENH_DATA_DIR")
+    importlib.reload(service_windows)
+    if had_key_before:
+        assert os.environ.get("GIAM_SAT_DICH_BENH_DATA_DIR") == value_before
+    else:
+        assert "GIAM_SAT_DICH_BENH_DATA_DIR" not in os.environ
+
+
 def test_run_server_reads_host_port_from_config(monkeypatch, tmp_path):
     """run_server() phải đọc server_host/server_port từ deployment_config hiện tại rồi truyền
     đúng cho uvicorn.Config — không gọi server.run() thật (sẽ block vô hạn)."""

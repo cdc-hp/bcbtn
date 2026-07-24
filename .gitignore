@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 build/
 dist/
+dist_cdc_service/
 setup_output/
 *.spec
 
