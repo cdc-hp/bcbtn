@@ -21,12 +21,12 @@ import backup_manager
 import core
 import deployment_config
 import service_windows
-from webapp import auth
+from webapp import TEMPLATES_DIR, auth
 from webapp.config import WebAppSettings
 from webapp.dependencies import ForbiddenError, get_settings_dep, require_role
 
 router = APIRouter()
-templates = Jinja2Templates(directory="webapp/templates")
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 CAN_CONFIGURE_ROLES = (core.CDC_ROLE_SUPER_ADMIN,)
 

@@ -14,13 +14,13 @@ from fastapi.templating import Jinja2Templates
 
 import core
 import duplicate_config
-from webapp import auth
+from webapp import TEMPLATES_DIR, auth
 from webapp.config import WebAppSettings
 from webapp.dependencies import get_settings_dep, require_password_current, require_role
 from webapp.services.export_files import file_download_response, make_temp_export_path
 
 router = APIRouter()
-templates = Jinja2Templates(directory="webapp/templates")
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 CAN_EXPORT_ROLES = (core.CDC_ROLE_SUPER_ADMIN, core.CDC_ROLE_ADMIN, core.CDC_ROLE_DATA_OPERATOR)
 

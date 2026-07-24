@@ -8,13 +8,13 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 import core
-from webapp import auth
+from webapp import TEMPLATES_DIR, auth
 from webapp.config import WebAppSettings
 from webapp.dependencies import ForbiddenError, get_current_user, get_settings_dep, require_login, require_setup_done
 from webapp.services.http import client_ip
 
 router = APIRouter()
-templates = Jinja2Templates(directory="webapp/templates")
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 
 def _render(request: Request, template: str, context: dict) -> HTMLResponse:

@@ -211,6 +211,39 @@ lúc giao việc này — tóm tắt tiến độ theo 11 giai đoạn:
         (`lan_server.py`), chưa vẽ thêm nhánh Web App mới; mục "Web App tập trung" đã mô tả đủ
         bằng văn bản nên không chặn việc dùng tài liệu, nhưng nên làm khi có dịp.
 
+### Bổ sung sau khi phát hành v0.11.0 — 2 lỗi thật CI thật phát hiện (sandbox không phát hiện được)
+
+Bấm nút "chốt release" (bump `VERSION.txt` lên `0.11.0`, push) đã kích hoạt CI thật trên
+`windows-latest` — đúng như kỳ vọng, phát hiện được 2 lỗi mà sandbox phát triển (thiếu Inno
+Setup, thiếu quyền Administrator) không thể phát hiện:
+
+1. **`setup-webapp-server.iss` không biên dịch được**: `Error on line 127: Unknown preprocessor
+   directive.` — dòng Pascal Script bắt đầu bằng `#13#10#13#10` (ký tự xuống dòng) bị ISPP
+   (preprocessor Inno Setup, quét toàn văn bản TRƯỚC khi Pascal Script biên dịch) hiểu nhầm
+   thành 1 chỉ thị preprocessor vì dòng bắt đầu bằng `#`. Sửa: chuyển `#13#10#13#10` lên cùng
+   dòng với câu lệnh gán phía trước, không để nó là token đầu dòng.
+2. **Dịch vụ Windows cài xong nhưng ở trạng thái `Stopped` thay vì `Running`** — lỗi nghiêm
+   trọng hơn nhiều, đúng loại lỗi mà bước "Verify Web App installs and runs as a Windows
+   Service" (Giai đoạn 10) được thêm vào để bắt. Nguyên nhân gốc: toàn bộ `webapp/main.py` và
+   10 file `webapp/routers/*.py` gọi `Jinja2Templates(directory="webapp/templates")`/
+   `StaticFiles(directory="webapp/static")` bằng **đường dẫn tương đối** — khi Windows SCM khởi
+   động dịch vụ, thư mục làm việc mặc định là `System32`, không phải thư mục cài đặt, nên đường
+   dẫn tương đối không trỏ tới đâu cả; `StaticFiles` kiểm tra thư mục tồn tại ngay lúc import
+   nên toàn bộ `webapp.main` crash ngay khi khởi động. **Vì sao sandbox không bắt được**: mọi
+   lần chạy thử thủ công trong các giai đoạn trước đều vô tình chạy với thư mục làm việc = thư
+   mục gốc mã nguồn (nơi `webapp/templates` thật sự tồn tại), nên đường dẫn tương đối "tình cờ"
+   đúng — chưa từng thử chạy từ thư mục làm việc khác để lộ lỗi. Sửa: `webapp/__init__.py`
+   thêm `TEMPLATES_DIR`/`STATIC_DIR` tính tuyệt đối từ `Path(__file__).resolve().parent` (đúng
+   cả khi chạy từ mã nguồn lẫn khi đóng gói PyInstaller — cùng kỹ thuật `core.py: _base_dir()`
+   đã dùng), thay toàn bộ 12 chỗ dùng chuỗi tương đối. Đã viết lại kiểm thử
+   (`tests/test_webapp_paths.py`) xác nhận đường dẫn tuyệt đối + import được từ thư mục làm
+   việc bất kỳ (mô phỏng đúng tình huống SCM), và tự tay chạy lại server thật từ một thư mục
+   KHÁC thư mục gốc mã nguồn để xác nhận sửa đúng trước khi push lại (191/191 test pass).
+
+**Bài học**: khi kiểm thử "chạy thử server thật" cho mã sẽ chạy như dịch vụ nền, phải test từ
+thư mục làm việc KHÔNG phải thư mục gốc mã nguồn — nếu không, lỗi đường dẫn tương đối sẽ ẩn đi
+một cách im lặng.
+
 ## Đã xong (tính đến v0.6.0)
 
 1. Lọc trùng theo tiêu chí chọn (bỏ chấm điểm), hiển thị `case_code` gốc để tra ngược.

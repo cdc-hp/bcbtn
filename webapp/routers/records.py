@@ -9,13 +9,13 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 import core
-from webapp import auth
+from webapp import TEMPLATES_DIR, auth
 from webapp.config import WebAppSettings
 from webapp.dependencies import ForbiddenError, get_settings_dep, require_password_current
 from webapp.routers.xuat_du_lieu import CAN_EXPORT_ROLES
 
 router = APIRouter()
-templates = Jinja2Templates(directory="webapp/templates")
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 CASE_LIST_COLUMNS = [
     ("case_code", "Mã số"), ("full_name", "Họ tên"), ("birth_date_raw", "Ngày sinh"),

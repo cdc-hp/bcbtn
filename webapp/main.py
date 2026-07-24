@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 import core
-from webapp import scheduler
+from webapp import STATIC_DIR, TEMPLATES_DIR, scheduler
 from webapp.dependencies import ForbiddenError, RedirectException
 from webapp.routers import (
     accounts, audit_log, backups, dashboard, dedup, login, queue, records, settings, submission_api, xuat_du_lieu,
@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Giám sát dịch bệnh — CDC Hải Phòng", docs_url=None, redoc_url=None, lifespan=lifespan)
 
-app.mount("/static", StaticFiles(directory="webapp/static"), name="static")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.include_router(login.router)
 app.include_router(dashboard.router)
 app.include_router(queue.router)
@@ -40,7 +40,7 @@ app.include_router(backups.router)
 app.include_router(settings.router)
 app.include_router(submission_api.router)
 
-_error_templates = Jinja2Templates(directory="webapp/templates")
+_error_templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 
 @app.exception_handler(RedirectException)

@@ -8,12 +8,12 @@ from fastapi.templating import Jinja2Templates
 
 import backup_manager
 import core
-from webapp import auth, scheduler
+from webapp import TEMPLATES_DIR, auth, scheduler
 from webapp.config import WebAppSettings
 from webapp.dependencies import ForbiddenError, get_settings_dep, require_password_current, require_role
 
 router = APIRouter()
-templates = Jinja2Templates(directory="webapp/templates")
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 CAN_SYNC_ROLES = (core.CDC_ROLE_SUPER_ADMIN, core.CDC_ROLE_ADMIN, core.CDC_ROLE_DATA_OPERATOR)
 
