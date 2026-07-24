@@ -1,4 +1,4 @@
-# Ứng dụng Giám sát dịch bệnh — phiên bản 0.10.1
+# Ứng dụng Giám sát dịch bệnh — phiên bản 0.11.0
 
 Quản lý ca bệnh, ổ dịch, lọc trùng và chia sẻ dữ liệu — CDC Hải Phòng. Hiện có **2 kiến trúc chạy
 song song** trong lúc chuyển đổi (xem [`TASKS.md`](TASKS.md) mục "Đang làm"):

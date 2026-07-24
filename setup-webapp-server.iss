@@ -10,7 +10,7 @@
 ; dùng). setup.iss/setup-server.iss/setup-admin.iss VẪN GIỮ NGUYÊN cho tới khi Web App được xác
 ; nhận thay thế đủ chức năng trên máy thật (xem TASKS.md Giai đoạn 11).
 #ifndef MyAppVersion
-  #define MyAppVersion "0.10.1"
+  #define MyAppVersion "0.11.0"
 #endif
 
 #define MyAppName "CDC Hải Phòng - Giám sát dịch bệnh (Máy chủ Web)"
