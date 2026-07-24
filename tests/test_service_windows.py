@@ -39,6 +39,31 @@ def test_service_class_has_correct_win32_conventions():
     assert hasattr(service_class, "SvcDoRun")
 
 
+def test_svc_do_run_survives_event_log_failure(monkeypatch):
+    """Lỗi thật đã gặp: dịch vụ tự host (không qua pythonservice.exe) không có event source
+    đăng ký sẵn — servicemanager.LogMsg() ném pywintypes.error("Access is denied") và làm
+    SvcRun() thất bại ngay dòng đầu, dịch vụ luôn về Stopped dù run_server() chưa từng được gọi.
+    SvcDoRun phải nuốt lỗi ghi log và vẫn tiếp tục chạy server."""
+    try:
+        import servicemanager
+    except ImportError:
+        pytest.skip("pywin32 chưa cài đặt trên máy này")
+
+    service_class = service_windows._build_service_class()
+    called = {}
+    monkeypatch.setattr(service_windows, "run_server", lambda service: called.setdefault("ran", service))
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("RegisterEventSource/ReportEvent: Access is denied.")
+
+    monkeypatch.setattr(servicemanager, "LogMsg", _boom)
+
+    instance = service_class.__new__(service_class)
+    instance._svc_name_ = service_windows.SERVICE_NAME
+    service_class.SvcDoRun(instance)
+    assert called.get("ran") is instance
+
+
 def test_resolve_cli_mode():
     # "host" = KHÔNG có tham số dòng lệnh — đúng cách Windows SCM tự gọi lại exe đã đăng ký để
     # thật sự chạy dịch vụ (không phải "install"/"start"/...). Lỗi thật đã gặp: trước đây nhánh

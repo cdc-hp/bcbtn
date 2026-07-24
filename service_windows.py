@@ -134,10 +134,23 @@ def _build_service_class():
             win32event.SetEvent(self.stop_event)
 
         def SvcDoRun(self):
-            servicemanager.LogMsg(
-                servicemanager.EVENTLOG_INFORMATION_TYPE, servicemanager.PYS_SERVICE_STARTED,
-                (self._svc_name_, ""),
-            )
+            # servicemanager.LogMsg ghi vào Windows Event Log qua RegisterEventSource/
+            # ReportEvent — đòi hỏi nguồn sự kiện (event source) đã được đăng ký sẵn trong
+            # registry, trỏ tới 1 DLL thông báo (message DLL) biết định dạng các mã như
+            # PYS_SERVICE_STARTED. Việc đăng ký này bình thường do pythonservice.exe (dịch vụ
+            # Python KHÔNG đóng gói) lo, nhưng dịch vụ này tự host chính nó (không qua
+            # pythonservice.exe, xem `_resolve_cli_mode`) nên không có đăng ký đó — gọi thẳng
+            # LogMsg ném `pywintypes.error: RegisterEventSource/ReportEvent: Access is denied`
+            # và làm SvcRun() thất bại ngay từ dòng đầu (lỗi thật gặp phải, xem TASKS.md). Việc
+            # ghi Event Log chỉ mang tính thông tin, không cần thiết cho việc phục vụ HTTP — bỏ
+            # qua an toàn nếu ghi lỗi thay vì để cả dịch vụ crash vì one dòng log.
+            try:
+                servicemanager.LogMsg(
+                    servicemanager.EVENTLOG_INFORMATION_TYPE, servicemanager.PYS_SERVICE_STARTED,
+                    (self._svc_name_, ""),
+                )
+            except Exception:
+                pass
             run_server(self)
 
     return CDCWebAppService
