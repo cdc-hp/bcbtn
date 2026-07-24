@@ -59,23 +59,31 @@ duplicate_config.py    Trọng số và ngưỡng lọc trùng
 case_view_config.py    Cấu hình cột hiển thị danh sách ca bệnh (chọn/đổi tên/cột tính toán)
 update_manager.py      Cập nhật ứng dụng
 secondary_sync.py      Đồng bộ hàng đợi từ máy chủ phụ (Google Apps Script) khi online lại
-setup.iss              Bộ cài tổng hợp (3 chế độ: đơn lẻ/máy trạm/máy chủ)
-setup-server.iss       Bộ cài riêng — chỉ chế độ Máy chủ, cài 1 lần duy nhất
-setup-admin.iss        Bộ cài riêng — chỉ máy trạm quản trị, đăng nhập tài khoản riêng
+setup.iss              Bộ cài desktop tổng hợp (3 chế độ: đơn lẻ/máy trạm/máy chủ)
+setup-server.iss       Bộ cài desktop riêng — chỉ chế độ Máy chủ, cài 1 lần duy nhất
+setup-admin.iss        Bộ cài desktop riêng — chỉ máy trạm quản trị, đăng nhập tài khoản riêng
+webapp/                Web App tập trung (FastAPI/Uvicorn) — xem mục riêng bên dưới
+service_windows.py     Dịch vụ Windows chạy webapp/ (pywin32) — thay app.py cho triển khai server
+setup-webapp-server.iss Bộ cài DUY NHẤT cho Web App tập trung, cài như dịch vụ Windows
 docs/                  GitHub Pages (index.html + config.js) + docs/huong-dan (nguồn HTML + PDF)
 google_apps_script/    Code.gs + appsscript.json (nguồn — deploy qua gas_deploy/ với clasp)
-tests/                 Kiểm thử lõi, lọc trùng, cấu hình, LAN, cdc_accounts, chuyển máy chủ
+tests/                 Kiểm thử lõi, lọc trùng, cấu hình, LAN, cdc_accounts, chuyển máy chủ,
+                        webapp/ (test_webapp_*.py), scheduler, service_windows
 ```
 
-## Web App tập trung (`webapp/`) — đang chuyển sang, xem TASKS.md
+## Web App tập trung (`webapp/`) — xem TASKS.md
 
-Đang chuyển từ mô hình desktop PyQt6 + máy trạm quản trị riêng sang Web App chạy trên đúng 1
-máy chủ — quản trị viên chỉ cần trình duyệt, không cài gì thêm (xem TASKS.md mục "Đang làm:
-chuyển sang Web App tập trung" để biết đã xong tới giai đoạn nào). `app.py`/`lan_server.py`/
-`setup-admin.iss` **vẫn giữ nguyên, chạy song song** cho tới khi Web App thay thế đủ và được
-xác nhận dùng thật — chưa xoá gì.
+Kiến trúc **mới**, chạy song song với desktop PyQt6 trong lúc chuyển đổi (xem TASKS.md mục
+"Đang làm: chuyển sang Web App tập trung" cho tiến độ 11 giai đoạn — tính tới Giai đoạn 10 đã
+xong, Giai đoạn 11 tài liệu/dọn dẹp). Chạy trên đúng 1 máy chủ, dưới dạng **dịch vụ Windows**
+(`service_windows.py`, tên dịch vụ `CDCGiamSatDichBenh`) — quản trị viên chỉ cần trình duyệt tại
+`/cdc/login`, không cài/mở gì thêm. `app.py`/`lan_server.py`/`setup.iss`/`setup-server.iss`/
+`setup-admin.iss` **vẫn giữ nguyên, chạy song song** cho tới khi Web App được xác nhận dùng thật
+trên máy CDC — chưa xoá gì (xem ghi chú "Chưa kiểm thử được" ở cuối mục này).
 
-- Chạy dev: `uvicorn webapp.main:app --reload` (không phải `python app.py`).
+- Chạy dev: `uvicorn webapp.main:app --reload` (không phải `python app.py`). Chạy như dịch vụ
+  thật: `python service_windows.py install|start|stop|remove|debug`; chạy tay không qua khung
+  dịch vụ (để phát triển/kiểm thử nhanh, không đăng ký gì với Windows): `python service_windows.py run`.
 - `webapp/config.py`: đọc chung `deployment.json` với app desktop qua `deployment_config.py`
   (không tạo hệ cấu hình riêng) — `web_token_secret` dùng để ký cookie phiên.
 - `webapp/auth.py`: đăng nhập **tái dùng** `core.issue_admin_token`/`verify_admin_token` đã có
@@ -94,10 +102,89 @@ xác nhận dùng thật — chưa xoá gì.
   `audit_log` thêm cột `ip` (ghi từ `Cf-Connecting-Ip`/`X-Forwarded-For` khi có Cloudflare
   Tunnel, fallback IP kết nối TCP trực tiếp) để `/cdc/nhat-ky` lọc được theo IP.
 - Bootstrap 5 + HTMX **vendor cục bộ** trong `webapp/static/vendor/` (tải sẵn, không gọi CDN
-  lúc chạy) — tránh phụ thuộc mạng ngoài khi phục vụ, và để đóng gói được vào bản cài sau này
-  (Giai đoạn 9).
-- `/health`: kiểm tra nhanh service + CSDL còn sống, dùng cho Windows Service giám sát (Giai
-  đoạn 8) và kiểm tra sau cài đặt.
+  lúc chạy) — tránh phụ thuộc mạng ngoài khi phục vụ, và đóng gói được vào bản cài
+  (`--add-data` trong `build.bat`).
+- `/health`: kiểm tra nhanh service + CSDL + tác vụ đồng bộ nền còn sống
+  (`"scheduler": "chua_chay"|"dang_chay"|"dang_dong_bo"`), dùng cho Windows Service giám sát và
+  kiểm tra sau cài đặt.
+
+### Bản đồ route chính (đều dưới `/cdc/`, trừ `POST /queue/submit`)
+
+| Route | Vai trò xem | Vai trò thao tác | Router |
+|---|---|---|---|
+| `/setup`, `/login`, `/change-password`, `/logout` | công khai/đã đăng nhập | — | `routers/login.py` |
+| `/dashboard` | mọi vai trò | đồng bộ máy chủ phụ: super_admin/admin/data_operator | `routers/dashboard.py` |
+| `/hang-doi` | mọi vai trò | nhập: +data_operator; xoá: super_admin/admin | `routers/queue.py` |
+| `/ca-benh`, `/o-dich` | mọi vai trò | — (đọc) | `routers/records.py` |
+| `/loc-trung` | mọi vai trò | hợp nhất: +data_operator; khôi phục/tiêu chí: super_admin/admin | `routers/dedup.py` |
+| `/xuat-du-lieu` | mọi vai trò (trang) | xuất file: super_admin/admin/data_operator (không viewer — dữ liệu có CCCD/SĐT) | `routers/xuat_du_lieu.py` |
+| `/tai-khoan` | chỉ super_admin | chỉ super_admin | `routers/accounts.py` |
+| `/nhat-ky` | super_admin/admin | — (đọc) | `routers/audit_log.py` |
+| `/sao-luu` | super_admin/admin | phục hồi + cấu hình chính sách: chỉ super_admin | `routers/backups.py` |
+| `/cau-hinh` | chỉ super_admin | chỉ super_admin | `routers/settings.py` |
+| `POST /queue/submit` (không có tiền tố `/cdc`) | — | xác thực bằng `gas_api_key` (header `X-GSBTN-Password`, tương thích nguyên trạng `Code.gs`) | `routers/submission_api.py` |
+
+Nguyên tắc phân quyền chung: **xem** hầu như mở cho mọi vai trò đã đăng nhập (kể cả `viewer`);
+**thao tác thay đổi dữ liệu** (nhập/xoá/hợp nhất) từ `data_operator` trở lên; **thao tác rủi ro
+cao** (phục hồi sao lưu, cấu hình triển khai, quản lý tài khoản, sửa chính sách sao lưu) chỉ
+`super_admin`. `viewer` bị chặn xuất dữ liệu hàng loạt dù chỉ là "xem" — vì file xuất chứa
+CCCD/SĐT, rủi ro rò rỉ khác hẳn xem từng bản ghi trên màn hình.
+
+### Lọc trùng + xuất dữ liệu qua Web (Giai đoạn 5)
+
+`webapp/routers/dedup.py` tái dùng nguyên `core.find_duplicate_groups`/`merge_duplicate_records`
+— trang duyệt nhóm trùng (`/cdc/loc-trung/xem`) nhận **id bản ghi trực tiếp qua querystring**
+(không phải `group_id`) để tránh phải quét lại toàn bộ (và có thể lệch kết quả nếu dữ liệu vừa
+đổi) mỗi lần người dùng bấm "Duyệt & hợp nhất". `webapp/routers/xuat_du_lieu.py` tái dùng
+`core.export_filtered_records`/`export_cases_by_commune`; file xuất dùng file tạm + tự xoá sau
+khi gửi xong (`webapp/services/export_files.py`, `starlette.background.BackgroundTask`), không
+ghi vào thư mục dữ liệu chính.
+
+### Đồng bộ máy chủ phụ chạy nền (Giai đoạn 7)
+
+`webapp/scheduler.py` dùng `APScheduler` (`BackgroundScheduler`), khởi động/tắt qua `lifespan`
+của `webapp/main.py` — thay hẳn kiểu `QTimer` (`MainWindow.run_auto_secondary_sync`) của desktop
+cũ, chạy trong tiến trình Uvicorn nên không phụ thuộc có ai mở trình duyệt. Chống chạy chồng lấp
+bằng `threading.Lock` không chặn (`_run_lock`), dùng chung cho cả tác vụ định kỳ lẫn nút "Đồng
+bộ ngay" trên dashboard — idempotent, bỏ qua im lặng thay vì xếp hàng nếu đang có lần chạy khác.
+Đổi `secondary_sync_interval_minutes` (5-180 phút) cần khởi động lại tiến trình mới có hiệu lực
+(APScheduler không tự reschedule job đang chạy).
+
+### Windows Service + cấu hình triển khai (Giai đoạn 8)
+
+`service_windows.py`: `run_server()` là phần lõi chạy Uvicorn, dùng chung cho cả `SvcDoRun` (chạy
+như dịch vụ thật qua `win32serviceutil.ServiceFramework`) lẫn lệnh `run` (chạy tay) — đảm bảo 2
+đường chạy không lệch hành vi. Khi chạy như dịch vụ thật (mọi lệnh trừ `run`), mặc định thư mục
+dữ liệu là `C:\ProgramData\CDC Hai Phong\GiamSatDichBenh` (khác `%LOCALAPPDATA%` của app desktop
+— ProgramData không gắn với 1 tài khoản Windows cụ thể, phù hợp tiến trình dịch vụ) — đặt qua
+biến môi trường `GIAM_SAT_DICH_BENH_DATA_DIR` **trước khi** `deployment_config`/`core` được
+import lần đầu (các module đó tính đường dẫn ngay lúc import), nên `deployment_config` import
+cục bộ trong `run_server()`, không import ở đầu file. `webapp/routers/settings.py`
+(`/cdc/cau-hinh`, chỉ super_admin): cổng/địa chỉ, tên miền công khai, khoá GAS, máy chủ phụ, thư
+mục sao lưu — khoá bí mật (GAS API key, khoá máy chủ phụ) **không bao giờ hiện lại giá trị thật
+lên trang** (ô mật khẩu trống; để trống khi lưu = giữ nguyên giá trị cũ). Nút "Khởi động lại dịch
+vụ" gọi `service_windows.restart_service()` (Win32 Service Control Manager thật), báo lỗi rõ
+ràng khi chưa cài đặt/thiếu quyền Administrator thay vì giả vờ thành công.
+
+### Installer (Giai đoạn 9-10)
+
+`setup-webapp-server.iss` — bộ cài **duy nhất** `CDC-GiamSatDichBenh-Server-Setup-v{version}.exe`,
+`PrivilegesRequired=admin` (khác 3 bộ cài desktop, đều `lowest`) vì phải đăng ký dịch vụ Windows.
+Wizard chỉ hỏi **đúng 1 câu** (cổng lắng nghe) — không hỏi tài khoản/GAS/đồng bộ/thư mục sao lưu
+như installer desktop cũ, vì những cái đó nay cấu hình qua trình duyệt sau khi cài
+(`/cdc/setup`, `/cdc/cau-hinh`). Dừng+gỡ dịch vụ cũ TRƯỚC khi copy file (`PrepareToInstall`,
+tránh lỗi file bị khoá lúc nâng cấp); ghi `deployment.json` vào ProgramData CHỈ khi máy chưa
+từng cài (giữ nguyên cấu hình/khoá bí mật khi nâng cấp). `build.bat` build `service_windows.py`
+bằng PyInstaller riêng (`--console`, loại trừ `PyQt5`/`PyQt6` — máy build có cả 2 khiến
+PyInstaller từ chối build vì xung đột Qt binding, dù webapp/ không dùng Qt). CI
+(`.github/workflows/release.yml`) có bước cài đặt/khởi động/gỡ cài **thật** trên `windows-latest`
+(có quyền Administrator, khác sandbox phát triển) để xác nhận dịch vụ Windows hoạt động đúng
+trước khi phát hành.
+
+**Chưa kiểm thử được trên máy Windows thật có quyền Administrator** (chỉ kiểm thử được trong
+sandbox phát triển không có quyền này, cộng với CI trên `windows-latest`) — nên `app.py`/
+`lan_server.py`/`setup.iss`/`setup-server.iss`/`setup-admin.iss` vẫn giữ nguyên cho tới khi có
+người xác nhận cài Web App thành công trên máy CDC thật.
 
 ## Mô hình dữ liệu
 
@@ -257,8 +344,11 @@ luôn đảm bảo đã đặt mật khẩu trước khi bật.
 
 ```bat
 python -m pytest -q          REM chạy toàn bộ test (tests/)
-build.bat                     REM build bằng PyInstaller + Inno Setup
+build.bat                     REM build 2 lần bằng PyInstaller (app.py + service_windows.py)
+                               REM + Inno Setup (4 bộ cài: 3 desktop cũ + webapp mới)
 ```
 
 `.github/workflows/release.yml` build/test trên Windows khi push `main` hoặc tạo tag, quét
-chặn dữ liệu cấm (`.db`, Excel, CSV...) lọt vào release; PR chỉ build/test, không tạo Release.
+chặn dữ liệu cấm (`.db`, Excel, CSV...) lọt vào release, **cài đặt/khởi động/gỡ cài đặt thật**
+bộ cài Web App trên runner (có quyền Administrator — bù đắp phần sandbox phát triển không kiểm
+thử được, xem TASKS.md Giai đoạn 10); PR chỉ build/test, không tạo Release.

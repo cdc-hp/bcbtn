@@ -1,11 +1,29 @@
-# Ứng dụng Giám sát dịch bệnh — phiên bản 0.6.0
+# Ứng dụng Giám sát dịch bệnh — phiên bản 0.10.1
 
-Ứng dụng desktop Windows dùng **Python + SQLite + PyQt6** để quản lý ca bệnh, ổ dịch, lọc trùng và chia sẻ dữ liệu trong mạng LAN.
+Quản lý ca bệnh, ổ dịch, lọc trùng và chia sẻ dữ liệu — CDC Hải Phòng. Hiện có **2 kiến trúc chạy
+song song** trong lúc chuyển đổi (xem [`TASKS.md`](TASKS.md) mục "Đang làm"):
+
+- **Web App tập trung** (mới, khuyến nghị cho triển khai thật) — 1 máy chủ duy nhất chạy dịch vụ
+  Windows (FastAPI/Uvicorn), quản trị hoàn toàn qua trình duyệt. Xem mục "Web App tập trung" bên
+  dưới.
+- **Desktop (PyQt6)** — ứng dụng cài trên từng máy (máy đơn lẻ/máy trạm/máy chủ LAN), vẫn hoạt
+  động bình thường, giữ nguyên cho tới khi Web App được xác nhận thay thế đủ chức năng trên máy
+  thật. Phần còn lại của tài liệu này mô tả bản desktop.
 
 Kiến trúc đầy đủ, schema CSDL, vận hành Google Apps Script: xem [`CLAUDE.md`](CLAUDE.md).
 Việc còn lại/backlog: xem [`TASKS.md`](TASKS.md).
 
-## Cài đặt
+## Web App tập trung (mới)
+
+1 bản cài duy nhất: **`CDC-GiamSatDichBenh-Server-Setup-vX.Y.Z.exe`** (GitHub Releases) — cài
+như dịch vụ Windows (`CDCGiamSatDichBenh`), cần quyền Administrator. Sau khi cài, mở
+`http://127.0.0.1:<cổng>/cdc/login` (mặc định cổng `8765`, hoặc qua tên miền công khai nếu đã
+cấu hình Cloudflare Tunnel) — không cần cài gì thêm trên máy trạm quản trị viên.
+
+Hướng dẫn chi tiết: [`docs/huong-dan/6-may-chu-web-tap-trung.html`](docs/huong-dan/6-may-chu-web-tap-trung.html).
+Kiến trúc/route/vai trò tài khoản: xem `CLAUDE.md` mục "Web App tập trung (`webapp/`)".
+
+## Cài đặt (bản desktop)
 
 3 bản cài trong GitHub Releases, dùng chung 1 ứng dụng — chỉ khác cấu hình mặc định do installer ghi ra. Người dùng không cần cài Python hoặc tự build.
 
@@ -68,10 +86,13 @@ GitHub Actions từ chối phát hành nếu phát hiện `.db`, SQLite, Excel, 
 
 ## Phát hành
 
-Workflow `.github/workflows/release.yml` chạy kiểm thử trên Windows, build bằng PyInstaller, tạo Setup bằng Inno Setup, quét dữ liệu cấm và sinh:
+Workflow `.github/workflows/release.yml` chạy kiểm thử trên Windows, build bằng PyInstaller, tạo Setup bằng Inno Setup, quét dữ liệu cấm, xác nhận Web App cài đặt/chạy được như dịch vụ Windows thật, và sinh:
 
-- `GiamSatDichBenh-Setup-vX.Y.Z.exe`
-- `GiamSatDichBenh-Portable-vX.Y.Z.zip`
+- `CDC-GiamSatDichBenh-Server-Setup-vX.Y.Z.exe` (Web App tập trung, mới)
+- `GiamSatDichBenh-Setup-vX.Y.Z.exe` (desktop, tổng hợp 3 chế độ)
+- `GiamSatDichBenh-Server-Setup-vX.Y.Z.exe` (desktop, chế độ Máy chủ)
+- `GiamSatDichBenh-Admin-Setup-vX.Y.Z.exe` (desktop, chế độ Máy trạm)
+- `GiamSatDichBenh-Portable-vX.Y.Z.zip` (desktop, không cần cài)
 - `SHA256SUMS.txt`
 
 Pull request chỉ build/test và tải artifact; chỉ push vào `main` hoặc chạy workflow thủ công mới tạo GitHub Release.

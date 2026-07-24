@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Hướng dẫn cài đặt & vận hành Web App tập trung</title>
+<style>
+  @page { size: A4; margin: 20mm 18mm; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: #1f2937; line-height: 1.5; font-size: 12.5px; }
+  .cover { text-align: center; padding-top: 60mm; page-break-after: always; }
+  .cover .badge { display: inline-block; background: #1e3a8a; color: #fff; padding: 6px 16px; border-radius: 20px; font-size: 13px; letter-spacing: 0.5px; }
+  .cover h1 { font-size: 26px; margin-top: 24px; color: #1e3a8a; }
+  .cover p.subtitle { font-size: 14px; color: #64748b; margin-top: 8px; }
+  h2 { color: #1e3a8a; border-bottom: 2px solid #dbeafe; padding-bottom: 4px; margin-top: 28px; font-size: 17px; }
+  h3 { color: #1e40af; font-size: 14px; margin-top: 18px; }
+  .step { display: flex; gap: 12px; margin: 14px 0; }
+  .step .num { flex: 0 0 26px; height: 26px; border-radius: 50%; background: #2563eb; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
+  .step .content { flex: 1; }
+  code, .mono { font-family: Consolas, "Courier New", monospace; background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+  .box { border-radius: 8px; padding: 10px 14px; margin: 14px 0; }
+  .box.info { background: #eff6ff; border-left: 4px solid #2563eb; }
+  .box.warn { background: #fef2f2; border-left: 4px solid #dc2626; }
+  .box.tip { background: #f0fdf4; border-left: 4px solid #16a34a; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 11.5px; }
+  th, td { border: 1px solid #e2e8f0; padding: 5px 8px; text-align: left; }
+  th { background: #f8fafc; }
+  .footer-note { margin-top: 40px; font-size: 10.5px; color: #94a3b8; }
+  ul { margin: 6px 0; padding-left: 20px; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <span class="badge">CDC HẢI PHÒNG</span>
+  <h1>Hướng dẫn cài đặt &amp; vận hành Web App tập trung</h1>
+  <p class="subtitle">Bản release: CDC-GiamSatDichBenh-Server-Setup-vX.Y.Z.exe</p>
+  <p class="subtitle">Tài liệu 6/6 — Ứng dụng Giám sát dịch bệnh (kiến trúc Web App tập trung)</p>
+</div>
+
+<div class="box info">
+  Tài liệu này dành cho phiên bản <b>Web App tập trung</b> — thay thế mô hình cũ "máy chủ LAN + máy trạm quản trị riêng" (Tài liệu 2/5 và 3/5). Từ nay chỉ cần cài <b>đúng 1 lần trên 1 máy chủ</b>; mọi quản trị viên thao tác qua <b>trình duyệt</b> (Chrome/Edge), không cần cài gì trên máy trạm.
+</div>
+
+<h2>1. Trước khi cài đặt</h2>
+<ul>
+  <li>Máy tính chạy Windows 10/11 hoặc Windows Server, luôn bật (đóng vai trò máy chủ dịch vụ Windows chạy nền).</li>
+  <li>Cần quyền <b>Administrator</b> để cài đặt (khác các bản cài desktop cũ, chỉ cần quyền người dùng thường).</li>
+  <li>Muốn truy cập từ Internet (xã/phường nộp dữ liệu, quản trị viên làm việc từ xa) cần thêm <b>Cloudflare Tunnel</b> hoặc reverse proxy trỏ vào máy này — xem ghi chú ở Mục 7.</li>
+</ul>
+
+<h2>2. Cài đặt</h2>
+<div class="step"><div class="num">1</div><div class="content">Tải <span class="mono">CDC-GiamSatDichBenh-Server-Setup-vX.Y.Z.exe</span> từ GitHub Releases của repo <span class="mono">cdc-hp/bcbtn</span>.</div></div>
+<div class="step"><div class="num">2</div><div class="content">Chạy file cài đặt — Windows sẽ hỏi xác nhận quyền Administrator (UAC), bấm Có/Yes.</div></div>
+<div class="step"><div class="num">3</div><div class="content">Màn hình duy nhất của wizard hỏi <b>Cổng lắng nghe</b> (mặc định <span class="mono">8765</span>) — giữ nguyên nếu không chắc, chỉ đổi khi cổng này đang bị phần mềm khác dùng.</div></div>
+<div class="step"><div class="num">4</div><div class="content">Bộ cài tự động: đăng ký &amp; khởi động dịch vụ Windows tên <span class="mono">CDCGiamSatDichBenh</span>, mở quy tắc tường lửa cho cổng đã chọn (mạng Riêng tư/Miền), rồi mở trình duyệt tới <span class="mono">http://127.0.0.1:8765/cdc/login</span>.</div></div>
+<div class="box tip">Không còn màn hình "tài khoản/GAS/đồng bộ/thư mục sao lưu" như bộ cài cũ — toàn bộ cấu hình đó làm SAU khi cài, qua trình duyệt (Mục 3 và 4).</div>
+
+<h2>3. Thiết lập lần đầu</h2>
+<div class="step"><div class="num">1</div><div class="content">Lần đầu mở <span class="mono">/cdc/login</span>, hệ thống tự chuyển tới <span class="mono">/cdc/setup</span> vì chưa có tài khoản nào — tạo tài khoản <b>super_admin</b> đầu tiên (tên đăng nhập, mật khẩu tối thiểu 8 ký tự).</div></div>
+<div class="step"><div class="num">2</div><div class="content">Đăng nhập bằng tài khoản vừa tạo.</div></div>
+<div class="step"><div class="num">3</div><div class="content">Vào trang <b>Cấu hình</b> (menu trên cùng, chỉ super_admin thấy) để nhập: tên miền công khai (nếu dùng Cloudflare Tunnel), khoá API cho Google Apps Script, địa chỉ/khoá máy chủ phụ, chu kỳ đồng bộ, thư mục sao lưu.</div></div>
+<div class="box warn">Khoá API/khoá máy chủ phụ nhập ở trang Cấu hình sẽ KHÔNG hiện lại giá trị thật ở lần xem sau (chỉ hiện ô trống) — đây là chủ ý bảo mật, không phải lỗi. Để trống khi lưu nghĩa là giữ nguyên giá trị đã có.</div>
+
+<h2>4. Vai trò tài khoản</h2>
+<table>
+  <tr><th>Vai trò</th><th>Quyền chính</th></tr>
+  <tr><td><b>super_admin</b></td><td>Toàn quyền — kể cả quản lý tài khoản, cấu hình triển khai, phục hồi sao lưu.</td></tr>
+  <tr><td><b>admin</b></td><td>Nhập/xoá hàng đợi, lọc trùng, xuất dữ liệu, xem nhật ký, tạo sao lưu (không quản lý tài khoản/phục hồi/cấu hình).</td></tr>
+  <tr><td><b>data_operator</b></td><td>Nhập liệu: nhập hàng đợi, lọc trùng, xuất dữ liệu, đồng bộ máy chủ phụ.</td></tr>
+  <tr><td><b>viewer</b></td><td>Chỉ xem — dashboard, danh sách/chi tiết ca bệnh &amp; ổ dịch, hàng đợi, kết quả lọc trùng. Không xuất dữ liệu hàng loạt (dữ liệu có CCCD/SĐT).</td></tr>
+</table>
+<p>Tạo/khoá/đổi vai trò/đặt lại mật khẩu tài khoản tại trang <b>Tài khoản</b> (chỉ super_admin).</p>
+
+<h2>5. Các màn hình chính</h2>
+<ul>
+  <li><b>Dashboard</b> — tổng số ca bệnh/ổ dịch, hàng đợi chờ/lỗi, xã đã nộp tuần này, nhóm nghi trùng, trạng thái đồng bộ máy chủ phụ (có nút "Đồng bộ ngay").</li>
+  <li><b>Hàng đợi</b> — file xã/phường nộp lên, chờ nhập vào CSDL chính; nhập một/nhiều, nhập lại mục lỗi, xoá.</li>
+  <li><b>Ca bệnh / Ổ dịch</b> — tìm kiếm, lọc, xem chi tiết, xem cảnh báo chất lượng dữ liệu.</li>
+  <li><b>Lọc trùng</b> — quét/duyệt/hợp nhất bản ghi trùng, thùng rác có thể khôi phục, cấu hình tiêu chí.</li>
+  <li><b>Xuất dữ liệu</b> — xuất Excel/CSV theo bộ lọc, xuất ca bệnh chia theo xã (gửi các xã tự lọc trùng).</li>
+  <li><b>Nhật ký</b> — lịch sử thao tác (ai, làm gì, từ IP nào, khi nào) — chỉ super_admin/admin.</li>
+  <li><b>Sao lưu</b> — xem/tạo bản sao lưu, phục hồi (chỉ super_admin do rủi ro ghi đè CSDL đang chạy).</li>
+</ul>
+
+<h2>6. Nộp dữ liệu từ xã/phường</h2>
+<p>Không đổi so với trước — xã/phường vẫn nộp qua trang web GAS/GitHub Pages hiện có (xem Tài liệu 1/5), gửi thẳng tới <span class="mono">POST /queue/submit</span> của máy chủ này. Không cần đổi gì phía Google Apps Script.</p>
+
+<h2>7. Ghi chú kỹ thuật</h2>
+<ul>
+  <li>Dịch vụ Windows tên <span class="mono">CDCGiamSatDichBenh</span> — xem/khởi động lại qua <span class="mono">services.msc</span> hoặc trang Cấu hình trong trình duyệt.</li>
+  <li>Dữ liệu (CSDL, hàng đợi, sao lưu) lưu tại <span class="mono">C:\ProgramData\CDC Hai Phong\GiamSatDichBenh\</span>.</li>
+  <li>Muốn truy cập từ Internet: cài <a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/">Cloudflare Tunnel</a> trên máy này, trỏ vào <span class="mono">http://127.0.0.1:&lt;cổng&gt;</span>, rồi điền tên miền vào trang Cấu hình.</li>
+  <li>Nâng cấp lên bản mới: chạy bộ cài mới đè lên — bộ cài tự dừng dịch vụ cũ, copy file mới, khởi động lại; cấu hình/dữ liệu hiện có được giữ nguyên.</li>
+  <li>Gỡ cài đặt: qua Control Panel &gt; Programs — dịch vụ được dừng và gỡ đăng ký tự động; <b>dữ liệu trong ProgramData KHÔNG bị xoá</b> (xoá tay nếu thật sự muốn).</li>
+</ul>
+
+<p class="footer-note">Ứng dụng Giám sát dịch bệnh — CDC Hải Phòng — Tài liệu 6/6</p>
+</body>
+</html>

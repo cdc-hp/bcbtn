@@ -188,12 +188,28 @@ lúc giao việc này — tóm tắt tiến độ theo 11 giai đoạn:
       việc này (không có quyền kích hoạt CI từ đây) — cần lần chạy CI thật tiếp theo (push/PR)
       để xác nhận bước cài đặt/gỡ cài mới hoạt động đúng trên `windows-latest`; nếu lỗi, đây sẽ
       là nơi đầu tiên cần xem log.
-- [ ] **Giai đoạn 11** — Hoàn thiện test + tài liệu (README/CLAUDE.md/hướng dẫn PDF theo kiến
-      trúc mới).
-
-**Chưa xoá** `app.py`/`setup.iss`/`setup-admin.iss`/`lan_server.py` — giữ nguyên hoạt động song
-song cho tới khi Web App thay thế đủ chức năng và được xác nhận dùng thật; dọn dẹp thuộc Giai
-đoạn 11.
+- [x] **Giai đoạn 11 (một phần)** — Cập nhật tài liệu: `README.md` thêm mục "Web App tập trung"
+      (cài đặt, link hướng dẫn) ngay đầu file, cập nhật danh sách file phát hành trong mục "Phát
+      hành"; `CLAUDE.md` viết lại toàn bộ mục "Web App tập trung" (trước đó chỉ có ghi chú của
+      Giai đoạn 2) — bảng route chính kèm phân quyền, tóm tắt Giai đoạn 5/7/8/9-10, cập nhật
+      "File chính" và "Build & test"; `docs/huong-dan/6-may-chu-web-tap-trung.html` mới (theo
+      đúng khuôn mẫu 5 tài liệu HTML/PDF sẵn có) — cài đặt, thiết lập lần đầu, vai trò tài khoản,
+      các màn hình chính, ghi chú kỹ thuật (chưa xuất PDF, cần người có công cụ in-ra-PDF làm
+      nốt bước đó như các tài liệu trước). 188/188 test pass (không có test mới ở phần này, chỉ
+      tài liệu).
+      **CHƯA làm — cố ý hoãn**:
+      - Bump `VERSION.txt` — việc này khiến `release.yml` tự tạo GitHub Release công khai kèm
+        tag ngay khi push (workflow trigger `push: branches: [main]`, so tag đã tồn tại chưa).
+        Chưa xác minh được cài đặt dịch vụ Windows thật trên máy có quyền Administrator (xem
+        Giai đoạn 8/9), nên chưa tự ý kích hoạt phát hành công khai — để CDC/người phụ trách
+        release tự bump khi đã sẵn sàng phát hành, sau khi xác nhận cài thật thành công.
+      - Xoá `app.py`/`lan_server.py`/`setup.iss`/`setup-server.iss`/`setup-admin.iss` — theo
+        đúng điều kiện đã ghi từ đầu nhiệm vụ này ("chưa xoá cho tới khi Web App thay thế đủ
+        chức năng VÀ được xác nhận dùng thật"), điều kiện đó chưa thoả (chưa có xác nhận cài đặt
+        dịch vụ Windows thật trên máy CDC). Giữ nguyên toàn bộ, chạy song song.
+      - Vẽ lại sơ đồ ASCII "Kiến trúc tổng thể" ở đầu `CLAUDE.md` — vẫn đúng cho luồng desktop cũ
+        (`lan_server.py`), chưa vẽ thêm nhánh Web App mới; mục "Web App tập trung" đã mô tả đủ
+        bằng văn bản nên không chặn việc dùng tài liệu, nhưng nên làm khi có dịp.
 
 ## Đã xong (tính đến v0.6.0)
 
