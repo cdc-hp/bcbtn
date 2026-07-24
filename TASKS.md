@@ -376,7 +376,11 @@ duy nhất trước đây để cân nhắc dọn dẹp `app.py`/`lan_server.py`
 đặt và dùng thử trên máy sản xuất trước khi xoá code cũ** — CI xác nhận "cài được, chạy được,
 gỡ được", không xác nhận "dùng đúng trong vận hành thật nhiều ngày liền".
 
-## Đã xong (tính đến v0.6.0)
+**Cập nhật — người dùng tự cài thử (2026-07-24)**: đã cài `CDC-GiamSatDichBenh-Server-Setup-
+v0.11.0.exe` trên máy thật, xác nhận **đăng nhập và tạo tài khoản ổn định** (luồng `/cdc/setup`
+→ `/cdc/login` hoạt động đúng ngoài CI). Chưa thử với dữ liệu thật (nhập ca bệnh/ổ dịch, lọc
+trùng, xuất dữ liệu, đồng bộ máy chủ phụ, GAS gửi thật) nên chưa coi là "đã xác nhận dùng thật"
+đầy đủ theo điều kiện đặt ra ban đầu — vẫn CHƯA xoá `app.py`/`lan_server.py`/`setup*.iss` cũ.
 
 1. Lọc trùng theo tiêu chí chọn (bỏ chấm điểm), hiển thị `case_code` gốc để tra ngược.
 2. Xuất Excel chia theo xã (mỗi xã 1 sheet + sheet `Tong_hop`), quy tắc chọn xã khi trùng khác
