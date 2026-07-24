@@ -171,7 +171,23 @@ lúc giao việc này — tóm tắt tiến độ theo 11 giai đoạn:
       Administrator, và xác nhận dịch vụ khởi động đúng + `/cdc/login` mở được — việc này sẽ được
       CI (Giai đoạn 10, chạy trên `windows-latest` có đủ điều kiện) thực hiện thay, nhưng vẫn nên
       có người xác nhận cài thật trên máy CDC trước khi phát hành chính thức.
-- [ ] **Giai đoạn 10** — Cập nhật `.github/workflows/release.yml` cho bộ cài mới.
+- [x] **Giai đoạn 10** — `.github/workflows/release.yml`: thêm
+      `CDC-GiamSatDichBenh-Server-Setup-v{version}.exe` vào danh sách file kiểm tra checksum, tạo
+      GitHub Release, và upload artifact (song song 3 bộ cài desktop cũ, không thay thế —
+      `build.bat` đã tự build cả 4 trong 1 lần chạy từ Giai đoạn 9, workflow chỉ cần biết tên
+      file mới). Quan trọng hơn: thêm bước **"Verify Web App installs and runs as a Windows
+      Service"** — bù đắp đúng phần KHÔNG kiểm thử được ở Giai đoạn 8/9 do sandbox phát triển
+      thiếu quyền Administrator. `windows-latest` chạy với quyền Administrator sẵn có nên bước
+      này làm được điều sandbox không làm được: chạy silent-install bộ cài thật vừa build
+      (`/VERYSILENT /SUPPRESSMSGBOXES`), xác nhận dịch vụ `CDCGiamSatDichBenh` vào trạng thái
+      `Running`, gọi thật `GET /health` xác nhận trả `"status":"ok"`, rồi chạy file gỡ cài đặt
+      thật do Inno Setup sinh ra (`unins000.exe`, đúng `[UninstallRun]` — không tự gọi
+      `stop`/`remove` tay) và xác nhận dịch vụ đã biến mất khỏi SCM. Build thất bại rõ ràng
+      (`throw`) nếu bất kỳ bước nào sai, không chỉ log cảnh báo rồi bỏ qua.
+      **CHƯA kiểm thử**: chưa chạy được workflow này trên GitHub Actions thật trong phiên làm
+      việc này (không có quyền kích hoạt CI từ đây) — cần lần chạy CI thật tiếp theo (push/PR)
+      để xác nhận bước cài đặt/gỡ cài mới hoạt động đúng trên `windows-latest`; nếu lỗi, đây sẽ
+      là nơi đầu tiên cần xem log.
 - [ ] **Giai đoạn 11** — Hoàn thiện test + tài liệu (README/CLAUDE.md/hướng dẫn PDF theo kiến
       trúc mới).
 

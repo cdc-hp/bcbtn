@@ -94,11 +94,50 @@ jobs:
         shell: cmd
         run: build.bat
 
+      - name: Verify Web App installs and runs as a Windows Service
+        # windows-latest chạy với quyền Administrator — kiểm thử được đúng phần sandbox phát
+        # triển KHÔNG làm được (xem TASKS.md Giai đoạn 8/9): cài thật bằng installer đã build,
+        # xác nhận dịch vụ Windows thật sự chạy + trả lời HTTP, rồi gỡ đăng ký sạch sẽ.
+        if: github.event_name == 'pull_request' || steps.version.outputs.release_exists != 'true'
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $installer = "setup_output/CDC-GiamSatDichBenh-Server-Setup-v$version.exe"
+          $installDir = "$env:ProgramFiles\CDC-GiamSatDichBenh"
+
+          Start-Process -FilePath $installer -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait
+
+          $service = Get-Service -Name CDCGiamSatDichBenh -ErrorAction SilentlyContinue
+          if (-not $service -or $service.Status -ne 'Running') {
+            Start-Sleep -Seconds 5
+            $service = Get-Service -Name CDCGiamSatDichBenh -ErrorAction Stop
+          }
+          if ($service.Status -ne 'Running') {
+            throw "Dich vu CDCGiamSatDichBenh khong o trang thai Running: $($service.Status)"
+          }
+
+          $health = Invoke-RestMethod -Uri 'http://127.0.0.1:8765/health' -TimeoutSec 15
+          if ($health.status -ne 'ok') {
+            throw "Health check khong hop le: $($health | ConvertTo-Json -Compress)"
+          }
+          Write-Host "Da xac nhan dich vu Windows chay dung: $($health | ConvertTo-Json -Compress)"
+
+          # Dung bo go cai THAT do Inno Setup sinh ra (khong tu goi stop/remove tay) de kiem thu
+          # dung [UninstallRun] nhu trai nghiem that cua CDC khi go cai qua Control Panel.
+          $uninstaller = Get-ChildItem -Path $installDir -Filter 'unins*.exe' | Select-Object -First 1
+          if (-not $uninstaller) { throw "Khong tim thay file go cai trong $installDir" }
+          Start-Process -FilePath $uninstaller.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+          Start-Sleep -Seconds 2
+          if (Get-Service -Name CDCGiamSatDichBenh -ErrorAction SilentlyContinue) {
+            throw "Dich vu CDCGiamSatDichBenh van con sau khi go dang ky."
+          }
+          Write-Host "Da xac nhan go dang ky dich vu thanh cong."
+
       - name: Verify build contains no user data
         if: github.event_name == 'pull_request' || steps.version.outputs.release_exists != 'true'
         shell: pwsh
         run: |
-          $forbidden = Get-ChildItem dist,setup_output -Recurse -File -ErrorAction SilentlyContinue | Where-Object {
+          $forbidden = Get-ChildItem dist,dist_cdc_service,setup_output -Recurse -File -ErrorAction SilentlyContinue | Where-Object {
             $_.Extension.ToLower() -in '.db','.sqlite','.sqlite3','.xlsx','.xls','.xlsm','.csv'
           }
           if ($forbidden) {
@@ -122,6 +161,7 @@ jobs:
             "setup_output/GiamSatDichBenh-Setup-v$version.exe",
             "setup_output/GiamSatDichBenh-Server-Setup-v$version.exe",
             "setup_output/GiamSatDichBenh-Admin-Setup-v$version.exe",
+            "setup_output/CDC-GiamSatDichBenh-Server-Setup-v$version.exe",
             "GiamSatDichBenh-Portable-v$version.zip"
           )
           foreach ($file in $files) { if (-not (Test-Path $file)) { throw "Missing release file: $file" } }
@@ -147,6 +187,7 @@ jobs:
             "setup_output/GiamSatDichBenh-Setup-v$version.exe" `
             "setup_output/GiamSatDichBenh-Server-Setup-v$version.exe" `
             "setup_output/GiamSatDichBenh-Admin-Setup-v$version.exe" `
+            "setup_output/CDC-GiamSatDichBenh-Server-Setup-v$version.exe" `
             "GiamSatDichBenh-Portable-v$version.zip" `
             "SHA256SUMS.txt" `
             --title "Giám sát dịch bệnh $tag" `
@@ -161,5 +202,6 @@ jobs:
             setup_output/GiamSatDichBenh-Setup-v${{ steps.version.outputs.version }}.exe
             setup_output/GiamSatDichBenh-Server-Setup-v${{ steps.version.outputs.version }}.exe
             setup_output/GiamSatDichBenh-Admin-Setup-v${{ steps.version.outputs.version }}.exe
+            setup_output/CDC-GiamSatDichBenh-Server-Setup-v${{ steps.version.outputs.version }}.exe
             GiamSatDichBenh-Portable-v${{ steps.version.outputs.version }}.zip
             SHA256SUMS.txt
