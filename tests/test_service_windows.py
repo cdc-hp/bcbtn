@@ -107,6 +107,7 @@ def test_run_server_reads_host_port_from_config(monkeypatch, tmp_path):
         def __init__(self, config):
             captured["host"] = config.host
             captured["port"] = config.port
+            captured["log_config"] = config.log_config
             self.should_exit = False
 
         def run(self):
@@ -118,4 +119,35 @@ def test_run_server_reads_host_port_from_config(monkeypatch, tmp_path):
     service_windows.run_server()
     assert captured["host"] == "127.0.0.1"
     assert captured["port"] == 19999
+    assert captured["ran"] is True
+    assert captured["log_config"] == uvicorn.config.LOGGING_CONFIG
+
+
+def test_run_server_disables_log_config_when_hosted_as_service(monkeypatch, tmp_path):
+    """Lỗi thật đã gặp: uvicorn.Config.__init__ tự gọi configure_logging() dựng formatter tô
+    màu console ngay trong constructor — dịch vụ Windows không có console thật (SCM không cấp
+    console cho tiến trình dịch vụ), ném ValueError("Unable to configure formatter 'default'")
+    và làm SvcDoRun() thất bại trước khi kịp mở cổng lắng nghe. log_config=None phải được truyền
+    khi chạy như dịch vụ thật (tham số `service` khác None) để tránh lỗi này."""
+    import deployment_config
+
+    monkeypatch.setattr(deployment_config, "CONFIG_PATH", tmp_path / "deployment.json")
+
+    captured = {}
+
+    class FakeServer:
+        def __init__(self, config):
+            captured["log_config"] = config.log_config
+            self.should_exit = False
+
+        def run(self):
+            captured["ran"] = True
+
+    import types
+
+    import uvicorn
+    monkeypatch.setattr(uvicorn, "Server", FakeServer)
+
+    service_windows.run_server(service=types.SimpleNamespace())
+    assert captured["log_config"] is None
     assert captured["ran"] is True

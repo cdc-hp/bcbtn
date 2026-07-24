@@ -46,7 +46,16 @@ DEFAULT_SERVICE_DATA_DIR = r"C:\ProgramData\CDC Hai Phong\GiamSatDichBenh"
 def run_server(service: Any = None) -> None:
     """Khởi chạy Uvicorn phục vụ `webapp.main:app` theo cấu hình hiện tại (server_host/
     server_port trong deployment_config.py); trả về khi `server.should_exit` được đặt (do
-    `service.SvcStop()` gọi, hoặc Ctrl+C ở chế độ chạy tay)."""
+    `service.SvcStop()` gọi, hoặc Ctrl+C ở chế độ chạy tay).
+
+    Khi chạy dưới dạng dịch vụ Windows thật (`service` khác None), tiến trình KHÔNG có console
+    (SCM không cấp console cho tiến trình dịch vụ) — `uvicorn.Config.__init__` mặc định tự gọi
+    `configure_logging()` dựng formatter tô màu console ngay trong constructor, ném
+    `ValueError: Unable to configure formatter 'default'` khi không có console thật (lỗi thật
+    gặp phải, xem TASKS.md) và làm cả `SvcDoRun()` thất bại NGAY TRƯỚC KHI kịp mở cổng lắng
+    nghe. `log_config=None` tắt hẳn bước này khi làm dịch vụ — không mất gì vì dù sao cũng không
+    có console nào để hiện log tô màu; chế độ `run` (chạy tay, có console thật) vẫn giữ log đẹp
+    như cũ."""
     import uvicorn
 
     import deployment_config
@@ -54,7 +63,7 @@ def run_server(service: Any = None) -> None:
     config = deployment_config.load_config()
     uv_config = uvicorn.Config(
         "webapp.main:app", host=config.server_host or "0.0.0.0", port=int(config.server_port or 8765),
-        log_level="info",
+        log_level="info", log_config=None if service is not None else uvicorn.config.LOGGING_CONFIG,
     )
     server = uvicorn.Server(uv_config)
     if service is not None:

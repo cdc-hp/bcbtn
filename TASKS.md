@@ -324,6 +324,37 @@ kiểm tra đầu tiên nên KHÔNG chờ thêm chút nào trước khi gọi `/
 cần thêm vài trăm mili-giây để thật sự bind cổng. Sửa: đổi từ gọi `/health` đúng 1 lần sang dò
 lặp lại tối đa 10 lần (mỗi lần cách nhau 2 giây) trước khi báo lỗi.
 
+### Bổ sung lần 5 — lỗi thứ 6: giả thuyết "dò quá sớm" ở trên SAI, còn 1 lỗi thật khác
+
+Sau khi thêm vòng lặp dò `/health` 10 lần/20s, **vẫn thất bại** — không phải vấn đề thời gian
+như đoán. Mở rộng chẩn đoán CI (gộp thành hàm dùng chung, gọi ở CẢ 2 nhánh thất bại thay vì chỉ
+nhánh "chưa Running") mới lộ ra: dịch vụ thật ra đã **crash ngay và về `Stopped`** trong lúc
+script đang dò — Event Log cho traceback chính xác:
+
+```
+File "service_windows.py", line 154, in SvcDoRun
+File "service_windows.py", line 55, in run_server
+File "uvicorn\config.py", line 296, in __init__
+  self.configure_logging()
+File "uvicorn\config.py", line 391, in configure_logging
+  logging.config.dictConfig(self.log_config)
+ValueError: Unable to configure formatter 'default'
+```
+
+`uvicorn.Config.__init__` tự gọi `configure_logging()` ngay trong constructor, dựng formatter
+tô màu cho console (`uvicorn.logging.DefaultFormatter`, handler trỏ `ext://sys.stderr`) — dịch
+vụ Windows không có console thật (SCM không cấp console cho tiến trình dịch vụ, `sys.stderr` có
+thể là `None`), khiến bước dựng formatter ném lỗi và làm cả `SvcDoRun()` thất bại TRƯỚC KHI kịp
+gọi `server.run()`/mở cổng lắng nghe — khớp hoàn toàn với "Running" thoáng qua rồi "actively
+refused" quan sát được ở lần trước.
+
+Sửa: `run_server()` giờ truyền `log_config=None` cho `uvicorn.Config` khi tham số `service`
+khác `None` (đang chạy như dịch vụ thật) — tắt hẳn bước dựng formatter console, không mất gì vì
+dù sao cũng không có console nào để hiện log tô màu. Chế độ `run` (chạy tay, có console thật)
+giữ nguyên `log_config` mặc định của uvicorn như cũ (xác nhận bằng test:
+`uvicorn.config.LOGGING_CONFIG` — đúng giá trị mặc định thật của `uvicorn.Config`, không phải
+suy đoán). Thêm 2 test hồi quy trong `tests/test_service_windows.py`.
+
 ## Đã xong (tính đến v0.6.0)
 
 1. Lọc trùng theo tiêu chí chọn (bỏ chấm điểm), hiển thị `case_code` gốc để tra ngược.
