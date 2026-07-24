@@ -312,6 +312,18 @@ Service" (Giai đoạn 10) — ĐẶC BIỆT là phần chẩn đoán bổ sung 
 — chứng minh giá trị ngay trong lần phát hành đầu tiên: không có nó, mỗi lần thất bại sẽ phải
 đoán mù, tốn nhiều vòng lặp CI hơn nữa mới tìm ra nguyên nhân thật.
 
+### Bổ sung lần 4 — lỗi thứ 5: dò `/health` quá sớm (lỗi ở SCRIPT CI, không phải ứng dụng)
+
+Sau khi sửa lỗi thứ 4, lần chạy lại tiếp theo **KHÔNG còn báo dịch vụ `Stopped` nữa** — dịch vụ
+đã vào đúng trạng thái `Running` (xác nhận cả 4 lần sửa ở trên đều đúng). Bước tiếp theo (gọi
+`GET /health`) mới báo lỗi: `Invoke-RestMethod: No connection could be made because the target
+machine actively refused it.` — đây là lỗi ở SCRIPT KIỂM THỬ CI, không phải ứng dụng: Windows
+SCM báo dịch vụ "Running" ngay khi `SvcDoRun()` bắt đầu chạy (không đợi `run_server()` bên
+trong thật sự mở xong cổng lắng nghe) — script CI dò `Get-Service` thấy `Running` ngay ở lần
+kiểm tra đầu tiên nên KHÔNG chờ thêm chút nào trước khi gọi `/health`, trong khi Uvicorn có thể
+cần thêm vài trăm mili-giây để thật sự bind cổng. Sửa: đổi từ gọi `/health` đúng 1 lần sang dò
+lặp lại tối đa 10 lần (mỗi lần cách nhau 2 giây) trước khi báo lỗi.
+
 ## Đã xong (tính đến v0.6.0)
 
 1. Lọc trùng theo tiêu chí chọn (bỏ chấm điểm), hiển thị `case_code` gốc để tra ngược.

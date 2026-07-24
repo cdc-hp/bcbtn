@@ -133,9 +133,21 @@ jobs:
             throw "Dich vu CDCGiamSatDichBenh khong o trang thai Running: $($service.Status)"
           }
 
-          $health = Invoke-RestMethod -Uri 'http://127.0.0.1:8765/health' -TimeoutSec 15
-          if ($health.status -ne 'ok') {
-            throw "Health check khong hop le: $($health | ConvertTo-Json -Compress)"
+          # SCM báo dịch vụ "Running" ngay khi SvcDoRun() bắt đầu chạy (trước khi uvicorn kịp mở
+          # cổng lắng nghe thật sự) — dò lặp lại vài lần thay vì gọi 1 lần duy nhất ngay sau khi
+          # thấy "Running", tránh lỗi "actively refused" do đến quá sớm (lỗi thật gặp phải: dịch
+          # vụ đã Running đúng nhưng health check đầu tiên vẫn bị từ chối kết nối).
+          $health = $null
+          for ($i = 0; $i -lt 10; $i++) {
+            try {
+              $health = Invoke-RestMethod -Uri 'http://127.0.0.1:8765/health' -TimeoutSec 5
+              break
+            } catch {
+              Start-Sleep -Seconds 2
+            }
+          }
+          if (-not $health -or $health.status -ne 'ok') {
+            throw "Health check khong hop le sau nhieu lan thu: $($health | ConvertTo-Json -Compress)"
           }
           Write-Host "Da xac nhan dich vu Windows chay dung: $($health | ConvertTo-Json -Compress)"
 
