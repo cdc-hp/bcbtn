@@ -105,17 +105,17 @@ jobs:
           $installer = "setup_output/CDC-GiamSatDichBenh-Server-Setup-v$version.exe"
           $installDir = "$env:ProgramFiles\CDC-GiamSatDichBenh"
 
-          Start-Process -FilePath $installer -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait
+          # Chẩn đoán dùng chung cho MỌI kiểu thất bại bên dưới (không chỉ "chưa Running" như
+          # trước — lần thất bại gần nhất là "Running nhưng /health không kết nối được", một
+          # nhánh TRƯỚC ĐÓ chưa từng in chẩn đoán gì): trạng thái dịch vụ hiện tại, cổng đang
+          # lắng nghe thật sự (netstat), Event Log, và tự chạy "run" trực tiếp để lộ lỗi Python.
+          function Write-CDCDiagnostics {
+            Write-Host "=== Trang thai dich vu hien tai ==="
+            Get-Service -Name CDCGiamSatDichBenh -ErrorAction SilentlyContinue | Format-List | Out-String | Write-Host
 
-          $service = Get-Service -Name CDCGiamSatDichBenh -ErrorAction SilentlyContinue
-          if (-not $service -or $service.Status -ne 'Running') {
-            Start-Sleep -Seconds 5
-            $service = Get-Service -Name CDCGiamSatDichBenh -ErrorAction Stop
-          }
-          if ($service.Status -ne 'Running') {
-            # Chẩn đoán trước khi báo lỗi: xem Event Log (pywin32/servicemanager thường ghi
-            # traceback lỗi khởi động vào đây) và tự chạy "run" (đường code giống hệt SvcDoRun,
-            # xem service_windows.py) để lộ ra lỗi Python thật thay vì chỉ biết "Stopped".
+            Write-Host "=== Cong dang lang nghe (netstat, loc 87xx) ==="
+            netstat -ano | Select-String ":87" | Out-String | Write-Host
+
             Write-Host "=== Application Event Log (nguồn CDCGiamSatDichBenh/Python Service/.NET Runtime) ==="
             Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=(Get-Date).AddMinutes(-10)} -ErrorAction SilentlyContinue |
               Where-Object { $_.ProviderName -match 'CDCGiamSatDichBenh|Python|Service Control Manager|\.NET' } |
@@ -129,7 +129,17 @@ jobs:
             if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
             Write-Host "--- stdout ---"; Get-Content $diagLog -ErrorAction SilentlyContinue | Write-Host
             Write-Host "--- stderr ---"; Get-Content "$diagLog.err" -ErrorAction SilentlyContinue | Write-Host
+          }
 
+          Start-Process -FilePath $installer -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait
+
+          $service = Get-Service -Name CDCGiamSatDichBenh -ErrorAction SilentlyContinue
+          if (-not $service -or $service.Status -ne 'Running') {
+            Start-Sleep -Seconds 5
+            $service = Get-Service -Name CDCGiamSatDichBenh -ErrorAction Stop
+          }
+          if ($service.Status -ne 'Running') {
+            Write-CDCDiagnostics
             throw "Dich vu CDCGiamSatDichBenh khong o trang thai Running: $($service.Status)"
           }
 
@@ -147,6 +157,7 @@ jobs:
             }
           }
           if (-not $health -or $health.status -ne 'ok') {
+            Write-CDCDiagnostics
             throw "Health check khong hop le sau nhieu lan thu: $($health | ConvertTo-Json -Compress)"
           }
           Write-Host "Da xac nhan dich vu Windows chay dung: $($health | ConvertTo-Json -Compress)"
