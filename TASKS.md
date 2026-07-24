@@ -244,6 +244,42 @@ Setup, thiếu quyền Administrator) không thể phát hiện:
 thư mục làm việc KHÔNG phải thư mục gốc mã nguồn — nếu không, lỗi đường dẫn tương đối sẽ ẩn đi
 một cách im lặng.
 
+### Bổ sung lần 2 — lỗi thứ 3, nghiêm trọng nhất: dùng sai API pywin32 để tự host dịch vụ
+
+Sửa lỗi đường dẫn tương đối ở trên KHÔNG đủ — CI thật chạy lại vẫn báo dịch vụ ở trạng thái
+`Stopped`. Đọc thẳng mã nguồn `win32serviceutil.py` (cài cùng pywin32 trong venv) để xác nhận
+thay vì đoán tiếp, tìm ra lỗi gốc thật sự: `service_windows.py`'s `__main__` gọi
+`win32serviceutil.HandleCommandLine(ServiceClass)` cho MỌI trường hợp không phải lệnh `run` —
+kể cả khi Windows SCM tự gọi lại exe đã đăng ký để THẬT SỰ chạy dịch vụ (lúc đó `sys.argv`
+không có tham số nào, chỉ có đường dẫn exe). Nhưng đọc mã nguồn pywin32:
+`HandleCommandLine`, khi `len(argv) <= 1`, chỉ gọi `usage()` rồi thoát — **không** tự suy ra
+"đang được SCM khởi động" như lầm tưởng ban đầu. `HandleCommandLine` CHỈ dành cho các lệnh gõ
+tay (install/start/stop/remove/debug), không phải cơ chế để 1 file exe tự host chính nó làm
+dịch vụ khi SCM gọi lại.
+
+Hệ quả quan sát được khớp hoàn toàn với lỗi này: SCM khởi động tiến trình dịch vụ đã đăng ký →
+tiến trình chỉ in usage() rồi thoát ngay lập tức, không làm gì cả → dịch vụ về trạng thái
+`Stopped` gần như ngay sau khi "khởi động".
+
+Cách đúng (xác nhận qua đọc mã nguồn `LocatePythonServiceExe`: khi `hasattr(sys, "frozen")`
+đúng — PyInstaller có đặt cờ này — hàm tự trả về `sys.executable`, tức là bộ cài ĐÃ đăng ký
+đúng exe đã đóng gói làm service binary, không phải `pythonservice.exe` như lo ngại ban đầu;
+vấn đề chỉ nằm ở phía gọi, không nằm ở phía đăng ký): `_resolve_cli_mode` giờ phân biệt 3
+trường hợp thay vì 2 — `"run"` (chạy tay phát triển), `"manage"` (có tham số dòng lệnh, đi qua
+`HandleCommandLine` như cũ), `"host"` (KHÔNG có tham số nào — đây mới đúng là lúc SCM tự gọi
+lại, phải gọi `servicemanager.Initialize()` + `servicemanager.PrepareToHostSingle(ServiceClass)`
++ `servicemanager.StartServiceCtrlDispatcher()` để thật sự bắt đầu vòng lặp dịch vụ). Cập nhật
+`tests/test_service_windows.py::test_resolve_cli_mode` theo 3 trường hợp mới.
+
+**Vì sao không tự kiểm thử được lỗi này trước khi phát hành**: `servicemanager.
+StartServiceCtrlDispatcher()` gọi ngoài ngữ cảnh 1 dịch vụ THẬT SỰ đang được SCM khởi động sẽ
+báo lỗi ngay (không có kênh điều khiển SCM thật để kết nối) — không thể mô phỏng bằng cách chạy
+tay trong sandbox dù có quyền Administrator hay không; chỉ có thể xác minh bằng cách cài đặt
+dịch vụ thật và để SCM thật sự khởi động nó, đúng như bước "Verify Web App installs and runs as
+a Windows Service" (Giai đoạn 10) đang làm trên CI. Đã tăng cường bước đó: khi dịch vụ không
+vào trạng thái Running, tự động in Event Log liên quan + chạy thử trực tiếp `CDCGiamSatDichBenh.exe run`
+để lộ lỗi Python thật, tránh phải đoán mù ở các lần thất bại sau (nếu có).
+
 ## Đã xong (tính đến v0.6.0)
 
 1. Lọc trùng theo tiêu chí chọn (bỏ chấm điểm), hiển thị `case_code` gốc để tra ngược.

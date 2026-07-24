@@ -113,6 +113,23 @@ jobs:
             $service = Get-Service -Name CDCGiamSatDichBenh -ErrorAction Stop
           }
           if ($service.Status -ne 'Running') {
+            # Chẩn đoán trước khi báo lỗi: xem Event Log (pywin32/servicemanager thường ghi
+            # traceback lỗi khởi động vào đây) và tự chạy "run" (đường code giống hệt SvcDoRun,
+            # xem service_windows.py) để lộ ra lỗi Python thật thay vì chỉ biết "Stopped".
+            Write-Host "=== Application Event Log (nguồn CDCGiamSatDichBenh/Python Service/.NET Runtime) ==="
+            Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=(Get-Date).AddMinutes(-10)} -ErrorAction SilentlyContinue |
+              Where-Object { $_.ProviderName -match 'CDCGiamSatDichBenh|Python|Service Control Manager|\.NET' } |
+              Select-Object -First 20 TimeCreated, ProviderName, Id, Message | Format-List | Out-String -Width 200 | Write-Host
+
+            Write-Host "=== Chạy trực tiếp 'CDCGiamSatDichBenh.exe run' để lộ lỗi Python thật ==="
+            $diagLog = "$env:RUNNER_TEMP\cdc_run_diag.log"
+            $proc = Start-Process -FilePath "$installDir\CDCGiamSatDichBenh.exe" -ArgumentList 'run' `
+              -RedirectStandardOutput $diagLog -RedirectStandardError "$diagLog.err" -PassThru -NoNewWindow
+            Start-Sleep -Seconds 6
+            if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+            Write-Host "--- stdout ---"; Get-Content $diagLog -ErrorAction SilentlyContinue | Write-Host
+            Write-Host "--- stderr ---"; Get-Content "$diagLog.err" -ErrorAction SilentlyContinue | Write-Host
+
             throw "Dich vu CDCGiamSatDichBenh khong o trang thai Running: $($service.Status)"
           }
 

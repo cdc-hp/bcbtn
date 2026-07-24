@@ -12,6 +12,9 @@ xin quyền nâng cao):
     python service_windows.py run       # giống debug nhưng KHÔNG qua khung dịch vụ (win32
                                          # serviceutil) — dùng khi phát triển/kiểm thử nhanh,
                                          # không cần đăng ký gì với Windows.
+    python service_windows.py           # KHÔNG gõ tay — đây là cách chính Windows SCM tự gọi
+                                         # lại exe đã đăng ký để thật sự chạy dịch vụ (xem
+                                         # `_resolve_cli_mode`, nhánh "host").
 
 `run_server()` là phần lõi thật sự chạy Uvicorn — dùng chung cho cả `SvcDoRun` (khi chạy như
 dịch vụ) lẫn lệnh `run` (khi chạy tay) để đảm bảo 2 đường chạy giống hệt nhau, không lệch hành vi
@@ -142,18 +145,41 @@ def _build_service_class():
 
 def _resolve_cli_mode(argv: list[str]) -> str:
     """"run" = chạy tay để phát triển/kiểm thử (giữ nguyên GIAM_SAT_DICH_BENH_DATA_DIR hiện có,
-    hoặc mặc định LOCALAPPDATA như trước) — bất kỳ lệnh nào khác (install/start/stop/remove/
-    debug, hoặc do SCM tự gọi lại khi thật sự khởi động dịch vụ) đều coi là "service", ép mặc
-    định thư mục dữ liệu sang ProgramData nếu chưa có override."""
-    return "run" if len(argv) > 1 and argv[1] == "run" else "service"
+    hoặc mặc định LOCALAPPDATA như trước). "manage" = lệnh gõ tay quản lý dịch vụ (install/
+    start/stop/remove/debug) — đi qua `win32serviceutil.HandleCommandLine`. "host" = KHÔNG có
+    tham số dòng lệnh nào — đây chính xác là cách Windows Service Control Manager (SCM) thật sự
+    khởi động tiến trình của 1 dịch vụ đã đăng ký (SCM gọi thẳng exe đã đăng ký, không truyền
+    "install"/"start"/gì cả).
+
+    LỖI THẬT đã gặp (xem TASKS.md): trước đây nhánh "host" gọi nhầm
+    `win32serviceutil.HandleCommandLine(ServiceClass)` — nhưng hàm đó khi nhận `len(argv) <= 1`
+    chỉ in usage() rồi thoát ngay, KHÔNG tự suy ra "đang được SCM khởi động" như tưởng nhầm.
+    Hệ quả: SCM khởi động tiến trình xong, tiến trình in usage rồi thoát ngay lập tức không làm
+    gì — dịch vụ báo cài đặt/khởi động "thành công" (SCM không thấy lỗi) nhưng chỉ giây sau lại
+    về trạng thái Stopped. Cách đúng để 1 exe tự host chính nó làm dịch vụ (không qua
+    `pythonservice.exe`) là gọi thẳng `servicemanager.PrepareToHostSingle()` +
+    `StartServiceCtrlDispatcher()` — xem nhánh "host" bên dưới."""
+    if len(argv) > 1 and argv[1] == "run":
+        return "run"
+    if len(argv) <= 1:
+        return "host"
+    return "manage"
 
 
 if __name__ == "__main__":
-    if _resolve_cli_mode(sys.argv) == "run":
+    _mode = _resolve_cli_mode(sys.argv)
+    if _mode == "run":
         run_server()
     else:
         os.environ.setdefault("GIAM_SAT_DICH_BENH_DATA_DIR", DEFAULT_SERVICE_DATA_DIR)
         ServiceClass = _build_service_class()
-        import win32serviceutil
+        if _mode == "host":
+            import servicemanager
 
-        win32serviceutil.HandleCommandLine(ServiceClass)
+            servicemanager.Initialize()
+            servicemanager.PrepareToHostSingle(ServiceClass)
+            servicemanager.StartServiceCtrlDispatcher()
+        else:
+            import win32serviceutil
+
+            win32serviceutil.HandleCommandLine(ServiceClass)

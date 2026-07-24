@@ -40,9 +40,13 @@ def test_service_class_has_correct_win32_conventions():
 
 
 def test_resolve_cli_mode():
-    assert service_windows._resolve_cli_mode(["service_windows.py"]) == "service"
-    assert service_windows._resolve_cli_mode(["service_windows.py", "install"]) == "service"
-    assert service_windows._resolve_cli_mode(["service_windows.py", "debug"]) == "service"
+    # "host" = KHÔNG có tham số dòng lệnh — đúng cách Windows SCM tự gọi lại exe đã đăng ký để
+    # thật sự chạy dịch vụ (không phải "install"/"start"/...). Lỗi thật đã gặp: trước đây nhánh
+    # này lẫn chung với "manage" (gọi HandleCommandLine — chỉ in usage() rồi thoát ngay khi
+    # không có tham số, khiến dịch vụ cài xong nhưng luôn về trạng thái Stopped).
+    assert service_windows._resolve_cli_mode(["service_windows.py"]) == "host"
+    assert service_windows._resolve_cli_mode(["service_windows.py", "install"]) == "manage"
+    assert service_windows._resolve_cli_mode(["service_windows.py", "debug"]) == "manage"
     assert service_windows._resolve_cli_mode(["service_windows.py", "run"]) == "run"
 
 
