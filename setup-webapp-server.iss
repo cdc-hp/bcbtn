@@ -122,9 +122,13 @@ begin
   // dùng đổi giá trị trên trang này.
   ResolvedPort := ExistingPort;
 
+  // #13#10 KHÔNG được đứng đầu dòng — ISPP (preprocessor Inno Setup) quét cả file trước khi
+  // Pascal Script biên dịch, thấy dòng bắt đầu bằng "#" là tưởng nhầm 1 chỉ thị preprocessor
+  // (lỗi thật gặp phải: "Error ...: Unknown preprocessor directive." ở đúng dòng #13#10 đứng
+  // đầu). Phải để token Pascal (không phải "#") đứng đầu mỗi dòng vật lý.
   if ExistingConfigFound then
-    ConfigPage.Description := ConfigPage.Description +
-      #13#10#13#10 + 'Đã phát hiện cấu hình sẵn có trên máy này (đang nâng cấp) — giá trị hiện ' +
+    ConfigPage.Description := ConfigPage.Description + #13#10#13#10 +
+      'Đã phát hiện cấu hình sẵn có trên máy này (đang nâng cấp) — giá trị hiện ' +
       'tại được điền sẵn. Đổi giá trị này ở đây sẽ KHÔNG có tác dụng, bộ cài giữ nguyên cấu ' +
       'hình cũ để không mất thiết lập/khoá bí mật đã có; hãy đổi cổng ở trang Cấu hình sau khi ' +
       'đăng nhập nếu cần.';
