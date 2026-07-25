@@ -96,7 +96,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="10" class="text-center text-secondary py-5">Không có mục nào khớp bộ lọc.</td></tr>
+        <tr><td colspan="{{ 10 if can_import else 9 }}" class="text-center text-secondary py-5">Không có mục nào khớp bộ lọc.</td></tr>
         {% endfor %}
       </tbody>
     </table>
