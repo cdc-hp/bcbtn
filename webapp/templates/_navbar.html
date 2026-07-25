@@ -1,26 +1,99 @@
-<nav class="navbar navbar-expand navbar-light bg-white border-bottom mb-3">
-  <div class="container-fluid">
-    <span class="navbar-brand">CDC Hải Phòng</span>
-    <div class="d-flex align-items-center gap-3">
-      <a href="/cdc/dashboard" class="small text-decoration-none {% if active == 'dashboard' %}fw-semibold{% endif %}">Dashboard</a>
-      <a href="/cdc/hang-doi" class="small text-decoration-none {% if active == 'hang-doi' %}fw-semibold{% endif %}">Hàng đợi</a>
-      <a href="/cdc/ca-benh" class="small text-decoration-none {% if active == 'ca-benh' %}fw-semibold{% endif %}">Ca bệnh</a>
-      <a href="/cdc/o-dich" class="small text-decoration-none {% if active == 'o-dich' %}fw-semibold{% endif %}">Ổ dịch</a>
-      <a href="/cdc/loc-trung" class="small text-decoration-none {% if active == 'loc-trung' %}fw-semibold{% endif %}">Lọc trùng</a>
-      <a href="/cdc/xuat-du-lieu" class="small text-decoration-none {% if active == 'xuat-du-lieu' %}fw-semibold{% endif %}">Xuất dữ liệu</a>
-      {% if user.has_role("super_admin", "admin") %}
-      <a href="/cdc/nhat-ky" class="small text-decoration-none {% if active == 'nhat-ky' %}fw-semibold{% endif %}">Nhật ký</a>
-      <a href="/cdc/sao-luu" class="small text-decoration-none {% if active == 'sao-luu' %}fw-semibold{% endif %}">Sao lưu</a>
-      {% endif %}
-      {% if user.has_role("super_admin") %}
-      <a href="/cdc/tai-khoan" class="small text-decoration-none {% if active == 'tai-khoan' %}fw-semibold{% endif %}">Tài khoản</a>
-      <a href="/cdc/cau-hinh" class="small text-decoration-none {% if active == 'cau-hinh' %}fw-semibold{% endif %}">Cấu hình</a>
-      {% endif %}
-      <span class="small text-secondary">{{ user.display_name }} &middot; {{ user.role }}</span>
-      <form method="post" action="/cdc/logout" class="m-0">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit" class="btn btn-sm btn-outline-secondary">Đăng xuất</button>
-      </form>
-    </div>
+{% set role_labels = {
+  "super_admin": "Quản trị cao nhất",
+  "admin": "Quản trị viên",
+  "data_operator": "Nhập liệu",
+  "viewer": "Chỉ xem"
+} %}
+<aside class="app-sidebar" id="appSidebar" aria-label="Điều hướng chính">
+  <div class="sidebar-brand-row">
+    <a href="/cdc/dashboard" class="sidebar-brand text-decoration-none">
+      <span class="sidebar-brand-mark">CDC</span>
+      <span class="sidebar-brand-copy sidebar-label">
+        <strong>CDC Hải Phòng</strong>
+        <small>Giám sát dịch bệnh</small>
+      </span>
+    </a>
+    <button type="button" class="sidebar-collapse-btn" data-sidebar-collapse aria-label="Thu gọn thanh điều hướng" title="Thu gọn thanh điều hướng">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
   </div>
-</nav>
+
+  <nav class="sidebar-nav">
+    <a href="/cdc/dashboard" class="sidebar-link {% if active == 'dashboard' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>
+      <span class="sidebar-label">Tổng quan</span>
+    </a>
+    <a href="/cdc/hang-doi" class="sidebar-link {% if active == 'hang-doi' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v13H4z"/><path d="M4 13h5l2 3h2l2-3h5"/></svg>
+      <span class="sidebar-label">Hàng đợi nhập liệu</span>
+      {% if queue_pending is defined and queue_pending %}<span class="sidebar-badge sidebar-label">{{ queue_pending }}</span>{% endif %}
+    </a>
+    <a href="/cdc/ca-benh" class="sidebar-link {% if active == 'ca-benh' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 3h3v15H5V6h3z"/><path d="M9 11h6M12 8v6"/></svg>
+      <span class="sidebar-label">Ca bệnh</span>
+    </a>
+    <a href="/cdc/o-dich" class="sidebar-link {% if active == 'o-dich' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>
+      <span class="sidebar-label">Ổ dịch</span>
+    </a>
+    <a href="/cdc/loc-trung" class="sidebar-link {% if active == 'loc-trung' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="11" height="11" rx="2"/><rect x="9" y="9" width="11" height="11" rx="2"/></svg>
+      <span class="sidebar-label">Lọc trùng</span>
+    </a>
+    <a href="/cdc/xuat-du-lieu" class="sidebar-link {% if active == 'xuat-du-lieu' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>
+      <span class="sidebar-label">Xuất dữ liệu</span>
+    </a>
+
+    {% if user.has_role("super_admin", "admin") %}
+    <div class="sidebar-section-label sidebar-label">Hệ thống</div>
+    <a href="/cdc/nhat-ky" class="sidebar-link {% if active == 'nhat-ky' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+      <span class="sidebar-label">Nhật ký</span>
+    </a>
+    <a href="/cdc/sao-luu" class="sidebar-link {% if active == 'sao-luu' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4z"/><path d="M8 5v5h8V5M8 19v-5h8v5"/></svg>
+      <span class="sidebar-label">Sao lưu</span>
+    </a>
+    {% endif %}
+    {% if user.has_role("super_admin") %}
+    <a href="/cdc/tai-khoan" class="sidebar-link {% if active == 'tai-khoan' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-4 2-6 6-6s6 2 6 6M17 8h4M19 6v4"/></svg>
+      <span class="sidebar-label">Tài khoản</span>
+    </a>
+    <a href="/cdc/cau-hinh" class="sidebar-link {% if active == 'cau-hinh' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21h-4v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6V3h4v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1v4H21a1.7 1.7 0 0 0-1.6 1z"/></svg>
+      <span class="sidebar-label">Cấu hình</span>
+    </a>
+    {% endif %}
+  </nav>
+
+  <div class="sidebar-footer">
+    <div class="sidebar-user">
+      <div class="sidebar-avatar">{{ (user.display_name or "U")[:1]|upper }}</div>
+      <div class="sidebar-user-copy sidebar-label">
+        <strong>{{ user.display_name }}</strong>
+        <small>{{ role_labels.get(user.role, user.role) }}</small>
+      </div>
+    </div>
+    <form method="post" action="/cdc/logout" class="sidebar-logout-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="sidebar-logout" title="Đăng xuất">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5H5v14h5M14 8l4 4-4 4M18 12H9"/></svg>
+        <span class="sidebar-label">Đăng xuất</span>
+      </button>
+    </form>
+  </div>
+</aside>
+
+<button type="button" class="sidebar-scrim" data-sidebar-close aria-label="Đóng thanh điều hướng"></button>
+<header class="app-mobile-bar">
+  <button type="button" class="mobile-menu-btn" data-sidebar-open aria-label="Mở thanh điều hướng">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+  </button>
+  <a href="/cdc/dashboard" class="mobile-brand text-decoration-none">
+    <span class="mobile-brand-mark">CDC</span>
+    <span>CDC Hải Phòng</span>
+  </a>
+</header>
+<div class="app-shell-spacer" aria-hidden="true"></div>
