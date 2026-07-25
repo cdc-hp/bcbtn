@@ -8,7 +8,7 @@
   {% if msg %}<div class="alert alert-success py-2 small">{{ msg }}</div>{% endif %}
   {% if err %}<div class="alert alert-danger py-2 small">{{ err }}</div>{% endif %}
 
-  <div class="card p-3 mb-3" style="max-width:720px;">
+  <div class="card p-3 mb-3 cdc-form-card-wide">
     <div class="fw-semibold mb-2">Tạo tài khoản mới</div>
     <form method="post" action="/cdc/tai-khoan/tao" class="row g-2 align-items-end">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -53,7 +53,7 @@
           <td>
             <form method="post" action="/cdc/tai-khoan/{{ a.id }}/vai-tro" class="d-inline-flex gap-1">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <select name="role" class="form-select form-select-sm" style="width:auto;" onchange="this.form.submit()">
+              <select name="role" class="form-select form-select-sm cdc-role-select" onchange="this.form.submit()">
                 {% for r in roles %}<option value="{{ r }}" {% if r == a.role %}selected{% endif %}>{{ role_labels.get(r, r) }}</option>{% endfor %}
               </select>
             </form>

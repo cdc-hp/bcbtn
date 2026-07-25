@@ -16,25 +16,26 @@
   {% endif %}
 
   <div class="card p-3 mb-3">
-    <div class="fw-semibold mb-2">Nguồn dữ liệu</div>
-    <div class="small">
-      File: {{ record.source_file or "—" }} &middot; Sheet: {{ record.source_sheet or "—" }} &middot;
-      Dòng: {{ record.source_row or "—" }} &middot; Nhập lúc: {{ record.imported_at or "—" }}
+    <div class="cdc-section-heading">Nguồn dữ liệu</div>
+    <div class="cdc-source-grid">
+      <div><span>File</span><strong>{{ record.source_file or "—" }}</strong></div>
+      <div><span>Sheet</span><strong>{{ record.source_sheet or "—" }}</strong></div>
+      <div><span>Dòng</span><strong>{{ record.source_row or "—" }}</strong></div>
+      <div><span>Nhập lúc</span><strong>{{ record.imported_at or "—" }}</strong></div>
     </div>
   </div>
 
   <div class="card p-3">
-    <div class="fw-semibold mb-2">Chi tiết</div>
-    <div class="table-responsive">
-      <table class="table table-sm">
-        <tbody>
-          {% for label, key, value in fields %}
-          {% if key not in ("id", "source_file", "source_sheet", "source_row", "imported_at", "row_hash") %}
-          <tr><th class="text-secondary fw-normal" style="width:280px">{{ label }}</th><td>{{ value if value is not none else "" }}</td></tr>
-          {% endif %}
-          {% endfor %}
-        </tbody>
-      </table>
+    <div class="cdc-section-heading">Chi tiết bản ghi</div>
+    <div class="cdc-detail-grid">
+      {% for label, key, value in fields %}
+      {% if key not in ("id", "source_file", "source_sheet", "source_row", "imported_at", "row_hash") %}
+      <div class="cdc-detail-item">
+        <span class="cdc-detail-label">{{ label }}</span>
+        <span class="cdc-detail-value">{{ value if value is not none and value != "" else "—" }}</span>
+      </div>
+      {% endif %}
+      {% endfor %}
     </div>
   </div>
 </div>

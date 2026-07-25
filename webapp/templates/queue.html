@@ -3,7 +3,10 @@
 {% block body %}
 {% include "_navbar.html" %}
 <div class="container-fluid py-3">
-  <h1 class="h5 mb-3">Hàng đợi nhập liệu</h1>
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+    <div><h1 class="h5 mb-1">Hàng đợi nhập liệu</h1><p class="text-secondary mb-0">{{ rows|length }} mục đang hiển thị theo bộ lọc hiện tại.</p></div>
+    {% if can_import %}<button type="submit" form="batch-import-form" class="btn btn-primary">Nhập các mục đã chọn</button>{% endif %}
+  </div>
 
   {% if msg %}<div class="alert alert-success py-2 small">{{ msg }}</div>{% endif %}
   {% if err %}<div class="alert alert-danger py-2 small">{{ err }}</div>{% endif %}
@@ -41,9 +44,9 @@
     </div>
   </form>
 
-  <form method="post" action="/cdc/hang-doi/import-batch">
+  <form method="post" action="/cdc/hang-doi/import-batch" id="batch-import-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    {% if can_import %}<button type="submit" class="btn btn-sm btn-primary mb-2">Nhập các mục đã chọn</button>{% endif %}
+  </form>
     <div class="table-responsive">
       <table class="table table-sm table-hover align-middle">
         <thead>
@@ -57,7 +60,7 @@
           {% for row in rows %}
           <tr>
             {% if can_import %}
-            <td>{% if row.status in ("cho_nhap", "loi") %}<input type="checkbox" name="queue_ids" value="{{ row.id }}">{% endif %}</td>
+            <td>{% if row.status in ("cho_nhap", "loi") %}<input type="checkbox" name="queue_ids" value="{{ row.id }}" form="batch-import-form" aria-label="Chọn {{ row.file_name }} để nhập">{% endif %}</td>
             {% endif %}
             <td>{{ row.commune }}</td>
             <td>{{ row.week }}</td>
@@ -92,6 +95,5 @@
         </tbody>
       </table>
     </div>
-  </form>
 </div>
 {% endblock %}

@@ -1,26 +1,39 @@
-<nav class="navbar navbar-expand navbar-light bg-white border-bottom mb-3">
-  <div class="container-fluid">
-    <span class="navbar-brand">CDC Hải Phòng</span>
-    <div class="d-flex align-items-center gap-3">
-      <a href="/cdc/dashboard" class="small text-decoration-none {% if active == 'dashboard' %}fw-semibold{% endif %}">Dashboard</a>
-      <a href="/cdc/hang-doi" class="small text-decoration-none {% if active == 'hang-doi' %}fw-semibold{% endif %}">Hàng đợi</a>
-      <a href="/cdc/ca-benh" class="small text-decoration-none {% if active == 'ca-benh' %}fw-semibold{% endif %}">Ca bệnh</a>
-      <a href="/cdc/o-dich" class="small text-decoration-none {% if active == 'o-dich' %}fw-semibold{% endif %}">Ổ dịch</a>
-      <a href="/cdc/loc-trung" class="small text-decoration-none {% if active == 'loc-trung' %}fw-semibold{% endif %}">Lọc trùng</a>
-      <a href="/cdc/xuat-du-lieu" class="small text-decoration-none {% if active == 'xuat-du-lieu' %}fw-semibold{% endif %}">Xuất dữ liệu</a>
+{% macro icon(name) -%}
+<svg class="cdc-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="/static/icons.svg#{{ name }}"></use></svg>
+{%- endmacro %}
+<div class="cdc-sidebar-backdrop" data-sidebar-close></div>
+<aside class="cdc-sidebar" id="cdc-sidebar" aria-label="Điều hướng chính">
+  <a class="cdc-sidebar-brand" href="/cdc/dashboard">
+    <span class="cdc-brand-mark">CDC</span>
+    <span><strong>CDC Hải Phòng</strong><small>Giám sát dịch bệnh</small></span>
+  </a>
+  <nav class="cdc-nav">
+      <a href="/cdc/dashboard" class="cdc-nav-link {% if active == 'dashboard' %}cdc-nav-link--active{% endif %}">{{ icon('dashboard') }}<span>Dashboard</span></a>
+      <a href="/cdc/hang-doi" class="cdc-nav-link {% if active == 'hang-doi' %}cdc-nav-link--active{% endif %}">{{ icon('inbox') }}<span>Hàng đợi</span></a>
+      <a href="/cdc/ca-benh" class="cdc-nav-link {% if active == 'ca-benh' %}cdc-nav-link--active{% endif %}">{{ icon('users') }}<span>Ca bệnh</span></a>
+      <a href="/cdc/o-dich" class="cdc-nav-link {% if active == 'o-dich' %}cdc-nav-link--active{% endif %}">{{ icon('map') }}<span>Ổ dịch</span></a>
+      <a href="/cdc/loc-trung" class="cdc-nav-link {% if active == 'loc-trung' %}cdc-nav-link--active{% endif %}">{{ icon('layers') }}<span>Lọc trùng</span></a>
+      <a href="/cdc/xuat-du-lieu" class="cdc-nav-link {% if active == 'xuat-du-lieu' %}cdc-nav-link--active{% endif %}">{{ icon('download') }}<span>Xuất dữ liệu</span></a>
       {% if user.has_role("super_admin", "admin") %}
-      <a href="/cdc/nhat-ky" class="small text-decoration-none {% if active == 'nhat-ky' %}fw-semibold{% endif %}">Nhật ký</a>
-      <a href="/cdc/sao-luu" class="small text-decoration-none {% if active == 'sao-luu' %}fw-semibold{% endif %}">Sao lưu</a>
+      <a href="/cdc/nhat-ky" class="cdc-nav-link {% if active == 'nhat-ky' %}cdc-nav-link--active{% endif %}">{{ icon('history') }}<span>Nhật ký</span></a>
+      <a href="/cdc/sao-luu" class="cdc-nav-link {% if active == 'sao-luu' %}cdc-nav-link--active{% endif %}">{{ icon('database') }}<span>Sao lưu</span></a>
       {% endif %}
       {% if user.has_role("super_admin") %}
-      <a href="/cdc/tai-khoan" class="small text-decoration-none {% if active == 'tai-khoan' %}fw-semibold{% endif %}">Tài khoản</a>
-      <a href="/cdc/cau-hinh" class="small text-decoration-none {% if active == 'cau-hinh' %}fw-semibold{% endif %}">Cấu hình</a>
+      <a href="/cdc/tai-khoan" class="cdc-nav-link {% if active == 'tai-khoan' %}cdc-nav-link--active{% endif %}">{{ icon('account') }}<span>Tài khoản</span></a>
+      <a href="/cdc/cau-hinh" class="cdc-nav-link {% if active == 'cau-hinh' %}cdc-nav-link--active{% endif %}">{{ icon('settings') }}<span>Cấu hình</span></a>
       {% endif %}
-      <span class="small text-secondary">{{ user.display_name }} &middot; {{ user.role }}</span>
-      <form method="post" action="/cdc/logout" class="m-0">
+  </nav>
+  <div class="cdc-user-panel">
+      <span class="cdc-avatar">{{ (user.display_name or user.username or '?')[:1]|upper }}</span>
+      <span class="cdc-user-meta"><strong>{{ user.display_name }}</strong><small>{{ user.role }}</small></span>
+      <form method="post" action="/cdc/logout">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit" class="btn btn-sm btn-outline-secondary">Đăng xuất</button>
+        <button type="submit" class="cdc-logout" aria-label="Đăng xuất" title="Đăng xuất">{{ icon('logout') }}</button>
       </form>
-    </div>
   </div>
-</nav>
+</aside>
+<header class="cdc-mobile-header">
+  <button class="cdc-menu-button" type="button" data-sidebar-toggle aria-controls="cdc-sidebar" aria-expanded="false" aria-label="Mở menu">{{ icon('menu') }}</button>
+  <span class="cdc-brand-mark cdc-brand-mark--small">CDC</span>
+  <strong>{% block mobile_title %}CDC Hải Phòng{% endblock %}</strong>
+</header>

@@ -8,7 +8,8 @@
 
   {% if msg %}<div class="alert alert-success py-2 small">{{ msg }}</div>{% endif %}
 
-  <ul class="nav nav-tabs mb-3">
+  <div class="card p-3">
+  <ul class="nav cdc-segmented mb-4">
     <li class="nav-item"><a class="nav-link {% if entity_type == 'case' %}active{% endif %}" href="/cdc/loc-trung/tieu-chi?entity=case">Ca bệnh</a></li>
     <li class="nav-item"><a class="nav-link {% if entity_type == 'outbreak' %}active{% endif %}" href="/cdc/loc-trung/tieu-chi?entity=outbreak">Ổ dịch</a></li>
   </ul>
@@ -26,7 +27,7 @@
       </div>
       {% endfor %}
     </div>
-    <div class="row g-3 mb-3" style="max-width:560px;">
+    <div class="row g-3 mb-3 cdc-form-grid-sm">
       <div class="col-6">
         <label class="form-label small mb-0">Ngưỡng "họ tên gần giống" (%)</label>
         <input type="number" name="name_similarity_percent" min="50" max="100" value="{{ case_criteria.name_similarity_percent }}" class="form-control form-control-sm">
@@ -42,7 +43,7 @@
   <form method="post" action="/cdc/loc-trung/tieu-chi">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="entity" value="outbreak">
-    <div class="row g-3 mb-3" style="max-width:560px;">
+    <div class="row g-3 mb-3 cdc-form-grid-sm">
       <div class="col-6">
         <label class="form-label small mb-0">Ngưỡng phát hiện trùng (điểm)</label>
         <input type="number" name="min_score" min="40" max="100" value="{{ rules.min_score }}" class="form-control form-control-sm">
@@ -54,7 +55,7 @@
     </div>
     <div class="mb-3">
       <div class="form-label small fw-semibold">Trọng số từng tiêu chí</div>
-      <div class="row g-3" style="max-width:720px;">
+      <div class="row g-3 cdc-form-grid-lg">
         {% for key, default in outbreak_weight_defs.items() %}
         <div class="col-4">
           <label class="form-label small mb-0">{{ key }}</label>
@@ -66,5 +67,6 @@
     <button type="submit" class="btn btn-sm btn-primary">Lưu tiêu chí</button>
   </form>
   {% endif %}
+  </div>
 </div>
 {% endblock %}

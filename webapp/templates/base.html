@@ -7,19 +7,20 @@
 <link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
 <link rel="stylesheet" href="/static/style.css">
 </head>
-<body class="bg-body-tertiary">
+<body>
 {% block body %}
-<div class="d-flex align-items-center justify-content-center min-vh-100 p-3">
-  <div class="w-100" style="max-width: 420px;">
-    <div class="text-center mb-4">
-      <div class="fw-bold fs-4 text-primary">CDC Hải Phòng</div>
-      <div class="text-secondary small">Ứng dụng Giám sát dịch bệnh</div>
+<main class="cdc-auth-shell">
+  <div class="cdc-auth-panel">
+    <div class="cdc-auth-brand">
+      <span class="cdc-brand-mark">CDC</span>
+      <div><div class="cdc-brand-name">CDC Hải Phòng</div><div class="cdc-brand-subtitle">Ứng dụng Giám sát dịch bệnh</div></div>
     </div>
     {% block content %}{% endblock %}
   </div>
-</div>
+</main>
 {% endblock %}
 <script src="/static/vendor/bootstrap.bundle.min.js"></script>
 <script src="/static/vendor/htmx.min.js"></script>
+<script src="/static/app.js"></script>
 </body>
 </html>

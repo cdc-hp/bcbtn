@@ -27,7 +27,7 @@
     <input type="hidden" name="entity" value="{{ entity_type }}">
     {% for id in ids %}<input type="hidden" name="ids" value="{{ id }}">{% endfor %}
 
-    <div class="mb-3" style="max-width:480px;">
+    <div class="mb-3 cdc-form-grid-xs">
       <label class="form-label small mb-0">Bản ghi chính (giữ lại, mang ID này)</label>
       <select name="keep" class="form-select form-select-sm">
         {% for record in records %}
@@ -39,7 +39,7 @@
     <div class="card p-3 mb-3">
       <div class="fw-semibold mb-2">Chọn giá trị cho bản ghi sau hợp nhất</div>
       <table class="table table-sm">
-        <thead><tr><th style="width:280px">Trường dữ liệu</th><th>Giá trị giữ lại</th></tr></thead>
+        <thead><tr><th class="cdc-field-column">Trường dữ liệu</th><th>Giá trị giữ lại</th></tr></thead>
         <tbody>
           {% for item in merge_rows %}
           <tr>

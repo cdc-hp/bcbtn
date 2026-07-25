@@ -3,7 +3,10 @@
 {% block body %}
 {% include "_navbar.html" %}
 <div class="container-fluid py-3">
-  <h1 class="h5 mb-3">{{ title }} <span class="text-secondary small">({{ "{:,}".format(total) }} bản ghi)</span></h1>
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+    <div><h1 class="h5 mb-1">{{ title }}</h1><p class="text-secondary mb-0">{{ "{:,}".format(total) }} bản ghi</p></div>
+    {% if can_export %}<a href="/cdc/xuat-du-lieu/tai-ve?entity={{ entity_type }}&search={{ filters.search }}&disease={{ filters.disease }}&status={{ filters.status }}&admin_area={{ filters.admin_area }}&fmt=xlsx" class="btn btn-outline-primary">Xuất theo bộ lọc</a>{% endif %}
+  </div>
 
   <form method="get" action="/cdc/{{ entity_path }}" class="row g-2 mb-3 align-items-end">
     <div class="col-auto">
@@ -31,9 +34,6 @@
     <div class="col-auto">
       <button type="submit" class="btn btn-sm btn-primary">Lọc</button>
       <a href="/cdc/{{ entity_path }}" class="btn btn-sm btn-outline-secondary">Xoá lọc</a>
-      {% if can_export %}
-      <a href="/cdc/xuat-du-lieu/tai-ve?entity={{ entity_type }}&search={{ filters.search }}&disease={{ filters.disease }}&status={{ filters.status }}&admin_area={{ filters.admin_area }}&fmt=xlsx" class="btn btn-sm btn-outline-secondary">Xuất theo bộ lọc</a>
-      {% endif %}
     </div>
   </form>
 
@@ -43,8 +43,8 @@
       <tbody>
         {% for row in rows %}
         <tr>
-          {% for key, label in columns %}<td>{{ row.get(key, "") }}</td>{% endfor %}
-          <td><a href="/cdc/{{ entity_path }}/{{ row.id }}" class="small">Xem</a></td>
+          {% for key, label in columns %}<td>{% if key in ("current_status", "status", "record_status") and row.get(key) %}<span class="cdc-status-pill">{{ row.get(key) }}</span>{% else %}{{ row.get(key, "") }}{% endif %}</td>{% endfor %}
+          <td><a href="/cdc/{{ entity_path }}/{{ row.id }}" class="cdc-action-link">Xem <span aria-hidden="true">→</span></a></td>
         </tr>
         {% else %}
         <tr><td colspan="{{ columns|length + 1 }}" class="text-center text-secondary py-4">Không có bản ghi nào khớp bộ lọc.</td></tr>
@@ -56,11 +56,14 @@
   {% if total_pages > 1 %}
   <nav>
     <ul class="pagination pagination-sm">
-      {% for p in range(1, total_pages + 1) %}
+      {% set start_page = [1, page - 2]|max %}{% set end_page = [total_pages, page + 2]|min %}
+      {% if start_page > 1 %}<li class="page-item"><a class="page-link" href="?search={{ filters.search }}&disease={{ filters.disease }}&status={{ filters.status }}&admin_area={{ filters.admin_area }}&page=1">1</a></li>{% if start_page > 2 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}{% endif %}
+      {% for p in range(start_page, end_page + 1) %}
       <li class="page-item {% if p == page %}active{% endif %}">
         <a class="page-link" href="?search={{ filters.search }}&disease={{ filters.disease }}&status={{ filters.status }}&admin_area={{ filters.admin_area }}&page={{ p }}">{{ p }}</a>
       </li>
       {% endfor %}
+      {% if end_page < total_pages %}{% if end_page < total_pages - 1 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}<li class="page-item"><a class="page-link" href="?search={{ filters.search }}&disease={{ filters.disease }}&status={{ filters.status }}&admin_area={{ filters.admin_area }}&page={{ total_pages }}">{{ total_pages }}</a></li>{% endif %}
     </ul>
   </nav>
   {% endif %}

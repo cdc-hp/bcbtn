@@ -28,7 +28,7 @@
     <div class="card p-3 mb-3">
       <div class="fw-semibold mb-2">Máy chủ</div>
       <div class="text-secondary small mb-2">Đổi địa chỉ/cổng cần khởi động lại dịch vụ để có hiệu lực.</div>
-      <div class="row g-3" style="max-width:640px;">
+      <div class="row g-3 cdc-form-grid-md">
         <div class="col-6">
           <label class="form-label small mb-0">Địa chỉ lắng nghe (host)</label>
           <input type="text" name="server_host" value="{{ config.server_host }}" class="form-control form-control-sm">
@@ -46,7 +46,7 @@
 
     <div class="card p-3 mb-3">
       <div class="fw-semibold mb-2">Google Apps Script (nộp dữ liệu từ xã)</div>
-      <div class="row g-3" style="max-width:640px;">
+      <div class="row g-3 cdc-form-grid-md">
         <div class="col-12">
           <label class="form-label small mb-0">Khoá API cho POST /queue/submit</label>
           <input type="password" name="gas_api_key" value="" placeholder="{% if config.gas_api_key %}●●●●●●●● (để trống nếu giữ nguyên){% else %}Chưa cấu hình{% endif %}" class="form-control form-control-sm">
@@ -56,7 +56,7 @@
 
     <div class="card p-3 mb-3">
       <div class="fw-semibold mb-2">Máy chủ phụ (GAS/Sheet/Drive)</div>
-      <div class="row g-3" style="max-width:640px;">
+      <div class="row g-3 cdc-form-grid-md">
         <div class="col-12">
           <label class="form-label small mb-0">Địa chỉ Web App máy chủ phụ</label>
           <input type="text" name="secondary_webapp_url" value="{{ config.secondary_webapp_url }}" class="form-control form-control-sm" placeholder="https://script.google.com/macros/s/.../exec">
@@ -74,7 +74,7 @@
 
     <div class="card p-3 mb-3">
       <div class="fw-semibold mb-2">Sao lưu</div>
-      <div class="row g-3" style="max-width:640px;">
+      <div class="row g-3 cdc-form-grid-md">
         <div class="col-12">
           <label class="form-label small mb-0">Thư mục lưu bản sao lưu</label>
           <input type="text" name="backup_destination" value="{{ backup_destination }}" class="form-control form-control-sm">
