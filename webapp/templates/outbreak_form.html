@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% from "_navbar.html" import icon with context %}
+{% block title %}{{ "Sửa" if is_edit else "Thêm" }} ổ dịch{% endblock %}
+{% block body %}
+{% include "_navbar.html" %}
+<div class="container-fluid cdc-page cdc-form-page">
+  <div class="cdc-page-header">
+    <div>
+      <a href="{{ '/cdc/o-dich/' ~ record.id if is_edit else '/cdc/o-dich' }}" class="cdc-back-link">← Quay lại</a>
+      <h1>{{ "Sửa thông tin ổ dịch" if is_edit else "Thêm ổ dịch" }}</h1>
+      <p>{{ "Cập nhật bản ghi đang lưu trong cơ sở dữ liệu." if is_edit else "Nhập thông tin để tạo bản ghi ổ dịch mới." }}</p>
+    </div>
+  </div>
+
+  {% if err %}<div class="alert alert-danger">{{ err }}</div>{% endif %}
+
+  <form method="post" action="{{ '/cdc/o-dich/' ~ record.id ~ '/sua' if is_edit else '/cdc/o-dich/them' }}" class="cdc-card cdc-outbreak-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="cdc-form-section">
+      <div class="cdc-card-heading-row">
+        <div><h2>Thông tin ổ dịch</h2><p>Các trường có dấu * là bắt buộc.</p></div>
+      </div>
+      <div class="cdc-outbreak-form-grid">
+        {% for label, key in fields %}
+        <div class="{% if key in ('location', 'reporting_unit') %}cdc-field-wide{% endif %}">
+          <label for="outbreak-{{ key }}" class="form-label">{{ label }}{% if key in ('disease', 'location') %} *{% endif %}</label>
+          {% if key == 'status' %}
+          <select id="outbreak-{{ key }}" name="{{ key }}" class="form-select">
+            <option value="">Chọn trạng thái</option>
+            {% for value in ['Đang hoạt động', 'Đã kết thúc', 'Đang theo dõi'] %}<option value="{{ value }}" {% if record.get(key, '') == value %}selected{% endif %}>{{ value }}</option>{% endfor %}
+          </select>
+          {% else %}
+          <input id="outbreak-{{ key }}" name="{{ key }}" value="{{ record.get(key, '') if record.get(key, '') is not none else '' }}" class="form-control"
+            {% if key in ('case_count', 'death_count', 'sample_count', 'positive_count') %}type="number" min="0" step="1"{% elif key in ('first_onset_date', 'end_date', 'first_report_received_date', 'last_onset_date') %}type="date"{% elif key == 'report_datetime' %}type="datetime-local"{% else %}type="text"{% endif %}
+            {% if key in ('disease', 'location') %}required{% endif %}>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="cdc-form-actions">
+      <a href="{{ '/cdc/o-dich/' ~ record.id if is_edit else '/cdc/o-dich' }}" class="btn btn-outline-secondary">Hủy</a>
+      <button type="submit" class="btn btn-primary">{{ icon('check') }} {{ "Lưu thay đổi" if is_edit else "Tạo ổ dịch" }}</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -11,6 +11,7 @@ import core
 from webapp import TEMPLATES_DIR, auth, scheduler
 from webapp.config import WebAppSettings
 from webapp.dependencies import ForbiddenError, get_settings_dep, require_password_current, require_role
+from webapp.services import dashboard_query
 
 router = APIRouter()
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
@@ -21,18 +22,39 @@ CAN_SYNC_ROLES = (core.CDC_ROLE_SUPER_ADMIN, core.CDC_ROLE_ADMIN, core.CDC_ROLE_
 @router.get("/cdc/dashboard", response_class=HTMLResponse)
 def dashboard(
     request: Request,
+    disease: str = "",
     user: auth.CurrentUser = Depends(require_password_current),
     settings: WebAppSettings = Depends(get_settings_dep),
 ):
-    stats = core.dashboard_stats(db_path=settings.db_path)
+    stats = dashboard_query.dashboard_metrics(disease=disease, db_path=settings.db_path)
     current_week = core.current_iso_week()
 
     queue_pending = len(core.list_import_queue(status="cho_nhap", limit=2000, db_path=settings.db_path))
     queue_error = len(core.list_import_queue(status="loi", limit=2000, db_path=settings.db_path))
     this_week_items = core.list_import_queue(week=current_week, limit=2000, db_path=settings.db_path)
     communes_submitted = sorted({item["commune"] for item in this_week_items})
-    duplicate_case_groups = core.count_duplicate_groups("case", db_path=settings.db_path)
-    duplicate_outbreak_groups = core.count_duplicate_groups("outbreak", db_path=settings.db_path)
+    commune_accounts = [item for item in core.list_commune_accounts(db_path=settings.db_path) if item.get("active")]
+    expected_communes = sorted({item["commune"] for item in commune_accounts})
+    communes_missing = [commune for commune in expected_communes if commune not in communes_submitted]
+    commune_total = len(expected_communes) if expected_communes else len(communes_submitted)
+    submit_percent = round(len(set(communes_submitted) & set(expected_communes or communes_submitted)) * 100 / commune_total) if commune_total else 0
+
+    if disease:
+        case_groups = core.find_duplicate_groups(
+            "case", criteria=core.load_case_criteria(), max_records=3000, db_path=settings.db_path,
+        )
+        outbreak_groups = core.find_duplicate_groups("outbreak", max_records=3000, db_path=settings.db_path)
+        duplicate_case_groups = sum(
+            1 for group in case_groups
+            if any(record.get("main_diagnosis") == disease for record in group.get("records", []))
+        )
+        duplicate_outbreak_groups = sum(
+            1 for group in outbreak_groups
+            if any(record.get("disease") == disease for record in group.get("records", []))
+        )
+    else:
+        duplicate_case_groups = core.count_duplicate_groups("case", db_path=settings.db_path)
+        duplicate_outbreak_groups = core.count_duplicate_groups("outbreak", db_path=settings.db_path)
 
     try:
         backups = backup_manager.list_backups()
@@ -45,9 +67,11 @@ def dashboard(
         "user": user, "csrf_token": token, "active": "dashboard",
         "stats": stats, "current_week": current_week,
         "queue_pending": queue_pending, "queue_error": queue_error,
-        "communes_submitted": communes_submitted, "latest_backup": latest_backup,
+        "communes_submitted": communes_submitted, "communes_missing": communes_missing,
+        "commune_total": commune_total, "submit_percent": submit_percent, "latest_backup": latest_backup,
         "duplicate_groups": duplicate_case_groups + duplicate_outbreak_groups,
         "version": core.VERSION, "sync_status": scheduler.get_status(),
+        "disease": disease, "disease_options": dashboard_query.disease_options(settings.db_path),
         "can_sync": user.has_role(*CAN_SYNC_ROLES),
     })
     auth.set_csrf_cookie(response, request, token)

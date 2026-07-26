@@ -1,64 +1,31 @@
 {% extends "base.html" %}
+{% from "_navbar.html" import icon with context %}
 {% block title %}Xuất dữ liệu{% endblock %}
 {% block body %}
 {% include "_navbar.html" %}
-<div class="container py-3">
-  <h1 class="h5 mb-3">Xuất dữ liệu</h1>
+<div class="container-fluid cdc-page cdc-export-page">
+  <header class="cdc-page-header"><h1>Xuất dữ liệu</h1><p>Tạo file phục vụ báo cáo, đối chiếu và xử lý dữ liệu tại tuyến xã.</p></header>
 
-  {% if err %}<div class="alert alert-danger py-2 small">{{ err }}</div>{% endif %}
+  {% if err %}<div class="alert alert-danger">{{ err }}</div>{% endif %}
+  {% if not can_export %}<div class="alert alert-secondary">Vai trò của bạn chỉ được xem dữ liệu, không được xuất file.</div>{% endif %}
 
-  {% if not can_export %}
-  <div class="alert alert-secondary small">Vai trò của bạn chỉ được xem dữ liệu, không được xuất file. Liên hệ quản trị viên nếu cần.</div>
-  {% endif %}
-
-  <div class="card p-3 mb-3">
-    <div class="fw-semibold mb-2">Xuất theo bộ lọc</div>
-    <div class="text-secondary small mb-2">Xuất toàn bộ ca bệnh hoặc ổ dịch khớp bộ lọc ra Excel/CSV (tối đa 50.000 dòng).</div>
-    <form method="get" action="/cdc/xuat-du-lieu/tai-ve" class="row g-2 align-items-end">
-      <div class="col-auto">
-        <label class="form-label small mb-0">Đối tượng</label>
-        <select name="entity" class="form-select form-select-sm">
-          <option value="case">Ca bệnh</option>
-          <option value="outbreak">Ổ dịch</option>
-        </select>
-      </div>
-      <div class="col-auto">
-        <label class="form-label small mb-0">Tìm kiếm</label>
-        <input type="text" name="search" class="form-control form-control-sm" placeholder="Tên, mã số...">
-      </div>
-      <div class="col-auto">
-        <label class="form-label small mb-0">Chẩn đoán/Tên bệnh</label>
-        <input type="text" name="disease" class="form-control form-control-sm" placeholder="Tất cả">
-      </div>
-      <div class="col-auto">
-        <label class="form-label small mb-0">Xã/Địa bàn</label>
-        <input type="text" name="admin_area" class="form-control form-control-sm" placeholder="Tất cả">
-      </div>
-      <div class="col-auto">
-        <label class="form-label small mb-0">Trạng thái</label>
-        <input type="text" name="status" class="form-control form-control-sm" placeholder="Tất cả">
-      </div>
-      <div class="col-auto">
-        <label class="form-label small mb-0">Định dạng</label>
-        <select name="fmt" class="form-select form-select-sm">
-          <option value="xlsx">Excel (.xlsx)</option>
-          <option value="csv">CSV</option>
-        </select>
-      </div>
-      <div class="col-auto">
-        {% if can_export %}<button type="submit" class="btn btn-sm btn-primary">Tải xuống</button>{% endif %}
-      </div>
+  <section class="cdc-card cdc-export-card">
+    <div class="cdc-export-card__intro"><span class="cdc-card-icon">{{ icon('download') }}</span><div><h2>Xuất theo bộ lọc</h2><p>Xuất toàn bộ ca bệnh hoặc ổ dịch khớp điều kiện, tối đa 50.000 dòng.</p></div></div>
+    <form method="get" action="/cdc/xuat-du-lieu/tai-ve" class="cdc-export-grid">
+      <div><label class="form-label" for="export-entity">Đối tượng</label><select id="export-entity" name="entity" class="form-select"><option value="case">Ca bệnh</option><option value="outbreak">Ổ dịch</option></select></div>
+      <div><label class="form-label" for="export-search">Tìm kiếm</label><input id="export-search" name="search" class="form-control" placeholder="Tên, mã số..."></div>
+      <div><label class="form-label" for="export-disease">Chẩn đoán / Tên bệnh</label><input id="export-disease" name="disease" class="form-control" placeholder="Tất cả"></div>
+      <div><label class="form-label" for="export-area">Xã / Địa bàn</label><input id="export-area" name="admin_area" class="form-control" placeholder="Tất cả"></div>
+      <div><label class="form-label" for="export-status">Trạng thái</label><input id="export-status" name="status" class="form-control" placeholder="Tất cả"></div>
+      <div><label class="form-label" for="export-format">Định dạng</label><select id="export-format" name="fmt" class="form-select"><option value="xlsx">Excel (.xlsx)</option><option value="csv">CSV</option></select></div>
+      {% if can_export %}<button type="submit" class="btn btn-primary cdc-export-submit">{{ icon('download') }} Tải xuống</button>{% endif %}
     </form>
-  </div>
+  </section>
 
-  <div class="card p-3">
-    <div class="fw-semibold mb-2">Xuất ca bệnh chia theo xã</div>
-    <div class="text-secondary small mb-2">
-      Xuất toàn bộ ca bệnh thành 1 file Excel, mỗi xã 1 sheet (kèm sheet Tổng hợp liệt kê nhóm nghi trùng) — dùng để gửi các xã tự lọc trùng.
-      Tiêu chí lọc trùng đang dùng: <strong>{{ criteria_text }}</strong>
-      {% if can_export %}(<a href="/cdc/loc-trung/tieu-chi?entity=case">đổi tiêu chí</a>){% endif %}.
-    </div>
-    {% if can_export %}<a href="/cdc/xuat-du-lieu/theo-xa" class="btn btn-sm btn-primary">Xuất theo xã</a>{% endif %}
-  </div>
+  <section class="cdc-card cdc-export-card cdc-export-card--commune">
+    <div class="cdc-export-card__intro"><span class="cdc-card-icon">{{ icon('users') }}</span><div><h2>Xuất ca bệnh chia theo xã</h2><p>Mỗi xã một sheet, kèm sheet tổng hợp nhóm nghi trùng để gửi tuyến xã tự rà soát.</p></div></div>
+    <div class="cdc-export-criteria"><span>Tiêu chí lọc trùng đang dùng</span><strong>{{ criteria_text }}</strong>{% if can_export %}<a href="/cdc/loc-trung?entity=case">Thay đổi tại Lọc trùng</a>{% endif %}</div>
+    {% if can_export %}<a href="/cdc/xuat-du-lieu/theo-xa" class="btn btn-primary">{{ icon('download') }} Xuất theo xã</a>{% endif %}
+  </section>
 </div>
 {% endblock %}

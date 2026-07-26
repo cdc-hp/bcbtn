@@ -58,6 +58,8 @@ def queue_list(
         "filters": {"commune": commune, "week": week, "status": status, "source": source},
         "status_options": STATUS_LABELS, "source_options": SOURCE_LABELS,
         "can_import": user.has_role(*CAN_IMPORT_ROLES), "can_delete": user.has_role(*CAN_DELETE_ROLES),
+        "queue_pending": len(core.list_import_queue(status="cho_nhap", limit=2000, db_path=settings.db_path)),
+        "queue_error": len(core.list_import_queue(status="loi", limit=2000, db_path=settings.db_path)),
         "msg": msg, "err": err,
     })
     auth.set_csrf_cookie(response, request, token)

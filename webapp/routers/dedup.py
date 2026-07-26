@@ -89,6 +89,9 @@ def scan(
         "min_score": effective_min_score, "criteria_text": criteria_text,
         "can_merge": user.has_role(*CAN_MERGE_ROLES), "can_export": user.has_role(*CAN_EXPORT_ROLES),
         "can_configure": user.has_role(*CAN_CONFIGURE_ROLES), "msg": msg, "err": err,
+        "criteria_defs": duplicate_config.CASE_CRITERIA_DEFS, "case_criteria": case_criteria,
+        "rules": duplicate_config.load_rules(),
+        "outbreak_weight_defs": duplicate_config.DEFAULT_OUTBREAK_WEIGHTS,
     })
     auth.set_csrf_cookie(response, request, token)
     return response
@@ -233,21 +236,11 @@ async def restore(
 
 @router.get("/cdc/loc-trung/tieu-chi", response_class=HTMLResponse)
 def criteria_form(
-    request: Request, entity: str = "case", msg: str = "",
+    entity: str = "case",
     user: auth.CurrentUser = Depends(require_role(*CAN_CONFIGURE_ROLES)),
 ):
     entity_type = entity if entity in ("case", "outbreak") else "case"
-    case_criteria = duplicate_config.load_case_criteria()
-    rules = duplicate_config.load_rules()
-
-    token = auth.get_csrf_token(request)
-    response = templates.TemplateResponse(request, "dedup_criteria.html", {
-        "user": user, "csrf_token": token, "active": "loc-trung", "entity_type": entity_type,
-        "criteria_defs": duplicate_config.CASE_CRITERIA_DEFS, "case_criteria": case_criteria,
-        "rules": rules, "outbreak_weight_defs": duplicate_config.DEFAULT_OUTBREAK_WEIGHTS, "msg": msg,
-    })
-    auth.set_csrf_cookie(response, request, token)
-    return response
+    return RedirectResponse(f"/cdc/loc-trung?entity={entity_type}", status_code=303)
 
 
 @router.post("/cdc/loc-trung/tieu-chi", response_class=HTMLResponse)
@@ -278,5 +271,5 @@ async def save_criteria(
         )
         duplicate_config.save_rules(rules)
     return RedirectResponse(
-        f"/cdc/loc-trung/tieu-chi?entity={entity_type}&msg={quote('Đã lưu cấu hình.')}", status_code=303,
+        f"/cdc/loc-trung?entity={entity_type}&msg={quote('Đã lưu tiêu chí lọc trùng.')}", status_code=303,
     )

@@ -18,6 +18,7 @@ from webapp import TEMPLATES_DIR, auth
 from webapp.config import WebAppSettings
 from webapp.dependencies import get_settings_dep, require_password_current, require_role
 from webapp.services.export_files import file_download_response, make_temp_export_path
+from webapp.services import records_query
 
 router = APIRouter()
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
@@ -48,6 +49,7 @@ def export_hub(
 
 @router.get("/cdc/xuat-du-lieu/tai-ve")
 def export_filtered(
+    request: Request,
     entity: str = "case", search: str = "", disease: str = "", status: str = "", admin_area: str = "", fmt: str = "xlsx",
     user: auth.CurrentUser = Depends(require_role(*CAN_EXPORT_ROLES)),
     settings: WebAppSettings = Depends(get_settings_dep),
@@ -56,10 +58,17 @@ def export_filtered(
     suffix = ".csv" if fmt == "csv" else ".xlsx"
     tmp_path = make_temp_export_path(suffix)
     try:
-        core.export_filtered_records(
-            tmp_path, entity_type, search=search, disease=disease, status=status, admin_area=admin_area,
-            db_path=settings.db_path,
-        )
+        advanced_filters = records_query.clean_case_filters(request.query_params)
+        if entity_type == "case" and records_query.has_advanced_filters(advanced_filters):
+            records_query.export_cases(
+                tmp_path, search=search, disease=disease, status=status, admin_area=admin_area,
+                advanced=advanced_filters, db_path=settings.db_path,
+            )
+        else:
+            core.export_filtered_records(
+                tmp_path, entity_type, search=search, disease=disease, status=status, admin_area=admin_area,
+                db_path=settings.db_path,
+            )
     except ValueError as exc:
         tmp_path.unlink(missing_ok=True)
         return RedirectResponse(f"/cdc/xuat-du-lieu?err={quote(str(exc))}", status_code=303)

@@ -2,23 +2,23 @@
 {% block title %}Sao lưu / phục hồi{% endblock %}
 {% block body %}
 {% include "_navbar.html" %}
-<div class="container-fluid py-3">
-  <h1 class="h5 mb-3">Sao lưu / phục hồi CSDL</h1>
+<div class="container-fluid cdc-page">
+  <header class="cdc-page-header"><h1>Sao lưu / phục hồi CSDL</h1><p>Quản lý bản sao lưu thủ công, lịch tự động và kiểm tra toàn vẹn.</p></header>
 
   {% if msg %}<div class="alert alert-success py-2 small">{{ msg }}</div>{% endif %}
   {% if err %}<div class="alert alert-danger py-2 small">{{ err }}</div>{% endif %}
 
-  <div class="card p-3 mb-3">
+  <section class="cdc-card cdc-admin-card">
     <div class="fw-semibold mb-1">Tình trạng sao lưu tự động</div>
     <div class="small {% if health.overdue %}text-danger{% else %}text-secondary{% endif %}">{{ health.message }}</div>
     <form method="post" action="/cdc/sao-luu/tao" class="mt-2">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit" class="btn btn-sm btn-primary">Sao lưu ngay</button>
     </form>
-  </div>
+  </section>
 
   {% if can_restore %}
-  <div class="card p-3 mb-3">
+  <section class="cdc-card cdc-admin-card">
     <div class="fw-semibold mb-2">Cấu hình sao lưu tự động</div>
     <form method="post" action="/cdc/sao-luu/chinh-sach" class="row g-2 align-items-end">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -52,10 +52,10 @@
       </div>
       <div class="col-auto"><button type="submit" class="btn btn-sm btn-outline-primary">Lưu cấu hình</button></div>
     </form>
-  </div>
+  </section>
   {% endif %}
 
-  <div class="table-responsive">
+  <div class="table-responsive cdc-table-card">
     <table class="table table-sm table-hover align-middle">
       <thead><tr><th>Tên file</th><th>Loại</th><th>Thời điểm</th><th>Kích thước</th><th></th></tr></thead>
       <tbody>

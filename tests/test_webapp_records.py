@@ -103,6 +103,55 @@ def test_case_list_shows_seeded_rows_and_search(client: TestClient, tmp_path: Pa
     assert "CA-1" in filtered.text and "CA-2" not in filtered.text
 
 
+def test_case_list_has_display_settings_and_working_advanced_filters(client: TestClient, tmp_path: Path):
+    _login(client)
+    _seed_cases(tmp_path, [
+        {
+            "case_code": "ADV-A", "full_name": "Nguyễn An", "birth_date_raw": "01/01/1996",
+            "gender": "Nữ", "occupation": "Giáo viên", "diagnosis_classification": "Ca xác định",
+            "current_status": "Đang điều trị", "province": "Hải Phòng", "commune": "Xã A",
+            "reporting_unit": "TYT A", "record_status": "Đã xác nhận",
+            "report_datetime": "20/07/2026 08:30", "onset_date": "10/07/2026",
+            "admission_date": "11/07/2026", "discharge_or_death_date": "18/07/2026",
+            "sample_date": "12/07/2026", "test_result": "Dương tính", "lab_unit": "CDC HP",
+            "treatment_facility": "Bệnh viện A",
+        },
+        {
+            "case_code": "ADV-B", "full_name": "Trần Bình", "birth_date_raw": "01/01/1970",
+            "gender": "Nam", "occupation": "Công nhân", "diagnosis_classification": "Ca nghi ngờ",
+            "current_status": "Đã khỏi", "province": "Quảng Ninh", "commune": "Xã B",
+            "reporting_unit": "TYT B", "record_status": "Chờ xác nhận",
+            "report_datetime": "01/06/2026 08:30", "onset_date": "01/06/2026",
+            "admission_date": "02/06/2026", "discharge_or_death_date": "08/06/2026",
+            "sample_date": "03/06/2026", "test_result": "Âm tính", "lab_unit": "BV B",
+            "treatment_facility": "Bệnh viện B",
+        },
+    ])
+
+    page = client.get("/cdc/ca-benh")
+    assert "Cột hiển thị" in page.text
+    assert "Nâng cao" in page.text
+    assert 'data-column-toggle' in page.text
+
+    filters = [
+        {"full_name": "Nguyễn An"}, {"gender": "Nữ"}, {"occupation": "Giáo viên"},
+        {"diagnosis_classification": "Ca xác định"}, {"current_status": "Đang điều trị"},
+        {"province": "Hải Phòng"}, {"reporting_unit": "TYT A"}, {"record_status": "Đã xác nhận"},
+        {"report_from": "2026-07-01", "report_to": "2026-07-31"},
+        {"onset_from": "2026-07-01", "onset_to": "2026-07-31"},
+        {"admission_from": "2026-07-01", "admission_to": "2026-07-31"},
+        {"discharge_from": "2026-07-01", "discharge_to": "2026-07-31"},
+        {"sample_from": "2026-07-01", "sample_to": "2026-07-31"},
+        {"test_result": "Dương tính"}, {"lab_unit": "CDC HP"},
+        {"treatment_facility": "Bệnh viện A"}, {"age_min": "25", "age_max": "35"},
+    ]
+    for params in filters:
+        filtered = client.get("/cdc/ca-benh", params=params)
+        assert "ADV-A" in filtered.text, params
+        assert "ADV-B" not in filtered.text, params
+        assert "cdc-advanced-filter\" open" in filtered.text
+
+
 def test_case_detail_shows_fields_and_issues(client: TestClient, tmp_path: Path):
     _login(client)
     _seed_cases(tmp_path, [{"case_code": "CA-1", "full_name": "Nguyễn Văn A", "commune": "Xã A"}])
@@ -149,3 +198,38 @@ def test_outbreak_filter_by_disease(client: TestClient):
     # thể chọn) — chỉ kiểm tra nó KHÔNG xuất hiện như một dòng kết quả trong bảng.
     assert "<td>Benh-Mot</td>" in resp.text
     assert "<td>Benh-Hai</td>" not in resp.text
+
+
+def test_outbreak_create_edit_delete_are_wired_and_audited(client: TestClient):
+    _login(client)
+    csrf = _fresh_csrf(client, "/cdc/o-dich/them")
+    created = client.post("/cdc/o-dich/them", data={
+        "csrf_token": csrf, "disease": "Cúm A", "location": "Phường Test",
+        "first_onset_date": "2026-07-20", "status": "Đang hoạt động",
+        "case_count": "4", "death_count": "0", "reporting_unit": "CDC Test",
+    })
+    assert created.status_code == 200
+    rows, _ = core.query_records("outbreak", search="Cúm A", db_path=core.DB_PATH)
+    assert len(rows) == 1
+    outbreak_id = rows[0]["id"]
+
+    csrf = _fresh_csrf(client, f"/cdc/o-dich/{outbreak_id}/sua")
+    edited = client.post(f"/cdc/o-dich/{outbreak_id}/sua", data={
+        "csrf_token": csrf, "disease": "Cúm A", "location": "Phường Đã sửa",
+        "first_onset_date": "2026-07-20", "status": "Đã kết thúc",
+        "case_count": "5", "death_count": "0", "reporting_unit": "CDC Test",
+    })
+    assert edited.status_code == 200
+    assert core.get_record("outbreak", outbreak_id, db_path=core.DB_PATH)["location"] == "Phường Đã sửa"
+
+    csrf = _fresh_csrf(client, f"/cdc/o-dich/{outbreak_id}")
+    deleted = client.post(f"/cdc/o-dich/{outbreak_id}/xoa", data={"csrf_token": csrf})
+    assert deleted.status_code == 200
+    assert core.get_record("outbreak", outbreak_id, db_path=core.DB_PATH) is None
+    actions = {row["action"] for row in core.list_audit_log(db_path=core.DB_PATH)}
+    assert {"create_outbreak_web", "update_outbreak_web", "delete_outbreak_web"} <= actions
+
+
+def test_viewer_cannot_create_outbreak(client: TestClient):
+    _login(client, role=core.CDC_ROLE_VIEWER)
+    assert client.get("/cdc/o-dich/them").status_code == 403

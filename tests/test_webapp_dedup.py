@@ -192,6 +192,26 @@ def test_restore_requires_admin_role(client: TestClient, tmp_path: Path):
 
 # ---------- Tiêu chí ----------
 
+def test_scan_embeds_full_criteria_select(client: TestClient):
+    _login(client)
+    page = client.get("/cdc/loc-trung?entity=case")
+    assert page.status_code == 200
+    assert '<select id="dedup-criteria" name="enabled"' in page.text
+    for criterion_id, label in duplicate_config.CASE_CRITERIA_DEFS:
+        assert f'value="{criterion_id}"' in page.text
+        assert label in page.text
+    assert 'name="name_similarity_percent"' in page.text
+    assert 'name="onset_max_days"' in page.text
+
+
+def test_scan_embeds_full_outbreak_weight_settings(client: TestClient):
+    _login(client)
+    page = client.get("/cdc/loc-trung?entity=outbreak")
+    assert page.status_code == 200
+    assert 'name="definite_score"' in page.text
+    for key in duplicate_config.DEFAULT_OUTBREAK_WEIGHTS:
+        assert f'name="weight__{key}"' in page.text
+
 def test_criteria_page_requires_admin(client: TestClient):
     _login(client, role=core.CDC_ROLE_DATA_OPERATOR)
     resp = client.get("/cdc/loc-trung/tieu-chi")

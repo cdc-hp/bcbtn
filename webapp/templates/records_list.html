@@ -1,50 +1,130 @@
 {% extends "base.html" %}
+{% from "_navbar.html" import icon with context %}
 {% block title %}{{ title }}{% endblock %}
 {% block body %}
 {% include "_navbar.html" %}
-<div class="container-fluid py-3">
-  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
-    <div><h1 class="h5 mb-1">{{ title }}</h1><p class="text-secondary mb-0">{{ "{:,}".format(total) }} bản ghi</p></div>
-    {% if can_export %}<a href="/cdc/xuat-du-lieu/tai-ve?entity={{ entity_type }}&search={{ filters.search }}&disease={{ filters.disease }}&status={{ filters.status }}&admin_area={{ filters.admin_area }}&fmt=xlsx" class="btn btn-outline-primary">Xuất theo bộ lọc</a>{% endif %}
+<div class="container-fluid cdc-page">
+  <div class="cdc-records-header">
+    <div>
+      <h1>{{ title }} <span>({{ rows|length }} bản ghi hiển thị / {{ "{:,}".format(total) }} tổng)</span></h1>
+    </div>
+    <div class="cdc-records-actions">
+      {% if entity_type == "case" %}
+      <details class="cdc-column-settings" data-column-settings>
+        <summary class="btn btn-outline-secondary">
+          {{ icon('settings') }} Cột hiển thị
+        </summary>
+        <div class="cdc-column-menu" role="group" aria-label="Chọn cột hiển thị">
+          <strong>Cột hiển thị</strong>
+          {% for key, label in columns %}
+          <label><input type="checkbox" value="{{ key }}" data-column-toggle checked> {{ label }}</label>
+          {% endfor %}
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-column-reset>Khôi phục mặc định</button>
+        </div>
+      </details>
+      {% endif %}
+    </div>
   </div>
 
-  <form method="get" action="/cdc/{{ entity_path }}" class="row g-2 mb-3 align-items-end">
-    <div class="col-auto">
-      <label class="form-label small mb-0">Tìm kiếm</label>
-      <input type="text" name="search" value="{{ filters.search }}" class="form-control form-control-sm" placeholder="Tên, mã số, CCCD...">
+  <form method="get" action="/cdc/{{ entity_path }}" class="cdc-filter-card">
+    <div class="cdc-filter-grid">
+      <div>
+        <label for="records-search" class="form-label">Tìm kiếm</label>
+        <input id="records-search" type="search" name="search" value="{{ filters.search }}" class="form-control" placeholder="{% if entity_type == 'case' %}Tên, mã số, CCCD...{% else %}Tên bệnh, địa điểm...{% endif %}">
+      </div>
+      {% if entity_type == "case" %}
+      <div>
+        <label for="records-disease" class="form-label">{{ disease_label }}</label>
+        <select id="records-disease" name="disease" class="form-select">
+          <option value="">Tất cả</option>
+          {% for value in disease_options %}<option value="{{ value }}" {% if filters.disease == value %}selected{% endif %}>{{ value }}</option>{% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      <div>
+        <label for="records-area" class="form-label">{{ area_label }}</label>
+        <select id="records-area" name="admin_area" class="form-select">
+          <option value="">Tất cả</option>
+          {% for value in area_options %}<option value="{{ value }}" {% if filters.admin_area == value %}selected{% endif %}>{{ value }}</option>{% endfor %}
+        </select>
+      </div>
+      {% if entity_type == "outbreak" %}
+      <div>
+        <label for="records-status" class="form-label">Trạng thái</label>
+        <select id="records-status" name="status" class="form-select">
+          <option value="">Tất cả</option>
+          {% for value in status_options %}<option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ value }}</option>{% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      <div class="cdc-filter-actions">
+        <button type="submit" class="btn btn-primary">Lọc</button>
+        {% if entity_type == "case" and can_export %}<a href="/cdc/xuat-du-lieu/tai-ve?{{ export_query }}&fmt=xlsx" class="btn btn-outline-secondary">{{ icon('download') }} Xuất theo bộ lọc</a>{% endif %}
+        <a href="/cdc/{{ entity_path }}" class="btn btn-outline-secondary">Chọn lại</a>
+      </div>
+      {% if entity_type == "outbreak" and can_edit_outbreak %}<a href="/cdc/o-dich/them" class="btn btn-primary cdc-toolbar-push">{{ icon('plus') }} Thêm ổ dịch</a>{% endif %}
     </div>
-    <div class="col-auto">
-      <label class="form-label small mb-0">{{ disease_label }}</label>
-      <select name="disease" class="form-select form-select-sm">
-        <option value="">Tất cả</option>
-        {% for value in disease_options %}<option value="{{ value }}" {% if filters.disease == value %}selected{% endif %}>{{ value }}</option>{% endfor %}
-      </select>
-    </div>
-    <div class="col-auto">
-      <label class="form-label small mb-0">{{ area_label }}</label>
-      <select name="admin_area" class="form-select form-select-sm">
-        <option value="">Tất cả</option>
-        {% for value in area_options %}<option value="{{ value }}" {% if filters.admin_area == value %}selected{% endif %}>{{ value }}</option>{% endfor %}
-      </select>
-    </div>
-    <div class="col-auto">
-      <label class="form-label small mb-0">Trạng thái</label>
-      <input type="text" name="status" value="{{ filters.status }}" class="form-control form-control-sm" placeholder="Tất cả">
-    </div>
-    <div class="col-auto">
-      <button type="submit" class="btn btn-sm btn-primary">Lọc</button>
-      <a href="/cdc/{{ entity_path }}" class="btn btn-sm btn-outline-secondary">Xoá lọc</a>
-    </div>
+
+    {% if entity_type == "case" %}
+    <details class="cdc-advanced-filter" {% if advanced_open %}open{% endif %}>
+      <summary>Nâng cao <span aria-hidden="true">⌄</span></summary>
+      <div class="cdc-advanced-filter__body">
+        <section>
+          <h2>Thông tin ca bệnh</h2>
+          <div class="cdc-advanced-grid">
+            <div><label for="advanced-name" class="form-label">Họ tên</label><input id="advanced-name" name="full_name" value="{{ filters.full_name }}" class="form-control"></div>
+            <div><label for="advanced-gender" class="form-label">Giới tính</label><select id="advanced-gender" name="gender" class="form-select"><option value="">Tất cả</option>{% for value in advanced_options.gender %}<option value="{{ value }}" {% if filters.gender == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
+            <div><label for="advanced-occupation" class="form-label">Nghề nghiệp</label><select id="advanced-occupation" name="occupation" class="form-select"><option value="">Tất cả</option>{% for value in advanced_options.occupation %}<option value="{{ value }}" {% if filters.occupation == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
+            <div><label for="advanced-classification" class="form-label">Phân loại chẩn đoán</label><select id="advanced-classification" name="diagnosis_classification" class="form-select"><option value="">Tất cả</option>{% for value in advanced_options.diagnosis_classification %}<option value="{{ value }}" {% if filters.diagnosis_classification == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
+            <div><label for="advanced-current-status" class="form-label">Tình trạng hiện nay</label><select id="advanced-current-status" name="current_status" class="form-select"><option value="">Tất cả</option>{% for value in advanced_options.current_status %}<option value="{{ value }}" {% if filters.current_status == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
+            <div><label for="advanced-age-min" class="form-label">Tuổi từ</label><input id="advanced-age-min" type="number" min="0" max="130" name="age_min" value="{{ filters.age_min }}" class="form-control"></div>
+            <div><label for="advanced-age-max" class="form-label">Tuổi đến</label><input id="advanced-age-max" type="number" min="0" max="130" name="age_max" value="{{ filters.age_max }}" class="form-control"></div>
+          </div>
+        </section>
+
+        <section>
+          <h2>Nơi ở hiện nay / cơ sở báo cáo</h2>
+          <div class="cdc-advanced-grid">
+            <div><label for="advanced-province" class="form-label">Tỉnh/Thành phố</label><select id="advanced-province" name="province" class="form-select"><option value="">Tất cả</option>{% for value in advanced_options.province %}<option value="{{ value }}" {% if filters.province == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
+            <div><label for="advanced-reporting-unit" class="form-label">Cơ sở báo cáo</label><select id="advanced-reporting-unit" name="reporting_unit" class="form-select"><option value="">Tất cả</option>{% for value in advanced_options.reporting_unit %}<option value="{{ value }}" {% if filters.reporting_unit == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
+            <div><label for="advanced-record-status" class="form-label">Trạng thái xác nhận</label><select id="advanced-record-status" name="record_status" class="form-select"><option value="">Tất cả</option>{% for value in advanced_options.record_status %}<option value="{{ value }}" {% if filters.record_status == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
+            <div><label for="advanced-report-from" class="form-label">Ngày nhập báo cáo từ</label><input id="advanced-report-from" type="date" name="report_from" value="{{ filters.report_from }}" class="form-control"></div>
+            <div><label for="advanced-report-to" class="form-label">Ngày nhập báo cáo đến</label><input id="advanced-report-to" type="date" name="report_to" value="{{ filters.report_to }}" class="form-control"></div>
+          </div>
+        </section>
+
+        <section>
+          <h2>Thời gian điều trị và xét nghiệm</h2>
+          <div class="cdc-advanced-grid">
+            <div><label for="advanced-onset-from" class="form-label">Ngày khởi phát từ</label><input id="advanced-onset-from" type="date" name="onset_from" value="{{ filters.onset_from }}" class="form-control"></div>
+            <div><label for="advanced-onset-to" class="form-label">Ngày khởi phát đến</label><input id="advanced-onset-to" type="date" name="onset_to" value="{{ filters.onset_to }}" class="form-control"></div>
+            <div><label for="advanced-admission-from" class="form-label">Ngày nhập viện từ</label><input id="advanced-admission-from" type="date" name="admission_from" value="{{ filters.admission_from }}" class="form-control"></div>
+            <div><label for="advanced-admission-to" class="form-label">Ngày nhập viện đến</label><input id="advanced-admission-to" type="date" name="admission_to" value="{{ filters.admission_to }}" class="form-control"></div>
+            <div><label for="advanced-discharge-from" class="form-label">Ngày ra viện/tử vong từ</label><input id="advanced-discharge-from" type="date" name="discharge_from" value="{{ filters.discharge_from }}" class="form-control"></div>
+            <div><label for="advanced-discharge-to" class="form-label">Ngày ra viện/tử vong đến</label><input id="advanced-discharge-to" type="date" name="discharge_to" value="{{ filters.discharge_to }}" class="form-control"></div>
+            <div><label for="advanced-sample-from" class="form-label">Ngày lấy mẫu xét nghiệm từ</label><input id="advanced-sample-from" type="date" name="sample_from" value="{{ filters.sample_from }}" class="form-control"></div>
+            <div><label for="advanced-sample-to" class="form-label">Ngày lấy mẫu xét nghiệm đến</label><input id="advanced-sample-to" type="date" name="sample_to" value="{{ filters.sample_to }}" class="form-control"></div>
+            <div><label for="advanced-test-result" class="form-label">Kết quả xét nghiệm</label><select id="advanced-test-result" name="test_result" class="form-select"><option value="">Tất cả</option>{% for value in advanced_options.test_result %}<option value="{{ value }}" {% if filters.test_result == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
+            <div><label for="advanced-lab-unit" class="form-label">Đơn vị xét nghiệm</label><select id="advanced-lab-unit" name="lab_unit" class="form-select"><option value="">Tất cả</option>{% for value in advanced_options.lab_unit %}<option value="{{ value }}" {% if filters.lab_unit == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
+            <div><label for="advanced-treatment" class="form-label">Cơ sở điều trị</label><select id="advanced-treatment" name="treatment_facility" class="form-select"><option value="">Tất cả</option>{% for value in advanced_options.treatment_facility %}<option value="{{ value }}" {% if filters.treatment_facility == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
+          </div>
+        </section>
+      </div>
+    </details>
+    {% endif %}
   </form>
 
   <div class="table-responsive">
-    <table class="table table-sm table-hover">
-      <thead><tr>{% for key, label in columns %}<th>{{ label }}</th>{% endfor %}<th></th></tr></thead>
+    <table class="table table-sm table-hover" data-records-table>
+      <thead><tr>{% for key, label in columns %}<th scope="col" data-column-key="{{ key }}"{% if entity_type == "case" and sort == key %} aria-sort="{{ 'ascending' if direction == 'asc' else 'descending' }}"{% endif %}>{% if entity_type == "case" %}<a class="cdc-sort-link{% if sort == key %} cdc-sort-link--active{% endif %}" href="{{ sort_urls[key] }}">{{ label }}{{ icon('chevron-down') }}</a>{% else %}{{ label }}{% endif %}</th>{% endfor %}<th scope="col"><span class="visually-hidden">Hành động</span></th></tr></thead>
       <tbody>
         {% for row in rows %}
         <tr>
-          {% for key, label in columns %}<td>{% if key in ("current_status", "status", "record_status") and row.get(key) %}<span class="cdc-status-pill">{{ row.get(key) }}</span>{% else %}{{ row.get(key, "") }}{% endif %}</td>{% endfor %}
-          <td><a href="/cdc/{{ entity_path }}/{{ row.id }}" class="cdc-action-link">Xem <span aria-hidden="true">→</span></a></td>
+          {% for key, label in columns %}<td{% if entity_type == "case" %} data-column-key="{{ key }}"{% endif %}>{% if key in ("current_status", "status", "record_status") and row.get(key) %}<span class="cdc-status-pill">{{ row.get(key) }}</span>{% else %}{{ row.get(key, "") }}{% endif %}</td>{% endfor %}
+          <td class="cdc-row-actions">
+            <a href="/cdc/{{ entity_path }}/{{ row.id }}" class="cdc-action-link">Xem <span aria-hidden="true">→</span></a>
+            {% if entity_type == "outbreak" and can_edit_outbreak %}<a href="/cdc/o-dich/{{ row.id }}/sua" class="cdc-icon-button" aria-label="Sửa ổ dịch" title="Sửa ổ dịch">{{ icon('edit') }}</a>{% endif %}
+          </td>
         </tr>
         {% else %}
         <tr><td colspan="{{ columns|length + 1 }}" class="text-center text-secondary py-4">Không có bản ghi nào khớp bộ lọc.</td></tr>
@@ -54,16 +134,14 @@
   </div>
 
   {% if total_pages > 1 %}
-  <nav>
+  <nav aria-label="Phân trang {{ title }}">
     <ul class="pagination pagination-sm">
       {% set start_page = [1, page - 2]|max %}{% set end_page = [total_pages, page + 2]|min %}
-      {% if start_page > 1 %}<li class="page-item"><a class="page-link" href="?search={{ filters.search }}&disease={{ filters.disease }}&status={{ filters.status }}&admin_area={{ filters.admin_area }}&page=1">1</a></li>{% if start_page > 2 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}{% endif %}
+      {% if start_page > 1 %}<li class="page-item"><a class="page-link" href="{{ pagination_base }}1">1</a></li>{% if start_page > 2 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}{% endif %}
       {% for p in range(start_page, end_page + 1) %}
-      <li class="page-item {% if p == page %}active{% endif %}">
-        <a class="page-link" href="?search={{ filters.search }}&disease={{ filters.disease }}&status={{ filters.status }}&admin_area={{ filters.admin_area }}&page={{ p }}">{{ p }}</a>
-      </li>
+      <li class="page-item {% if p == page %}active{% endif %}"><a class="page-link" href="{{ pagination_base }}{{ p }}">{{ p }}</a></li>
       {% endfor %}
-      {% if end_page < total_pages %}{% if end_page < total_pages - 1 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}<li class="page-item"><a class="page-link" href="?search={{ filters.search }}&disease={{ filters.disease }}&status={{ filters.status }}&admin_area={{ filters.admin_area }}&page={{ total_pages }}">{{ total_pages }}</a></li>{% endif %}
+      {% if end_page < total_pages %}{% if end_page < total_pages - 1 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}<li class="page-item"><a class="page-link" href="{{ pagination_base }}{{ total_pages }}">{{ total_pages }}</a></li>{% endif %}
     </ul>
   </nav>
   {% endif %}

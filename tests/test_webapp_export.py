@@ -92,6 +92,23 @@ def test_export_filtered_downloads_xlsx(client: TestClient, tmp_path: Path):
     assert "CA-1" in values and "CA-2" not in values
 
 
+def test_export_filtered_applies_advanced_case_filters(client: TestClient, tmp_path: Path):
+    _login(client)
+    _seed_cases(tmp_path, [
+        {"case_code": "ADV-1", "full_name": "Nguyễn A", "occupation": "Giáo viên", "sample_date": "10/07/2026"},
+        {"case_code": "ADV-2", "full_name": "Trần B", "occupation": "Công nhân", "sample_date": "10/06/2026"},
+    ])
+    resp = client.get("/cdc/xuat-du-lieu/tai-ve", params={
+        "entity": "case", "occupation": "Giáo viên", "sample_from": "2026-07-01",
+        "sample_to": "2026-07-31", "fmt": "xlsx",
+    })
+    assert resp.status_code == 200
+    out_path = tmp_path / "advanced-filter.xlsx"
+    out_path.write_bytes(resp.content)
+    values = [cell.value for row in load_workbook(out_path).active.iter_rows(min_row=2) for cell in row]
+    assert "ADV-1" in values and "ADV-2" not in values
+
+
 def test_export_filtered_requires_export_role(client: TestClient, tmp_path: Path):
     _login(client, role=core.CDC_ROLE_VIEWER)
     _seed_cases(tmp_path, [{"case_code": "CA-1", "full_name": "Nguyễn Văn A", "commune": "Xã A"}])

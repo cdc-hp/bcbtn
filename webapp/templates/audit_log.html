@@ -2,10 +2,10 @@
 {% block title %}Nhật ký thao tác{% endblock %}
 {% block body %}
 {% include "_navbar.html" %}
-<div class="container-fluid py-3">
-  <h1 class="h5 mb-3">Nhật ký thao tác <span class="text-secondary small">({{ "{:,}".format(rows|length) }} dòng gần nhất)</span></h1>
+<div class="container-fluid cdc-page">
+  <header class="cdc-page-header"><h1>Nhật ký thao tác</h1><p>{{ "{:,}".format(rows|length) }} dòng gần nhất, có thể lọc theo hành động, người dùng, địa bàn và thời gian.</p></header>
 
-  <form method="get" action="/cdc/nhat-ky" class="row g-2 mb-3 align-items-end">
+  <form method="get" action="/cdc/nhat-ky" class="cdc-toolbar cdc-admin-toolbar">
     <div class="col-auto">
       <label class="form-label small mb-0">Hành động</label>
       <input type="text" name="action" value="{{ filters.action }}" class="form-control form-control-sm" placeholder="Tất cả">
@@ -36,7 +36,7 @@
     </div>
   </form>
 
-  <div class="table-responsive">
+  <div class="table-responsive cdc-table-card">
     <table class="table table-sm table-hover">
       <thead><tr><th>Thời điểm</th><th>Người thực hiện</th><th>Hành động</th><th>Xã</th><th>IP</th><th>Chi tiết</th></tr></thead>
       <tbody>

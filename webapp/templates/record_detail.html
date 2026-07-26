@@ -1,10 +1,22 @@
 {% extends "base.html" %}
 {% block title %}{{ title }} #{{ record.id }}{% endblock %}
+{% from "_navbar.html" import icon with context %}
 {% block body %}
 {% include "_navbar.html" %}
-<div class="container py-3">
-  <a href="/cdc/{{ entity_path }}" class="small">&larr; Quay lại danh sách {{ title|lower }}</a>
-  <h1 class="h5 my-3">{{ title }} #{{ record.id }}</h1>
+<div class="container-fluid cdc-page">
+  <div class="cdc-page-header cdc-detail-header">
+    <div>
+      <a href="/cdc/{{ entity_path }}" class="cdc-back-link">&larr; Quay lại danh sách {{ title|lower }}</a>
+      <h1>{{ title }} #{{ record.id }}</h1>
+    </div>
+    {% if can_edit_outbreak %}<div class="cdc-page-actions">
+      <a href="/cdc/o-dich/{{ record.id }}/sua" class="btn btn-primary">{{ icon('edit') }} Sửa ổ dịch</a>
+      {% if can_delete_outbreak %}<form method="post" action="/cdc/o-dich/{{ record.id }}/xoa" onsubmit="return confirm('Xóa ổ dịch này? Một bản sao lưu sẽ được tạo trước khi xóa.');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn-outline-danger">{{ icon('trash') }} Xóa</button>
+      </form>{% endif %}
+    </div>{% endif %}
+  </div>
 
   {% if issues %}
   <div class="card p-3 mb-3 border-warning">

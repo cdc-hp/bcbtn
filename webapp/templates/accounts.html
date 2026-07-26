@@ -2,13 +2,13 @@
 {% block title %}Quản lý tài khoản{% endblock %}
 {% block body %}
 {% include "_navbar.html" %}
-<div class="container-fluid py-3">
-  <h1 class="h5 mb-3">Quản lý tài khoản</h1>
+<div class="container-fluid cdc-page">
+  <header class="cdc-page-header"><h1>Quản lý tài khoản</h1><p>Tạo tài khoản, phân quyền và kiểm soát trạng thái đăng nhập.</p></header>
 
   {% if msg %}<div class="alert alert-success py-2 small">{{ msg }}</div>{% endif %}
   {% if err %}<div class="alert alert-danger py-2 small">{{ err }}</div>{% endif %}
 
-  <div class="card p-3 mb-3 cdc-form-card-wide">
+  <section class="cdc-card cdc-admin-card cdc-form-card-wide">
     <div class="fw-semibold mb-2">Tạo tài khoản mới</div>
     <form method="post" action="/cdc/tai-khoan/tao" class="row g-2 align-items-end">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -35,9 +35,9 @@
       </div>
     </form>
     <div class="text-secondary small mt-2">Tài khoản mới bắt buộc đổi mật khẩu ở lần đăng nhập đầu tiên.</div>
-  </div>
+  </section>
 
-  <div class="table-responsive">
+  <div class="table-responsive cdc-table-card">
     <table class="table table-sm table-hover align-middle">
       <thead>
         <tr>
