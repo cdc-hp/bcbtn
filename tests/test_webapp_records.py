@@ -130,8 +130,11 @@ def test_case_list_has_display_settings_and_working_advanced_filters(client: Tes
 
     page = client.get("/cdc/ca-benh")
     assert "Cột hiển thị" in page.text
+    assert "48 trường" in page.text
     assert "Nâng cao" in page.text
-    assert 'data-column-toggle' in page.text
+    assert page.text.count('data-column-toggle') == len(core.CASE_FIELDS) == 48
+    assert 'value="occupation" data-column-toggle data-default-visible="false"' in page.text
+    assert 'value="case_code" data-column-toggle data-default-visible="true" checked' in page.text
 
     filters = [
         {"full_name": "Nguyễn An"}, {"gender": "Nữ"}, {"occupation": "Giáo viên"},

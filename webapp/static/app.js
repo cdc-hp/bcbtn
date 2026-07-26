@@ -17,6 +17,8 @@
   const recordsTable = document.querySelector('[data-records-table]');
   if (columnSettings && recordsTable) {
     const toggles = [...columnSettings.querySelectorAll('[data-column-toggle]')];
+    const options = [...columnSettings.querySelectorAll('[data-column-option]')];
+    const columnSearch = columnSettings.querySelector('[data-column-search]');
     const storageKey = `cdc-visible-columns:${window.location.pathname}`;
     let savedColumns = null;
     try {
@@ -45,10 +47,24 @@
     });
     columnSettings.querySelector('[data-column-reset]')?.addEventListener('click', () => {
       toggles.forEach(input => {
+        const visible = input.dataset.defaultVisible === 'true';
+        input.checked = visible;
+        setColumnVisible(input.value, visible);
+      });
+      window.localStorage.removeItem(storageKey);
+    });
+    columnSettings.querySelector('[data-column-all]')?.addEventListener('click', () => {
+      toggles.forEach(input => {
         input.checked = true;
         setColumnVisible(input.value, true);
       });
-      window.localStorage.removeItem(storageKey);
+      saveColumns();
+    });
+    columnSearch?.addEventListener('input', () => {
+      const query = columnSearch.value.trim().toLocaleLowerCase('vi');
+      options.forEach(option => {
+        option.hidden = Boolean(query) && !option.textContent.toLocaleLowerCase('vi').includes(query);
+      });
     });
     document.addEventListener('click', event => {
       if (!columnSettings.contains(event.target)) columnSettings.removeAttribute('open');

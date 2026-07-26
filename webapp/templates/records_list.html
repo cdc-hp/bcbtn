@@ -15,11 +15,18 @@
           {{ icon('settings') }} Cột hiển thị
         </summary>
         <div class="cdc-column-menu" role="group" aria-label="Chọn cột hiển thị">
-          <strong>Cột hiển thị</strong>
+          <div class="cdc-column-menu__heading"><strong>Cột hiển thị</strong><span>{{ column_count }} trường</span></div>
+          <label class="visually-hidden" for="column-search">Tìm cột</label>
+          <input id="column-search" type="search" class="form-control form-control-sm" placeholder="Tìm tên trường..." data-column-search>
+          <div class="cdc-column-menu__quick-actions">
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-column-all>Chọn tất cả</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-column-reset>Mặc định</button>
+          </div>
+          <div class="cdc-column-menu__options">
           {% for key, label in columns %}
-          <label><input type="checkbox" value="{{ key }}" data-column-toggle checked> {{ label }}</label>
+          <label data-column-option><input type="checkbox" value="{{ key }}" data-column-toggle data-default-visible="{{ 'true' if key in default_visible_columns else 'false' }}" {% if key in default_visible_columns %}checked{% endif %}> <span>{{ label }}</span></label>
           {% endfor %}
-          <button type="button" class="btn btn-sm btn-outline-secondary" data-column-reset>Khôi phục mặc định</button>
+          </div>
         </div>
       </details>
       {% endif %}
@@ -116,11 +123,11 @@
 
   <div class="table-responsive">
     <table class="table table-sm table-hover" data-records-table>
-      <thead><tr>{% for key, label in columns %}<th scope="col" data-column-key="{{ key }}"{% if entity_type == "case" and sort == key %} aria-sort="{{ 'ascending' if direction == 'asc' else 'descending' }}"{% endif %}>{% if entity_type == "case" %}<a class="cdc-sort-link{% if sort == key %} cdc-sort-link--active{% endif %}" href="{{ sort_urls[key] }}">{{ label }}{{ icon('chevron-down') }}</a>{% else %}{{ label }}{% endif %}</th>{% endfor %}<th scope="col"><span class="visually-hidden">Hành động</span></th></tr></thead>
+      <thead><tr>{% for key, label in columns %}<th scope="col" data-column-key="{{ key }}" class="{% if entity_type == 'case' and key not in default_visible_columns %}cdc-column-hidden{% endif %}"{% if entity_type == "case" and sort == key %} aria-sort="{{ 'ascending' if direction == 'asc' else 'descending' }}"{% endif %}>{% if entity_type == "case" %}<a class="cdc-sort-link{% if sort == key %} cdc-sort-link--active{% endif %}" href="{{ sort_urls[key] }}">{{ label }}{{ icon('chevron-down') }}</a>{% else %}{{ label }}{% endif %}</th>{% endfor %}<th scope="col"><span class="visually-hidden">Hành động</span></th></tr></thead>
       <tbody>
         {% for row in rows %}
         <tr>
-          {% for key, label in columns %}<td{% if entity_type == "case" %} data-column-key="{{ key }}"{% endif %}>{% if key in ("current_status", "status", "record_status") and row.get(key) %}<span class="cdc-status-pill">{{ row.get(key) }}</span>{% else %}{{ row.get(key, "") }}{% endif %}</td>{% endfor %}
+          {% for key, label in columns %}<td{% if entity_type == "case" %} data-column-key="{{ key }}" class="{% if key not in default_visible_columns %}cdc-column-hidden{% endif %}"{% endif %}>{% if key in ("current_status", "status", "record_status") and row.get(key) %}<span class="cdc-status-pill">{{ row.get(key) }}</span>{% else %}{{ row.get(key, "") }}{% endif %}</td>{% endfor %}
           <td class="cdc-row-actions">
             <a href="/cdc/{{ entity_path }}/{{ row.id }}" class="cdc-action-link">Xem <span aria-hidden="true">→</span></a>
             {% if entity_type == "outbreak" and can_edit_outbreak %}<a href="/cdc/o-dich/{{ row.id }}/sua" class="cdc-icon-button" aria-label="Sửa ổ dịch" title="Sửa ổ dịch">{{ icon('edit') }}</a>{% endif %}

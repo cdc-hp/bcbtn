@@ -22,11 +22,11 @@ templates = Jinja2Templates(directory=TEMPLATES_DIR)
 CAN_EDIT_OUTBREAK_ROLES = (core.CDC_ROLE_SUPER_ADMIN, core.CDC_ROLE_ADMIN, core.CDC_ROLE_DATA_OPERATOR)
 CAN_DELETE_OUTBREAK_ROLES = (core.CDC_ROLE_SUPER_ADMIN, core.CDC_ROLE_ADMIN)
 
-CASE_LIST_COLUMNS = [
-    ("case_code", "Mã số"), ("full_name", "Họ tên"), ("birth_date_raw", "Ngày sinh"),
-    ("gender", "Giới"), ("commune", "Xã/Phường"), ("main_diagnosis", "Chẩn đoán"),
-    ("onset_date", "Khởi phát"), ("current_status", "Tình trạng"), ("reporting_unit", "Đơn vị báo cáo"),
-]
+CASE_LIST_COLUMNS = [(key, label) for label, key in core.CASE_FIELDS]
+CASE_DEFAULT_VISIBLE_COLUMNS = {
+    "case_code", "full_name", "birth_date_raw", "gender", "commune", "main_diagnosis",
+    "onset_date", "current_status", "reporting_unit",
+}
 OUTBREAK_LIST_COLUMNS = [
     ("disease", "Tên bệnh"), ("location", "Địa điểm"), ("first_onset_date", "Khởi phát"),
     ("status", "Trạng thái"), ("case_count", "Số ca mắc"), ("death_count", "Tử vong"),
@@ -103,6 +103,8 @@ def _list_view(entity_type: str):
             "user": user, "csrf_token": token, "active": meta["active"],
             "entity_type": entity_type, "entity_path": meta["path"], "title": meta["title"],
             "columns": meta["list_columns"], "rows": rows, "total": total,
+            "default_visible_columns": CASE_DEFAULT_VISIBLE_COLUMNS if entity_type == "case" else set(),
+            "column_count": len(meta["list_columns"]),
             "page": page, "total_pages": total_pages,
             "filters": all_filters, "disease_options": disease_options, "area_options": area_options,
             "status_options": status_options, "advanced_options": advanced_options,
