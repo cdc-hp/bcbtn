@@ -18,7 +18,7 @@ def _user_data_root() -> Path:
 
 CONFIG_PATH = _user_data_root() / "duplicate_rules.json"
 
-CASE_CRITERIA_DEFS: list[tuple[str, str]] = [
+LEGACY_CASE_CRITERIA_DEFS: list[tuple[str, str]] = [
     ("case_code", "Trùng mã ca bệnh"),
     ("national_id", "Trùng CCCD/CMND"),
     ("phone", "Trùng số điện thoại"),
@@ -27,32 +27,48 @@ CASE_CRITERIA_DEFS: list[tuple[str, str]] = [
     ("name_similar", "Họ tên gần giống"),
     ("onset_near", "Ngày khởi phát gần nhau"),
 ]
-CASE_CRITERIA_LABELS: dict[str, str] = dict(CASE_CRITERIA_DEFS)
-DEFAULT_CASE_CRITERIA = ["case_code", "national_id"]
+CASE_CRITERIA_DEFS = LEGACY_CASE_CRITERIA_DEFS  # Tương thích import của các bản cũ.
+CASE_CRITERIA_LABELS: dict[str, str] = dict(LEGACY_CASE_CRITERIA_DEFS)
+LEGACY_CRITERIA_FIELD_MAP: dict[str, list[str]] = {
+    "case_code": ["case_code"],
+    "national_id": ["national_id"],
+    "phone": ["phone"],
+    "name_birth_year": ["full_name", "birth_date_raw"],
+    "name_commune": ["full_name", "commune"],
+    "name_similar": ["full_name"],
+    "onset_near": ["onset_date"],
+}
+DEFAULT_CASE_CRITERIA = ["case_code"]
 
 CRITERIA_CONFIG_PATH = _user_data_root() / "case_duplicate_criteria.json"
 
 
 @dataclass
 class CaseDuplicateCriteria:
-    """Tiêu chí lọc trùng ca bệnh do CDC chọn — thay cho chấm điểm/trọng số.
+    """Các trường dữ liệu dùng làm khóa lọc trùng ca bệnh.
 
-    Riêng ``name_similar`` (họ tên gần giống) và ``onset_near`` (khởi phát gần ngày) chỉ so
-    sánh các ca trong CÙNG một xã/phường — đây là phạm vi được chọn để giới hạn số cặp phải so
-    khớp mờ (không có khoá chặn chính xác như các tiêu chí còn lại).
+    ``name_similarity_percent`` và ``onset_max_days`` chỉ được giữ để đọc tệp cấu hình của
+    phiên bản cũ; cơ chế mới so khớp chính xác toàn bộ trường trong ``enabled``.
     """
 
     enabled: list[str] = field(default_factory=lambda: list(DEFAULT_CASE_CRITERIA))
+    match_mode: str = "fields"
     name_similarity_percent: int = 92
     onset_max_days: int = 3
 
-    def normalized(self) -> "CaseDuplicateCriteria":
-        valid = {criterion_id for criterion_id, _ in CASE_CRITERIA_DEFS}
+    def normalized(self, valid_fields: set[str] | None = None) -> "CaseDuplicateCriteria":
+        expanded: list[str] = []
+        for value in self.enabled or []:
+            for field_name in LEGACY_CRITERIA_FIELD_MAP.get(str(value), [str(value)]):
+                if field_name not in expanded:
+                    expanded.append(field_name)
+        valid = valid_fields or {value for value in expanded if value.replace("_", "").isalnum()}
         seen: list[str] = []
-        for criterion_id in self.enabled or []:
-            if criterion_id in valid and criterion_id not in seen:
-                seen.append(criterion_id)
+        for field_name in expanded:
+            if field_name in valid and field_name not in seen:
+                seen.append(field_name)
         self.enabled = seen or list(DEFAULT_CASE_CRITERIA)
+        self.match_mode = "fields"
         self.name_similarity_percent = max(50, min(100, int(self.name_similarity_percent)))
         self.onset_max_days = max(0, min(60, int(self.onset_max_days)))
         return self
@@ -67,6 +83,7 @@ def load_case_criteria() -> CaseDuplicateCriteria:
         return CaseDuplicateCriteria()
     return CaseDuplicateCriteria(
         enabled=raw.get("enabled") or list(DEFAULT_CASE_CRITERIA),
+        match_mode=raw.get("match_mode", "fields"),
         name_similarity_percent=raw.get("name_similarity_percent", 92),
         onset_max_days=raw.get("onset_max_days", 3),
     ).normalized()

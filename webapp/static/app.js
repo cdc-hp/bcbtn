@@ -74,6 +74,48 @@
     });
   }
 
+  document.querySelectorAll('[data-criteria-multichoice]').forEach(picker => {
+    const form = picker.closest('form');
+    const options = [...picker.querySelectorAll('[data-criteria-option]')];
+    const checkboxes = options.map(option => option.querySelector('input[type="checkbox"]'));
+    const search = picker.querySelector('[data-criteria-search]');
+    const count = picker.querySelector('[data-criteria-count]');
+    const summaryCount = picker.closest('details')?.querySelector('[data-criteria-summary-count]');
+    const selection = picker.querySelector('[data-criteria-selection]');
+    const updateSelection = () => {
+      const selected = options.filter(option => option.querySelector('input').checked);
+      if (count) count.textContent = `${selected.length}/${options.length}`;
+      if (summaryCount) summaryCount.textContent = String(selected.length);
+      if (selection) {
+        const labels = selected.map(option => option.querySelector('span').textContent.trim());
+        selection.textContent = labels.length ? `Đã chọn: ${labels.join(', ')}` : 'Chưa chọn trường dữ liệu nào.';
+      }
+    };
+    checkboxes.forEach(input => input.addEventListener('change', updateSelection));
+    search?.addEventListener('input', () => {
+      const query = search.value.trim().toLocaleLowerCase('vi');
+      options.forEach(option => {
+        option.hidden = Boolean(query) && !option.textContent.toLocaleLowerCase('vi').includes(query);
+      });
+    });
+    picker.querySelector('[data-criteria-all]')?.addEventListener('click', () => {
+      options.filter(option => !option.hidden).forEach(option => { option.querySelector('input').checked = true; });
+      updateSelection();
+    });
+    picker.querySelector('[data-criteria-clear]')?.addEventListener('click', () => {
+      checkboxes.forEach(input => { input.checked = false; });
+      updateSelection();
+    });
+    form?.addEventListener('submit', event => {
+      if (!checkboxes.some(input => input.checked)) {
+        event.preventDefault();
+        search?.focus();
+        if (selection) selection.textContent = 'Hãy chọn ít nhất một trường dữ liệu.';
+      }
+    });
+    updateSelection();
+  });
+
   const batchItems = [...document.querySelectorAll('[data-batch-item]')];
   const batchCount = document.querySelector('[data-batch-count]');
   if (batchItems.length && batchCount) {

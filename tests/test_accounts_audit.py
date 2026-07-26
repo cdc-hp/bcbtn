@@ -103,7 +103,7 @@ def test_audit_log_records_key_actions():
             ws.append([r.get(key, "") for _, key in core.CASE_FIELDS])
         wb.save(file2)
         core.import_excel(file2, db)
-        groups = core.find_duplicate_groups("case", db_path=db)
+        groups = core.find_duplicate_groups("case", criteria={"enabled": ["national_id"]}, db_path=db)
         assert groups
         keep_id, remove_ids = groups[0]["record_ids"][0], groups[0]["record_ids"][1:]
         merge_result = core.merge_duplicate_records("case", keep_id, remove_ids, {}, db, actor="cdc_hoa")

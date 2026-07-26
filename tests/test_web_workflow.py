@@ -74,46 +74,36 @@ def test_case_duplicate_no_match_when_criteria_not_selected():
         assert groups == []
 
 
-def test_case_duplicate_name_similar_detects_pairs_within_same_commune():
+def test_case_duplicate_selected_fields_form_one_composite_key():
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp); db = root / "test.db"; core.BACKUP_DIR = root / "backups"
         file = root / "cases.xlsx"
         rows = [
-            dict(BASE_CASE, case_code="CA-N1", full_name="Nguyễn Văn An", phone="0911111111",
-                 birth_date_raw="01/01/1980", commune="Xã A"),
-            dict(BASE_CASE, case_code="CA-N2", full_name="Nguyễn Văn Anh", phone="0922222222",
-                 birth_date_raw="02/02/1990", commune="Xã A"),
-        ]
-        make_excel(file, core.CASE_FIELDS, rows)
-        assert core.import_excel(file, db).inserted == 2
-        groups = core.find_duplicate_groups("case", db_path=db, criteria={"enabled": ["name_similar"]})
-        assert len(groups) == 1
-        assert any("gần giống" in c for c in groups[0]["matched_criteria"])
-
-
-def test_case_duplicate_onset_near_detects_pairs_within_same_commune_only():
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp); db = root / "test.db"; core.BACKUP_DIR = root / "backups"
-        file = root / "cases.xlsx"
-        rows = [
-            dict(BASE_CASE, case_code="CA-O1", full_name="Lê Thị Hoa", phone="0933333333",
-                 onset_date="10/07/2026", commune="Xã A"),
-            dict(BASE_CASE, case_code="CA-O2", full_name="Phạm Văn Bình", phone="0944444444",
-                 onset_date="12/07/2026", commune="Xã A"),
-            dict(BASE_CASE, case_code="CA-O3", full_name="Đỗ Thị Mai", phone="0955555555",
-                 onset_date="11/07/2026", commune="Xã B"),
+            dict(BASE_CASE, case_code="CA-N1", full_name="Nguyễn Văn An", phone="0911111111", commune="Xã A"),
+            dict(BASE_CASE, case_code="CA-N2", full_name="Nguyễn Văn An", phone="0922222222", commune="Xã A"),
+            dict(BASE_CASE, case_code="CA-N3", full_name="Nguyễn Văn An", phone="0933333333", commune="Xã B"),
         ]
         make_excel(file, core.CASE_FIELDS, rows)
         assert core.import_excel(file, db).inserted == 3
-        groups = core.find_duplicate_groups(
-            "case", db_path=db, criteria={"enabled": ["onset_near"], "onset_max_days": 3}
-        )
-        # Xã A có 2 ca lệch ngày khởi phát trong ngưỡng -> phát hiện được nhờ bucket theo xã.
+        groups = core.find_duplicate_groups("case", db_path=db, criteria={"enabled": ["full_name", "commune"]})
         assert len(groups) == 1
-        assert set(groups[0]["case_codes"]) == {"CA-O1", "CA-O2"}
-        # Ca ở Xã B không được so với Xã A dù cũng lệch ngày trong ngưỡng — giới hạn đã biết
-        # (name_similar/onset_near chỉ so trong cùng xã).
-        assert "CA-O3" not in groups[0]["case_codes"]
+        assert set(groups[0]["case_codes"]) == {"CA-N1", "CA-N2"}
+        assert groups[0]["matched_criteria"] == ["Họ tên", "Xã"]
+
+
+def test_case_duplicate_skips_rows_with_blank_selected_field():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp); db = root / "test.db"; core.BACKUP_DIR = root / "backups"
+        file = root / "cases.xlsx"
+        rows = [
+            dict(BASE_CASE, case_code="CA-O1", full_name="Lê Thị Hoa", phone="", commune="Xã A"),
+            dict(BASE_CASE, case_code="CA-O2", full_name="Lê Thị Hoa", phone="", commune="Xã A"),
+        ]
+        make_excel(file, core.CASE_FIELDS, rows)
+        assert core.import_excel(file, db).inserted == 2
+        assert core.find_duplicate_groups(
+            "case", db_path=db, criteria={"enabled": ["full_name", "phone"]}
+        ) == []
 
 
 def test_export_cases_by_commune_resolves_cross_commune_by_latest_admission():
@@ -128,7 +118,7 @@ def test_export_cases_by_commune_resolves_cross_commune_by_latest_admission():
         make_excel(file, core.CASE_FIELDS, rows)
         assert core.import_excel(file, db).inserted == 3
         out = root / "theo_xa.xlsx"
-        result = core.export_cases_by_commune(out, db_path=db)
+        result = core.export_cases_by_commune(out, criteria={"enabled": ["national_id"]}, db_path=db)
         assert result["case_count"] == 3
         assert result["cross_commune_group_count"] == 1
         wb = load_workbook(out)

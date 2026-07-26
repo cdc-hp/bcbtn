@@ -77,9 +77,11 @@ def scan(
         )
         rows.append(row)
     total_records = sum(int(g["record_count"]) for g in groups)
-    case_criteria = duplicate_config.load_case_criteria()
+    case_field_defs = [(field_name, label) for label, field_name in core.CASE_FIELDS]
+    valid_case_fields = {field_name for field_name, _ in case_field_defs}
+    case_criteria = duplicate_config.load_case_criteria().normalized(valid_case_fields)
     criteria_text = ", ".join(
-        duplicate_config.CASE_CRITERIA_LABELS.get(c, c) for c in case_criteria.enabled
+        core.CASE_LABELS.get(c, c) for c in case_criteria.enabled
     )
 
     token = auth.get_csrf_token(request)
@@ -89,7 +91,7 @@ def scan(
         "min_score": effective_min_score, "criteria_text": criteria_text,
         "can_merge": user.has_role(*CAN_MERGE_ROLES), "can_export": user.has_role(*CAN_EXPORT_ROLES),
         "can_configure": user.has_role(*CAN_CONFIGURE_ROLES), "msg": msg, "err": err,
-        "criteria_defs": duplicate_config.CASE_CRITERIA_DEFS, "case_criteria": case_criteria,
+        "criteria_defs": case_field_defs, "case_criteria": case_criteria,
         "rules": duplicate_config.load_rules(),
         "outbreak_weight_defs": duplicate_config.DEFAULT_OUTBREAK_WEIGHTS,
     })
@@ -253,10 +255,13 @@ async def save_criteria(
         raise ForbiddenError("Phiên làm việc đã hết hạn hoặc yêu cầu không hợp lệ (CSRF).")
     entity_type = str(form.get("entity", "case"))
     if entity_type == "case":
+        submitted = set(form.getlist("enabled"))
+        enabled = [field_name for _, field_name in core.CASE_FIELDS if field_name in submitted]
+        if not enabled:
+            return _redirect_to_scan("case", err="Hãy chọn ít nhất một trường dữ liệu để lọc trùng.")
         criteria = duplicate_config.CaseDuplicateCriteria(
-            enabled=list(form.getlist("enabled")),
-            name_similarity_percent=int(str(form.get("name_similarity_percent", "92")) or 92),
-            onset_max_days=int(str(form.get("onset_max_days", "3")) or 3),
+            enabled=enabled,
+            match_mode="fields",
         )
         duplicate_config.save_case_criteria(criteria)
     else:

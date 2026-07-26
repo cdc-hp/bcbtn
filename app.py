@@ -60,7 +60,6 @@ import update_manager
 import case_view_config as cvc
 from deployment_config import DeploymentConfig, load_config, mode_label, save_config
 from duplicate_config import (
-    CASE_CRITERIA_DEFS,
     CaseDuplicateCriteria,
     DuplicateRules,
     load_case_criteria,
@@ -1128,46 +1127,53 @@ class DuplicateRulesDialog(QDialog):
 
 
 class CaseDuplicateCriteriaDialog(QDialog):
-    """Chọn tiêu chí lọc trùng ca bệnh — thay cho chấm điểm/trọng số."""
+    """Chọn các trường dữ liệu tạo thành khóa ghép lọc trùng ca bệnh."""
 
     def __init__(self, criteria: CaseDuplicateCriteria, parent=None):
         super().__init__(parent)
         self.criteria = criteria
         self.setWindowTitle("Tiêu chí lọc trùng ca bệnh")
-        self.resize(480, 420)
+        self.resize(540, 620)
         root = QVBoxLayout(self)
         info = QLabel(
-            "Hai ca bệnh được coi là trùng nếu khớp ít nhất một tiêu chí đang chọn. "
-            "Không còn tính điểm — mỗi tiêu chí là một quy tắc so khớp rõ ràng.\n"
-            "Lưu ý: \"Họ tên gần giống\" và \"Ngày khởi phát gần nhau\" chỉ so sánh các ca "
-            "trong cùng một xã/phường."
+            "Hai ca bệnh được coi là trùng khi toàn bộ trường đã chọn có cùng giá trị khác trống. "
+            "Có thể tìm kiếm và đánh dấu nhiều trường, không cần giữ Ctrl."
         )
         info.setWordWrap(True); root.addWidget(info)
-        box = QGroupBox("Tiêu chí"); form = QVBoxLayout(box)
-        self.checks: dict[str, QCheckBox] = {}
-        for criterion_id, label in CASE_CRITERIA_DEFS:
-            check = QCheckBox(label); check.setChecked(criterion_id in criteria.enabled)
-            form.addWidget(check); self.checks[criterion_id] = check
+        box = QGroupBox("48 trường dữ liệu"); form = QVBoxLayout(box)
+        self.search = QLineEdit(); self.search.setPlaceholderText("Tìm trường dữ liệu...")
+        form.addWidget(self.search)
+        self.field_list = QListWidget()
+        selected = set(criteria.normalized({key for _, key in local_core.CASE_FIELDS}).enabled)
+        for label, field_name in local_core.CASE_FIELDS:
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, field_name)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked if field_name in selected else Qt.CheckState.Unchecked)
+            self.field_list.addItem(item)
+        form.addWidget(self.field_list)
+        self.search.textChanged.connect(self._filter_fields)
         root.addWidget(box)
-        params = QGroupBox("Tham số"); params_form = QFormLayout(params)
-        self.name_threshold = QSpinBox(); self.name_threshold.setRange(50, 100); self.name_threshold.setSuffix(" %")
-        self.name_threshold.setValue(criteria.name_similarity_percent)
-        self.onset_days = QSpinBox(); self.onset_days.setRange(0, 60); self.onset_days.setSuffix(" ngày")
-        self.onset_days.setValue(criteria.onset_max_days)
-        params_form.addRow("Ngưỡng họ tên gần giống:", self.name_threshold)
-        params_form.addRow("Khởi phát lệch tối đa:", self.onset_days)
-        root.addWidget(params)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
 
+    def _filter_fields(self, text: str):
+        query = text.strip().casefold()
+        for index in range(self.field_list.count()):
+            item = self.field_list.item(index)
+            item.setHidden(bool(query) and query not in item.text().casefold())
+
     def accept(self):
-        enabled = [criterion_id for criterion_id, check in self.checks.items() if check.isChecked()]
+        enabled = [
+            str(self.field_list.item(index).data(Qt.ItemDataRole.UserRole))
+            for index in range(self.field_list.count())
+            if self.field_list.item(index).checkState() == Qt.CheckState.Checked
+        ]
         if not enabled:
-            QMessageBox.warning(self, "Chưa chọn tiêu chí", "Hãy chọn ít nhất một tiêu chí lọc trùng.")
+            QMessageBox.warning(self, "Chưa chọn trường", "Hãy chọn ít nhất một trường dữ liệu để lọc trùng.")
             return
         self.criteria.enabled = enabled
-        self.criteria.name_similarity_percent = self.name_threshold.value()
-        self.criteria.onset_max_days = self.onset_days.value()
+        self.criteria.match_mode = "fields"
         save_case_criteria(self.criteria)
         super().accept()
 
@@ -1393,8 +1399,7 @@ class DuplicateTab(QWidget):
             if entity_type == "case":
                 self.groups = core.find_duplicate_groups("case", criteria={
                     "enabled": self.case_criteria.enabled,
-                    "name_similarity_percent": self.case_criteria.name_similarity_percent,
-                    "onset_max_days": self.case_criteria.onset_max_days,
+                    "match_mode": "fields",
                 })
                 rows = []
                 for group in self.groups:
@@ -1456,8 +1461,7 @@ class DuplicateTab(QWidget):
         try:
             result = core.export_cases_by_commune(path, criteria={
                 "enabled": self.case_criteria.enabled,
-                "name_similarity_percent": self.case_criteria.name_similarity_percent,
-                "onset_max_days": self.case_criteria.onset_max_days,
+                "match_mode": "fields",
             }, actor=_current_actor())
             QMessageBox.information(
                 self, "Đã xuất theo xã",

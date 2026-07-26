@@ -73,7 +73,7 @@ def test_count_duplicate_groups_uses_saved_criteria(tmp_path: Path, db: Path):
         {"case_code": "", "full_name": "Nguyễn Văn A", "commune": "Xã A", "phone": "0900000001"},
         {"case_code": "", "full_name": "Nguyễn Văn A", "commune": "Xã A", "phone": "0900000002"},
     ])
-    # Mặc định (case_code, national_id) không khớp vì cả hai đều trống -> không phát hiện trùng.
+    # Mặc định dùng case_code; giá trị trống không được dùng làm khóa trùng.
     assert core.count_duplicate_groups("case", db_path=db) == 0
-    duplicate_config.save_case_criteria(duplicate_config.CaseDuplicateCriteria(enabled=["name_commune"]))
+    duplicate_config.save_case_criteria(duplicate_config.CaseDuplicateCriteria(enabled=["full_name", "commune"]))
     assert core.count_duplicate_groups("case", db_path=db) == 1

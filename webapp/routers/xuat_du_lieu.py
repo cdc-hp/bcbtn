@@ -36,8 +36,9 @@ def export_hub(
     user: auth.CurrentUser = Depends(require_password_current),
     settings: WebAppSettings = Depends(get_settings_dep),
 ):
-    case_criteria = duplicate_config.load_case_criteria()
-    criteria_text = ", ".join(duplicate_config.CASE_CRITERIA_LABELS.get(c, c) for c in case_criteria.enabled)
+    valid_case_fields = {field_name for _, field_name in core.CASE_FIELDS}
+    case_criteria = duplicate_config.load_case_criteria().normalized(valid_case_fields)
+    criteria_text = ", ".join(core.CASE_LABELS.get(c, c) for c in case_criteria.enabled)
     token = auth.get_csrf_token(request)
     response = templates.TemplateResponse(request, "export.html", {
         "user": user, "csrf_token": token, "active": "xuat-du-lieu",

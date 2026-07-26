@@ -196,12 +196,15 @@ def test_scan_embeds_full_criteria_select(client: TestClient):
     _login(client)
     page = client.get("/cdc/loc-trung?entity=case")
     assert page.status_code == 200
-    assert '<select id="dedup-criteria" name="enabled"' in page.text
-    for criterion_id, label in duplicate_config.CASE_CRITERIA_DEFS:
-        assert f'value="{criterion_id}"' in page.text
+    assert 'data-criteria-multichoice' in page.text
+    assert '<select id="dedup-criteria"' not in page.text
+    assert 'Giữ Ctrl' not in page.text
+    assert page.text.count('type="checkbox" name="enabled"') == 48
+    for label, field_name in core.CASE_FIELDS:
+        assert f'value="{field_name}"' in page.text
         assert label in page.text
-    assert 'name="name_similarity_percent"' in page.text
-    assert 'name="onset_max_days"' in page.text
+    assert 'name="name_similarity_percent"' not in page.text
+    assert 'name="onset_max_days"' not in page.text
 
 
 def test_scan_embeds_full_outbreak_weight_settings(client: TestClient):
@@ -222,13 +225,22 @@ def test_save_case_criteria(client: TestClient):
     _login(client)
     csrf = _fresh_csrf(client, "/cdc/loc-trung/tieu-chi?entity=case")
     resp = client.post("/cdc/loc-trung/tieu-chi", data={
-        "csrf_token": csrf, "entity": "case", "enabled": ["name_commune"],
-        "name_similarity_percent": "90", "onset_max_days": "5",
+        "csrf_token": csrf, "entity": "case", "enabled": ["full_name", "commune"],
     }, follow_redirects=False)
     assert resp.status_code == 303
     saved = duplicate_config.load_case_criteria()
-    assert saved.enabled == ["name_commune"]
-    assert saved.onset_max_days == 5
+    assert saved.enabled == ["full_name", "commune"]
+    assert saved.match_mode == "fields"
+
+
+def test_save_case_criteria_rejects_empty_selection(client: TestClient):
+    _login(client)
+    csrf = _fresh_csrf(client, "/cdc/loc-trung/tieu-chi?entity=case")
+    resp = client.post("/cdc/loc-trung/tieu-chi", data={
+        "csrf_token": csrf, "entity": "case",
+    }, follow_redirects=False)
+    assert resp.status_code == 303
+    assert "err=" in resp.headers["location"]
 
 
 def test_save_outbreak_rules(client: TestClient):

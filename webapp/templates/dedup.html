@@ -6,7 +6,7 @@
 <div class="container-fluid cdc-page">
   <header class="cdc-page-header">
     <h1>Lọc trùng dữ liệu</h1>
-    <p>{% if entity_type == "case" %}Hai ca bệnh trùng khi khớp ít nhất một tiêu chí: <strong>{{ criteria_text }}</strong>.{% else %}Ổ dịch được đối chiếu theo bộ trọng số và ngưỡng điểm đã cấu hình.{% endif %}</p>
+    <p>{% if entity_type == "case" %}Hai ca bệnh trùng khi toàn bộ trường đã chọn có cùng giá trị khác trống: <strong>{{ criteria_text }}</strong>.{% else %}Ổ dịch được đối chiếu theo bộ trọng số và ngưỡng điểm đã cấu hình.{% endif %}</p>
   </header>
 
   {% if msg %}<div class="alert alert-success">{{ msg }}</div>{% endif %}
@@ -20,19 +20,31 @@
 
     {% if can_configure %}
     <details class="cdc-criteria-select">
-      <summary class="btn btn-outline-secondary">Tiêu chí{% if entity_type == 'case' %} ({{ case_criteria.enabled|length }}){% endif %}<span aria-hidden="true">⌄</span></summary>
+      <summary class="btn btn-outline-secondary">Tiêu chí{% if entity_type == 'case' %} (<span data-criteria-summary-count>{{ case_criteria.enabled|length }}</span>){% endif %}<span aria-hidden="true">⌄</span></summary>
       <form method="post" action="/cdc/loc-trung/tieu-chi" class="cdc-criteria-menu">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="entity" value="{{ entity_type }}">
         {% if entity_type == "case" %}
-        <label for="dedup-criteria" class="form-label">Tiêu chí đang bật</label>
-        <select id="dedup-criteria" name="enabled" class="form-select cdc-criteria-multiselect" multiple size="7">
-          {% for id, label in criteria_defs %}<option value="{{ id }}" {% if id in case_criteria.enabled %}selected{% endif %}>{{ label }}</option>{% endfor %}
-        </select>
-        <small>Giữ Ctrl (Windows) hoặc Cmd (macOS) để chọn nhiều tiêu chí.</small>
-        <div class="cdc-criteria-parameters">
-          <div><label for="dedup-name-similarity" class="form-label">Ngưỡng họ tên gần giống (%)</label><input id="dedup-name-similarity" type="number" name="name_similarity_percent" min="50" max="100" value="{{ case_criteria.name_similarity_percent }}" class="form-control"></div>
-          <div><label for="dedup-onset-days" class="form-label">Khởi phát gần nhau tối đa (ngày)</label><input id="dedup-onset-days" type="number" name="onset_max_days" min="0" max="60" value="{{ case_criteria.onset_max_days }}" class="form-control"></div>
+        <div class="cdc-criteria-picker" data-criteria-multichoice>
+          <div class="cdc-criteria-picker__heading">
+            <div><strong>Chọn trường dữ liệu</strong><small>Khớp đồng thời tất cả trường đã chọn.</small></div>
+            <span class="cdc-criteria-count" data-criteria-count>{{ case_criteria.enabled|length }}/{{ criteria_defs|length }}</span>
+          </div>
+          <label for="dedup-criteria-search" class="visually-hidden">Tìm trường dữ liệu</label>
+          <input id="dedup-criteria-search" type="search" class="form-control" placeholder="Tìm trong 48 trường dữ liệu..." autocomplete="off" data-criteria-search>
+          <div class="cdc-criteria-picker__actions">
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-criteria-all>Chọn tất cả</button>
+            <button type="button" class="btn btn-sm btn-link" data-criteria-clear>Bỏ chọn</button>
+          </div>
+          <div class="cdc-criteria-options" role="group" aria-label="Các trường dùng để lọc trùng">
+            {% for id, label in criteria_defs %}
+            <label class="cdc-criteria-option" data-criteria-option>
+              <input type="checkbox" name="enabled" value="{{ id }}" {% if id in case_criteria.enabled %}checked{% endif %}>
+              <span>{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+          <p class="cdc-criteria-selection" data-criteria-selection aria-live="polite"></p>
         </div>
         {% else %}
         <div class="cdc-criteria-parameters">
@@ -43,7 +55,7 @@
           {% for key, default in outbreak_weight_defs.items() %}<div><label for="weight-{{ key }}" class="form-label">{{ key }}</label><input id="weight-{{ key }}" type="number" name="weight__{{ key }}" min="0" max="100" value="{{ rules.outbreak_weights.get(key, default) }}" class="form-control"></div>{% endfor %}
         </div>
         {% endif %}
-        <button type="submit" class="btn btn-primary">{{ icon('check') }} Lưu tiêu chí</button>
+        <button type="submit" class="btn btn-primary">{{ icon('check') }} Lưu & quét</button>
       </form>
     </details>
     {% endif %}

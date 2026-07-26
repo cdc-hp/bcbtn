@@ -24,7 +24,7 @@ from typing import Any, Iterable, Sequence
 from openpyxl import Workbook, load_workbook
 
 import backup_manager
-from duplicate_config import CASE_CRITERIA_LABELS, CaseDuplicateCriteria, load_case_criteria, load_rules
+from duplicate_config import CaseDuplicateCriteria, load_case_criteria, load_rules
 
 APP_NAME = "Giám sát dịch bệnh"
 
@@ -1076,43 +1076,6 @@ def _weight(weights: dict[str, Any], key: str, default: int) -> int:
         return default
 
 
-def _case_pair_criteria_matches(
-    a: dict[str, Any], b: dict[str, Any], criteria: CaseDuplicateCriteria,
-) -> list[str]:
-    """Trả về danh sách nhãn tiêu chí đã khớp giữa 2 ca bệnh (rỗng nếu không trùng).
-
-    Không chấm điểm: CDC tự chọn tiêu chí nào coi là trùng; hai bản ghi được xem là
-    trùng nếu khớp ít nhất một tiêu chí đang bật.
-    """
-    enabled = set(criteria.enabled)
-    matches: list[str] = []
-    code_a, code_b = _match_text(a.get("case_code")), _match_text(b.get("case_code"))
-    id_a, id_b = _match_digits(a.get("national_id")), _match_digits(b.get("national_id"))
-    phone_a, phone_b = _match_digits(a.get("phone"))[-9:], _match_digits(b.get("phone"))[-9:]
-    name_a, name_b = _match_text(a.get("full_name")), _match_text(b.get("full_name"))
-    commune_a, commune_b = _match_text(a.get("commune")), _match_text(b.get("commune"))
-
-    if "case_code" in enabled and code_a and code_a == code_b:
-        matches.append(CASE_CRITERIA_LABELS["case_code"])
-    if "national_id" in enabled and len(id_a) >= 9 and id_a == id_b:
-        matches.append(CASE_CRITERIA_LABELS["national_id"])
-    if "phone" in enabled and len(phone_a) >= 7 and phone_a == phone_b:
-        matches.append(CASE_CRITERIA_LABELS["phone"])
-    if "name_birth_year" in enabled and name_a and name_a == name_b and a.get("birth_year") and a.get("birth_year") == b.get("birth_year"):
-        matches.append(CASE_CRITERIA_LABELS["name_birth_year"])
-    if "name_commune" in enabled and name_a and name_a == name_b and commune_a and commune_a == commune_b:
-        matches.append(CASE_CRITERIA_LABELS["name_commune"])
-    if "name_similar" in enabled and name_a and name_b and name_a != name_b:
-        ratio = SequenceMatcher(None, name_a, name_b).ratio()
-        if ratio * 100 >= criteria.name_similarity_percent:
-            matches.append(f"{CASE_CRITERIA_LABELS['name_similar']} ({ratio:.0%})")
-    if "onset_near" in enabled:
-        days = _date_distance_days(a.get("onset_date"), b.get("onset_date"))
-        if days is not None and days <= criteria.onset_max_days:
-            matches.append(f"{CASE_CRITERIA_LABELS['onset_near']} (lệch {days} ngày)")
-    return matches
-
-
 def _outbreak_pair_score(a: dict[str, Any], b: dict[str, Any], weights: dict[str, Any] | None = None) -> tuple[int, list[str]]:
     weights = weights or {}
     score = 0
@@ -1156,9 +1119,9 @@ def find_duplicate_groups(
 ) -> list[dict[str, Any]]:
     """Phát hiện nhóm trùng nghiệp vụ; không tự động xóa hoặc gộp.
 
-    Ca bệnh (``entity_type="case"``): lọc theo tiêu chí do CDC chọn (``criteria``), không
-    chấm điểm — hai bản ghi trùng nếu khớp ít nhất một tiêu chí đang bật. ``min_score``/``rules``
-    bị bỏ qua với ca bệnh, chỉ còn áp dụng cho ổ dịch.
+    Ca bệnh (``entity_type="case"``): các trường trong ``criteria.enabled`` tạo thành một khóa
+    ghép — hai bản ghi trùng khi toàn bộ trường đã chọn có cùng giá trị khác rỗng.
+    ``min_score``/``rules`` bị bỏ qua với ca bệnh, chỉ còn áp dụng cho ổ dịch.
     Ổ dịch (``entity_type="outbreak"``): vẫn dùng cơ chế chấm điểm/trọng số như trước.
     """
     table, _ = _safe_table(entity_type)
@@ -1180,26 +1143,50 @@ def count_duplicate_groups(entity_type: str, max_records: int = 3000, db_path: P
 
 
 def _resolve_case_criteria(criteria: dict[str, Any] | CaseDuplicateCriteria | None) -> CaseDuplicateCriteria:
+    valid_fields = {db_name for _, db_name in CASE_FIELDS}
     if isinstance(criteria, CaseDuplicateCriteria):
-        return criteria.normalized()
+        return criteria.normalized(valid_fields)
     if criteria:
         return CaseDuplicateCriteria(
             enabled=list(criteria.get("enabled") or []),
+            match_mode="fields",
             name_similarity_percent=criteria.get("name_similarity_percent", 92),
             onset_max_days=criteria.get("onset_max_days", 3),
-        ).normalized()
-    return load_case_criteria()
+        ).normalized(valid_fields)
+    return load_case_criteria().normalized(valid_fields)
+
+
+_CASE_DIGIT_MATCH_FIELDS = {"national_id", "phone"}
+_CASE_DATE_MATCH_FIELDS = {
+    "birth_date_raw", "sample_date", "onset_date", "admission_date", "discharge_or_death_date",
+    "report_datetime", "latest_diagnosis_change", "latest_status_change", "modified_datetime",
+}
+
+
+def _case_field_match_value(field_name: str, value: Any) -> str:
+    if field_name in _CASE_DIGIT_MATCH_FIELDS:
+        digits = _match_digits(value)
+        if field_name == "phone":
+            digits = digits[-9:]
+        return digits
+    if field_name in _CASE_DATE_MATCH_FIELDS:
+        parsed = _date_obj(strip_text(value))
+        if parsed:
+            return parsed.isoformat()
+    return _match_text(value)
 
 
 def _find_case_duplicate_groups(
     table: str, criteria: dict[str, Any] | CaseDuplicateCriteria | None, max_records: int, db_path: Path | str,
 ) -> list[dict[str, Any]]:
     resolved_criteria = _resolve_case_criteria(criteria)
-    fields = [
-        "id", "case_code", "full_name", "birth_date_raw", "birth_year", "gender",
-        "national_id", "phone", "current_address", "commune", "main_diagnosis",
-        "onset_date", "admission_date", "report_datetime", "reporting_unit", "source_file", "source_row",
-    ]
+    selected_fields = list(resolved_criteria.enabled)
+    # Các trường định tuyến bên dưới vẫn cần cho luồng xuất theo xã, kể cả khi chúng không
+    # nằm trong khóa so trùng do người dùng chọn.
+    fields = list(dict.fromkeys([
+        "id", "case_code", "full_name", "commune", "admission_date", "onset_date",
+        "report_datetime", *selected_fields,
+    ]))
     with _connect(db_path) as conn:
         rows = [dict(r) for r in conn.execute(
             f"SELECT {','.join(fields)} FROM {table} ORDER BY id LIMIT ?", (max_records,)
@@ -1207,88 +1194,34 @@ def _find_case_duplicate_groups(
     if len(rows) < 2:
         return []
 
-    # "name_similar"/"onset_near" so khớp mờ (không đòi hỏi khớp chính xác một trường nào), nên
-    # không có khoá chặn tự nhiên như các tiêu chí còn lại. Khi CDC bật một trong hai, mở thêm
-    # phạm vi so sánh theo từng xã — nếu không, 2 ca chỉ "tên gần giống"/"ngày khởi phát gần
-    # nhau" (không trùng thêm trường nào khác) sẽ không bao giờ lọt vào cùng bucket exact-match
-    # và do đó không bao giờ được so sánh, khiến 2 tiêu chí này gần như vô hiệu khi bật riêng lẻ.
-    needs_commune_bucket = bool({"name_similar", "onset_near"} & set(resolved_criteria.enabled))
-
-    buckets: dict[str, list[int]] = {}
+    buckets: dict[tuple[str, ...], list[int]] = {}
     for index, row in enumerate(rows):
-        keys: set[str] = set()
-        code = _match_text(row.get("case_code"))
-        national_id = _match_digits(row.get("national_id"))
-        phone = _match_digits(row.get("phone"))[-9:]
-        name = _match_text(row.get("full_name"))
-        year = row.get("birth_year") or ""
-        commune = _match_text(row.get("commune"))
-        if code: keys.add("code:" + code)
-        if len(national_id) >= 9: keys.add("nid:" + national_id)
-        if len(phone) >= 7: keys.add("phone:" + phone)
-        if name and year: keys.add(f"nameyear:{name}:{year}")
-        if name and commune: keys.add(f"namearea:{name}:{commune}")
-        if name: keys.add("name:" + name)
-        if needs_commune_bucket and commune: keys.add("commune:" + commune)
-        for key in keys:
+        key = tuple(_case_field_match_value(field_name, row.get(field_name)) for field_name in selected_fields)
+        if all(key):
             buckets.setdefault(key, []).append(index)
 
-    candidate_pairs: set[tuple[int, int]] = set()
-    for indexes in buckets.values():
-        if len(indexes) > 250:
-            indexes = indexes[:250]
-        for pos, left in enumerate(indexes):
-            for right in indexes[pos + 1:]:
-                candidate_pairs.add((min(left, right), max(left, right)))
-
-    edges: list[tuple[int, int, list[str]]] = []
-    for left, right in candidate_pairs:
-        matches = _case_pair_criteria_matches(rows[left], rows[right], resolved_criteria)
-        if matches:
-            edges.append((left, right, matches))
-    if not edges:
+    duplicate_indexes = [indexes[:250] for indexes in buckets.values() if len(indexes) > 1]
+    if not duplicate_indexes:
         return []
 
-    parent = list(range(len(rows)))
-    def find(x: int) -> int:
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-    def union(a: int, b: int) -> None:
-        ra, rb = find(a), find(b)
-        if ra != rb: parent[rb] = ra
-    for left, right, _ in edges:
-        union(left, right)
-
-    groups: dict[int, set[int]] = {}
-    for left, right, _ in edges:
-        root = find(left)
-        groups.setdefault(root, set()).update((left, right))
-
-    definite_criteria = {CASE_CRITERIA_LABELS["case_code"], CASE_CRITERIA_LABELS["national_id"]}
+    field_labels = [CASE_LABELS.get(field_name, field_name) for field_name in selected_fields]
+    matched_text = "Trùng toàn bộ trường: " + ", ".join(field_labels)
+    is_definite = bool({"case_code", "national_id"} & set(selected_fields))
     result: list[dict[str, Any]] = []
-    for group_no, indexes in enumerate(sorted(groups.values(), key=lambda g: min(rows[i]["id"] for i in g)), start=1):
-        group_edges = [edge for edge in edges if edge[0] in indexes and edge[1] in indexes]
-        matched_criteria: list[str] = []
-        for _, _, edge_matches in group_edges:
-            for match in edge_matches:
-                if match not in matched_criteria:
-                    matched_criteria.append(match)
+    for group_no, indexes in enumerate(sorted(duplicate_indexes, key=lambda g: min(rows[i]["id"] for i in g)), start=1):
         records = [rows[i] for i in sorted(indexes, key=lambda i: rows[i]["id"])]
         case_codes = [str(r.get("case_code") or "") for r in records]
         summary = " / ".join(str(r.get("full_name") or r.get("case_code") or r["id"]) for r in records[:3])
-        is_definite = any(any(base in match for base in definite_criteria) for match in matched_criteria)
         result.append({
             "group_id": group_no,
             "entity_type": "case",
             "confidence": "Trùng chắc chắn" if is_definite else "Nghi trùng",
-            "matched_criteria": matched_criteria,
+            "matched_criteria": field_labels,
             "case_codes": case_codes,
             "record_count": len(records),
             "record_ids": [int(r["id"]) for r in records],
             "summary": summary,
-            "reasons": "; ".join(matched_criteria[:8]),
+            "reasons": matched_text,
             "records": records,
         })
     return sorted(result, key=lambda g: (0 if g["confidence"] == "Trùng chắc chắn" else 1, int(g["group_id"])))
