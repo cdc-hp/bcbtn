@@ -88,10 +88,14 @@ def test_fetch_github_release_picks_asset_for_mode(monkeypatch):
         "assets": [
             {"name": "GiamSatDichBenh-Setup-v0.8.0.exe", "browser_download_url": "https://example.test/Setup.exe"},
             {"name": "GiamSatDichBenh-Server-Setup-v0.8.0.exe", "browser_download_url": "https://example.test/Server-Setup.exe"},
+            {"name": "CDC-GiamSatDichBenh-Server-Setup-v0.8.0.exe", "browser_download_url": "https://example.test/Web-Server-Setup.exe"},
             {"name": "SHA256SUMS.txt", "browser_download_url": "https://example.test/SHA256SUMS.txt"},
         ],
     }).encode("utf-8")
-    sums_body = b"deadbeef" * 8 + b"  GiamSatDichBenh-Server-Setup-v0.8.0.exe\n"
+    sums_body = (
+        b"deadbeef" * 8 + b"  GiamSatDichBenh-Server-Setup-v0.8.0.exe\n"
+        + b"cafebabe" * 8 + b"  CDC-GiamSatDichBenh-Server-Setup-v0.8.0.exe\n"
+    )
 
     def fake_urlopen(request, timeout=None):
         url = request.full_url if hasattr(request, "full_url") else str(request)
@@ -108,6 +112,10 @@ def test_fetch_github_release_picks_asset_for_mode(monkeypatch):
     assert info.download_url == "https://example.test/Server-Setup.exe"
     assert info.sha256 == "deadbeef" * 8
     assert info.notes == "Ghi chú phát hành"
+    web_info = um.fetch_github_release("webapp_server")
+    assert web_info.asset_name == "CDC-GiamSatDichBenh-Server-Setup-v0.8.0.exe"
+    assert web_info.download_url == "https://example.test/Web-Server-Setup.exe"
+    assert web_info.sha256 == "cafebabe" * 8
 
 
 def test_fetch_github_release_unknown_mode():

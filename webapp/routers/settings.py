@@ -14,16 +14,19 @@ from __future__ import annotations
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from starlette.background import BackgroundTask
 from fastapi.templating import Jinja2Templates
 
 import backup_manager
 import core
 import deployment_config
 import service_windows
+import update_manager
 from webapp import TEMPLATES_DIR, auth
 from webapp.config import WebAppSettings
 from webapp.dependencies import ForbiddenError, get_settings_dep, require_role
+from webapp.services import web_update
 
 router = APIRouter()
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
@@ -50,10 +53,15 @@ def view(
     backup_destination = policy.destination or str(backup_manager.backup_directory(policy))
 
     token = auth.get_csrf_token(request)
+    service_status = service_windows.query_status()
     response = templates.TemplateResponse(request, "settings.html", {
         "user": user, "csrf_token": token, "active": "cau-hinh",
         "config": config, "backup_destination": backup_destination,
-        "service_status": service_windows.query_status(), "msg": msg, "err": err,
+        "service_status": service_status,
+        "update_status": web_update.get_public_status(),
+        "auto_update_supported": web_update.auto_install_supported(service_status),
+        "update_releases_url": update_manager.GITHUB_RELEASES_PAGE,
+        "msg": msg, "err": err,
     })
     auth.set_csrf_cookie(response, request, token)
     return response
@@ -111,3 +119,65 @@ def restart(
     if result["ok"]:
         return _redirect(msg=result["message"])
     return _redirect(err=result["message"])
+
+
+@router.post("/cdc/cau-hinh/cap-nhat/kiem-tra", response_class=HTMLResponse)
+def check_update(
+    request: Request, csrf_token: str = Form(""),
+    user: auth.CurrentUser = Depends(require_role(*CAN_CONFIGURE_ROLES)),
+    settings: WebAppSettings = Depends(get_settings_dep),
+):
+    if not auth.verify_csrf(request, csrf_token):
+        raise ForbiddenError("Phiên làm việc đã hết hạn hoặc yêu cầu không hợp lệ (CSRF).")
+    try:
+        _info, state = web_update.check_for_update()
+        core.log_audit(
+            "check_web_update", actor=user.username,
+            detail=f"current={core.VERSION}; target={state.get('target_version', '')}; status={state['status']}",
+            db_path=settings.db_path,
+        )
+        return _redirect(msg=str(state["message"]))
+    except update_manager.UpdateError as exc:
+        core.log_audit("check_web_update_failed", actor=user.username, detail=str(exc), db_path=settings.db_path)
+        return _redirect(err=str(exc))
+
+
+@router.post("/cdc/cau-hinh/cap-nhat/ap-dung", response_class=HTMLResponse)
+def apply_update(
+    request: Request, csrf_token: str = Form(""),
+    user: auth.CurrentUser = Depends(require_role(*CAN_CONFIGURE_ROLES)),
+    settings: WebAppSettings = Depends(get_settings_dep),
+):
+    if not auth.verify_csrf(request, csrf_token):
+        raise ForbiddenError("Phiên làm việc đã hết hạn hoặc yêu cầu không hợp lệ (CSRF).")
+    service_status = service_windows.query_status()
+    if not web_update.auto_install_supported(service_status):
+        return _redirect(err="Chỉ có thể tự cập nhật trên máy chủ Windows đang chạy dịch vụ CDC.")
+    try:
+        info = web_update.queue_update()
+    except update_manager.UpdateError as exc:
+        core.log_audit("queue_web_update_failed", actor=user.username, detail=str(exc), db_path=settings.db_path)
+        return _redirect(err=str(exc))
+
+    core.log_audit(
+        "queue_web_update", actor=user.username,
+        detail=f"current={core.VERSION}; target={info.version}; asset={info.asset_name}",
+        db_path=settings.db_path,
+    )
+    return RedirectResponse(
+        "/cdc/cau-hinh?msg=" + quote(f"Đã bắt đầu cập nhật lên {info.version}. Không tắt máy chủ."),
+        status_code=303,
+        background=BackgroundTask(
+            web_update.perform_queued_update,
+            info,
+            actor=user.username,
+            db_path=settings.db_path,
+        ),
+    )
+
+
+@router.get("/cdc/cau-hinh/cap-nhat/trang-thai", response_class=JSONResponse)
+def update_status(
+    _user: auth.CurrentUser = Depends(require_role(*CAN_CONFIGURE_ROLES)),
+):
+    return JSONResponse(web_update.get_public_status(), headers={"Cache-Control": "no-store"})

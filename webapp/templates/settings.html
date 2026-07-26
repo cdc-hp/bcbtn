@@ -22,6 +22,69 @@
     </form>
   </section>
 
+  <section class="cdc-card cdc-admin-card cdc-update-card"
+           data-web-update
+           data-update-active="{{ 'true' if update_status.active else 'false' }}"
+           data-update-status-url="/cdc/cau-hinh/cap-nhat/trang-thai">
+    <div class="cdc-card-heading-row">
+      <div>
+        <div class="fw-semibold mb-1">Cập nhật ứng dụng</div>
+        <div class="small text-secondary">Chỉ tài khoản quản trị cấp cao có thể kiểm tra và cài bản phát hành mới.</div>
+      </div>
+      <span class="badge text-bg-light">v{{ update_status.current_version }}</span>
+    </div>
+
+    <div class="cdc-update-status cdc-update-status--{{ update_status.status }}" data-update-state>
+      <strong data-update-message>{{ update_status.message }}</strong>
+      {% if update_status.target_version %}
+      <span data-update-target>Phiên bản phát hành: v{{ update_status.target_version }}</span>
+      {% else %}
+      <span data-update-target></span>
+      {% endif %}
+    </div>
+
+    <progress class="cdc-update-progress" data-update-progress max="100"
+              {% if update_status.progress_percent is not none %}value="{{ update_status.progress_percent }}"{% endif %}
+              {% if not update_status.active %}hidden{% endif %}>{{ update_status.progress_percent or 0 }}%</progress>
+
+    {% if update_status.asset_name %}
+    <dl class="cdc-update-meta">
+      <div><dt>Gói cài đặt</dt><dd>{{ update_status.asset_name }}</dd></div>
+      {% if update_status.sha256 %}<div><dt>SHA-256</dt><dd><code>{{ update_status.sha256 }}</code></dd></div>{% endif %}
+      {% if update_status.backup_name %}<div><dt>Bản sao lưu</dt><dd>{{ update_status.backup_name }}</dd></div>{% endif %}
+    </dl>
+    {% endif %}
+
+    {% if update_status.notes %}
+    <details class="cdc-update-notes"><summary>Ghi chú phát hành</summary><div>{{ update_status.notes }}</div></details>
+    {% endif %}
+
+    <div class="cdc-update-actions">
+      {% if not update_status.active %}
+      <form method="post" action="/cdc/cau-hinh/cap-nhat/kiem-tra">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn-sm btn-outline-primary">Kiểm tra cập nhật</button>
+      </form>
+      {% endif %}
+
+      {% if update_status.status == 'available' and auto_update_supported %}
+      <form method="post" action="/cdc/cau-hinh/cap-nhat/ap-dung"
+            onsubmit="return confirm('Cập nhật lên phiên bản {{ update_status.target_version }}? Hệ thống sẽ sao lưu CSDL, xác minh SHA-256 và tạm ngắt dịch vụ trong vài phút.');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn-sm btn-primary">Sao lưu và cập nhật</button>
+      </form>
+      {% endif %}
+
+      <a class="btn btn-sm btn-outline-secondary" href="{{ update_releases_url }}" target="_blank" rel="noopener noreferrer">Xem các bản phát hành</a>
+    </div>
+
+    {% if update_status.status == 'available' and not auto_update_supported %}
+    <div class="alert alert-secondary small mt-3 mb-0">Cài tự động chỉ hoạt động trên máy chủ Windows đang chạy dịch vụ CDC. Có thể tải bộ cài thủ công từ trang phát hành.</div>
+    {% elif update_status.active %}
+    <div class="small text-secondary mt-2">Có thể giữ trang này mở. Trình duyệt sẽ tự kết nối lại sau khi dịch vụ khởi động.</div>
+    {% endif %}
+  </section>
+
   <form method="post" action="/cdc/cau-hinh">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 

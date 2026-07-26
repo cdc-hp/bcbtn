@@ -85,4 +85,38 @@
     batchItems.forEach(input => input.addEventListener('change', updateBatchCount));
     updateBatchCount();
   }
+
+  const updatePanel = document.querySelector('[data-web-update]');
+  if (updatePanel?.dataset.updateActive === 'true') {
+    const statusUrl = updatePanel.dataset.updateStatusUrl;
+    const message = updatePanel.querySelector('[data-update-message]');
+    const target = updatePanel.querySelector('[data-update-target]');
+    const progress = updatePanel.querySelector('[data-update-progress]');
+    let timer = null;
+
+    const pollUpdate = async () => {
+      try {
+        const response = await fetch(statusUrl, {credentials: 'same-origin', cache: 'no-store'});
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const state = await response.json();
+        if (message) message.textContent = state.message || 'Đang cập nhật...';
+        if (target) target.textContent = state.target_version ? `Phiên bản phát hành: v${state.target_version}` : '';
+        if (progress) {
+          progress.hidden = !state.active;
+          if (Number.isFinite(state.progress_percent)) progress.value = state.progress_percent;
+          else progress.removeAttribute('value');
+        }
+        if (!state.active) {
+          if (timer) window.clearInterval(timer);
+          if (state.status === 'complete') window.setTimeout(() => window.location.reload(), 1200);
+        }
+      } catch (_) {
+        if (message) message.textContent = 'Dịch vụ đang khởi động lại; trình duyệt sẽ tự kết nối lại...';
+        if (progress) progress.removeAttribute('value');
+      }
+    };
+
+    timer = window.setInterval(pollUpdate, 2000);
+    window.setTimeout(pollUpdate, 500);
+  }
 })();

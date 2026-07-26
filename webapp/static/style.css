@@ -303,6 +303,25 @@ form.row.g-2.mb-3,form.row.g-2.mb-2 { margin-bottom: 20px!important; padding: 18
 .cdc-admin-toolbar > .col-auto:last-child { width: auto; display: flex; gap: 8px; }
 .cdc-settings-page { max-width: 980px!important; }
 .cdc-settings-page > form > .btn { min-width: 150px; margin-top: 2px; }
+.cdc-update-card { border: 1px solid rgba(47,143,112,.12); }
+.cdc-update-status { margin-top: 16px; padding: 13px 15px; display: flex; flex-direction: column; gap: 3px; border-radius: 14px; background: #f3f7f5; }
+.cdc-update-status strong { font-size: 13px; }
+.cdc-update-status span { color: var(--cdc-muted); font-size: 11px; }
+.cdc-update-status--available,.cdc-update-status--complete,.cdc-update-status--current { color: var(--cdc-success); background: var(--cdc-success-soft); }
+.cdc-update-status--blocked,.cdc-update-status--failed,.cdc-update-status--check_failed { color: var(--cdc-danger); background: var(--cdc-danger-soft); }
+.cdc-update-progress { width: 100%; height: 9px; margin: 12px 0 2px; overflow: hidden; border: 0; border-radius: 999px; background: #e4ece8; accent-color: var(--cdc-primary); }
+.cdc-update-progress::-webkit-progress-bar { border-radius: 999px; background: #e4ece8; }
+.cdc-update-progress::-webkit-progress-value { border-radius: 999px; background: var(--cdc-primary); }
+.cdc-update-meta { margin: 13px 0 0; }
+.cdc-update-meta > div { padding: 6px 0; display: grid; grid-template-columns: 110px minmax(0,1fr); gap: 12px; border-bottom: 1px solid var(--cdc-border); }
+.cdc-update-meta dt { color: var(--cdc-muted); font-weight: 500; }
+.cdc-update-meta dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-weight: 650; }
+.cdc-update-meta code { color: inherit; font-size: 10px; }
+.cdc-update-notes { margin-top: 12px; }
+.cdc-update-notes summary { color: var(--cdc-primary-hover); font-weight: 700; cursor: pointer; }
+.cdc-update-notes div { max-height: 160px; margin-top: 8px; padding: 11px 13px; overflow-y: auto; white-space: pre-wrap; border-radius: 12px; color: var(--cdc-muted); background: #f7faf8; font-size: 11px; }
+.cdc-update-actions { margin-top: 15px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cdc-update-actions form { margin: 0; }
 
 @media (max-width: 1100px) and (min-width: 992px) {
   .cdc-dashboard-header { flex-direction: column; }

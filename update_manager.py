@@ -26,6 +26,7 @@ GITHUB_ASSET_NAME_BY_MODE = {
     "standalone": "GiamSatDichBenh-Setup-v{version}.exe",
     "server": "GiamSatDichBenh-Server-Setup-v{version}.exe",
     "workstation": "GiamSatDichBenh-Admin-Setup-v{version}.exe",
+    "webapp_server": "CDC-GiamSatDichBenh-Server-Setup-v{version}.exe",
 }
 
 
