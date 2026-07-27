@@ -1,7 +1,8 @@
 """Đồng bộ dữ liệu từ máy chủ phụ (Google Apps Script + Sheet + Drive) vào hàng đợi chính.
 
 Khi máy chủ chính offline, Trạm Y tế xã nộp file qua Web App của Google Apps Script
-(``google_apps_script/MayChuPhu.gs``) — script đó lưu file vào Google Drive và ghi một dòng
+(``gas_deploy/Code.gs`` — mã nguồn cục bộ, không nằm trong repo, xem CLAUDE.md mục "Quản lý mã
+nguồn Google Apps Script") — script đó lưu file vào Google Drive và ghi một dòng
 "chờ đồng bộ" vào Google Sheet đóng vai trò hàng đợi tạm. Module này chạy trên máy chủ chính:
 khi máy chủ chính online trở lại, nó gọi Web App để lấy các dòng đang chờ, tải file, đẩy vào
 ``import_queue`` cục bộ (``core.queue_submit`` với ``source="server_phu"``), rồi báo lại cho

@@ -80,8 +80,9 @@ QUEUE_SOURCES = {"server_chinh", "server_phu"}
 
 # Danh mục chính thức 114 đơn vị hành chính cấp xã của Hải Phòng (67 xã, 45 phường, 2 đặc khu),
 # theo Nghị quyết số 1669/NQ-UBTVQH15 — PHẢI giữ đúng nguyên bản với `COMMUNES` trong
-# `google_apps_script/Code.gs` và mảng `COMMUNES` trong `docs/index.html` (3 nơi lặp lại do
-# JS/GAS/Python không chia sẻ được nguồn chung; xem TASKS.md mục "communes chuẩn hoá"). Dùng để
+# `gas_deploy/Code.gs` (cục bộ, không nằm trong repo — xem CLAUDE.md mục "Quản lý mã nguồn
+# Google Apps Script") và mảng `COMMUNES` trong `docs/index.html` (3 nơi lặp lại do JS/GAS/Python
+# không chia sẻ được nguồn chung; xem TASKS.md mục "communes chuẩn hoá"). Dùng để
 # xác thực xã hợp lệ ở endpoint công khai `POST /queue/submit-xa`
 # (`webapp/routers/submission_api.py`) — chặn ngay tại đây thay vì chỉ tin phía trình duyệt.
 OFFICIAL_COMMUNES = frozenset({

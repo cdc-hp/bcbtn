@@ -112,7 +112,6 @@ webapp/                Web App tập trung (FastAPI/Uvicorn) — xem mục riên
 service_windows.py     Dịch vụ Windows chạy webapp/ (pywin32) — thay app.py cho triển khai server
 setup-webapp-server.iss Bộ cài DUY NHẤT cho Web App tập trung, cài như dịch vụ Windows
 docs/                  GitHub Pages (index.html + config.js) + docs/huong-dan (nguồn HTML + PDF)
-google_apps_script/    Code.gs + appsscript.json (nguồn — deploy qua gas_deploy/ với clasp)
 tests/                 Kiểm thử lõi, lọc trùng, cấu hình, LAN, cdc_accounts, chuyển máy chủ,
                         webapp/ (test_webapp_*.py), scheduler, service_windows
 ```
@@ -305,6 +304,27 @@ chiếu ở `Tong_hop`, không thấy dữ liệu cá nhân đầy đủ của c
 GAS là **"cửa sổ online" của chính máy chủ chính**, không phải hệ thống dữ liệu độc lập —
 CSDL chính luôn là SQLite trên máy chủ chính.
 
+### Quản lý mã nguồn Google Apps Script — KHÔNG còn nằm trong repo Git
+
+`Code.gs`/`appsscript.json` **không còn được commit vào `cdc-hp/bcbtn`** (chủ đích — tránh lộ
+thêm chi tiết luồng xử lý/xác thực nội bộ ra một public repo). Nguồn hiện chỉ tồn tại ở 2 nơi:
+
+1. **Project Apps Script đang chạy thật** (`script.google.com`, scriptId xem trong
+   `gas_deploy/.clasp.json` cục bộ) — luôn là bản "đang sống", phục vụ request thật.
+2. **`gas_deploy/`** — thư mục làm việc cục bộ (đã có sẵn `.gitignore`) trên máy kỹ thuật viên
+   phụ trách, chứa `Code.gs` + `appsscript.json` + `.clasp.json` (chứa `scriptId`). Đây là nơi
+   DUY NHẤT còn giữ mã nguồn dạng file — **không tồn tại bản sao lưu nào khác trong Git**, nên
+   nếu máy này mất mà chưa kịp `clasp pull`/backup thủ công, cách khôi phục còn lại là
+   `clasp clone-script <scriptId>` thẳng từ project đang chạy (vẫn còn, chỉ mất phần lịch sử
+   thay đổi/diff từng lần, không mất mã nguồn hiện tại).
+
+Quy trình sửa `Code.gs` từ nay: sửa trực tiếp file trong `gas_deploy/` → `clasp push` (chỉ cập
+nhật nội dung trong trình soạn thảo Apps Script, **chưa** ảnh hưởng bản đang phục vụ request
+thật) → xác nhận đúng rồi mới `clasp deploy`/`clasp redeploy <deploymentId>` để cập nhật deployment
+đang live (đúng deployment ID đang gắn trong `docs/config.js: GAS_URL`) — bước sau **ảnh hưởng
+ngay lập tức** tới các xã đang nộp báo cáo thật, nên luôn kiểm tra kỹ trước khi redeploy, tốt
+nhất làm ngoài giờ cao điểm nộp báo cáo.
+
 - **Chuyển tiếp trực tiếp trước** (`Code.gs: tryForwardToMainServer`): nếu Script Property
   `MAIN_SERVER_URL` được cấu hình, mỗi lần nộp gọi thẳng `{MAIN_SERVER_URL}/queue/submit`
   (kèm `X-GSBTN-Password` từ `MAIN_SERVER_PASSWORD` nếu có). Máy chủ chính phản hồi (kể cả lỗi
@@ -339,10 +359,12 @@ CSDL chính luôn là SQLite trên máy chủ chính.
 
 ### Triển khai GAS lần đầu (tóm tắt — chi tiết đầy đủ xem `docs/huong-dan/4-google-apps-script.pdf`)
 
-1. `script.google.com` (tài khoản Google CDC) → New project → dán nội dung
-   `google_apps_script/Code.gs`; bật hiện `appsscript.json` và dán nội dung
-   `google_apps_script/appsscript.json` (phải có khối `webapp` với `executeAs: USER_DEPLOYING`,
-   `access: ANYONE_ANONYMOUS`). Có thể dùng `clasp` (`gas_deploy/`) thay vì copy/dán thủ công.
+1. `script.google.com` (tài khoản Google CDC) → New project → dán nội dung `Code.gs`; bật hiện
+   `appsscript.json` và dán nội dung `appsscript.json` tương ứng (phải có khối `webapp` với
+   `executeAs: USER_DEPLOYING`, `access: ANYONE_ANONYMOUS`). Nguồn 2 file này **không nằm trong
+   repo Git** (xem mục "Quản lý mã nguồn Google Apps Script" ngay dưới đây) — lấy từ thư mục cục
+   bộ `gas_deploy/` trên máy kỹ thuật viên đang phụ trách, hoặc `clasp clone-script <scriptId>`
+   nếu chỉ đang tạo lại project đã có.
 2. Project Settings → Script Properties → thêm `SHARED_KEY` (bắt buộc), tùy chọn
    `ROOT_FOLDER_ID`, `MAIN_SERVER_URL`, `MAIN_SERVER_PASSWORD`, `TRACKING_START_WEEK` (dạng
    `YYYY-Www`, ví dụ `2026-W01` — mốc tuần CDC bắt đầu yêu cầu nộp báo cáo hằng tuần; dùng để
