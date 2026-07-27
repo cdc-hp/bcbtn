@@ -231,6 +231,18 @@ sandbox phát triển không có quyền này, cộng với CI trên `windows-la
 `lan_server.py`/`setup.iss`/`setup-server.iss`/`setup-admin.iss` vẫn giữ nguyên cho tới khi có
 người xác nhận cài Web App thành công trên máy CDC thật.
 
+**Cạm bẫy đã gặp thật — máy trạm desktop (`app.py`: "Kết nối máy chủ LAN → Đăng nhập quản trị
+viên") KHÔNG tương thích với Web App tập trung**, dù trỏ đúng địa chỉ máy chủ: máy trạm gửi
+`POST /cdc/login` dạng JSON thô (giao thức riêng của `lan_server.py`), còn Web App yêu cầu dữ
+liệu dạng form + mã CSRF (trả lỗi 422 với JSON thô) — hai máy chủ có 2 CSDL RIÊNG BIỆT
+(`%LOCALAPPDATA%` cho desktop, `C:\ProgramData\...` cho Web App/dịch vụ Windows, xem mục Giai
+đoạn 8 phía trên). Hậu quả thực tế: tài khoản tạo qua `/cdc/tai-khoan` (chỉ có ở Web App) không
+đăng nhập được từ máy trạm desktop cũ dù đúng mật khẩu — báo "sai mật khẩu" gây hiểu nhầm, thực
+chất là "không tìm thấy trong CSDL này". Một khi CDC đã chuyển sang dùng Web App tập trung
+(bằng chứng: tài khoản được tạo qua `/cdc/tai-khoan`), **mọi quản trị viên nên đăng nhập thẳng
+bằng trình duyệt** (`https://<tên-miền-hoặc-IP>/cdc/login`), không dùng lại tính năng "Kết nối
+máy chủ LAN" của `app.py` nữa — tính năng đó chỉ dành cho khi máy chủ thật là `lan_server.py`.
+
 ## Mô hình dữ liệu
 
 - **`cases`** — 48 trường danh sách ca bệnh + `birth_year`, thông tin file nguồn, `row_hash`,
