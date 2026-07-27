@@ -98,6 +98,8 @@ function doPost(e) {
     var result;
     if (payload.action === "submit") {
       result = handleSubmit(payload);
+    } else if (payload.action === "log_status") {
+      result = handleLogStatus(payload);
     } else if (payload.action === "mark_synced") {
       result = handleMarkSynced(payload);
     } else if (payload.action === "list_pending") {
@@ -263,6 +265,28 @@ function handleSubmit(payload) {
   var now = new Date();
   sheet.appendRow([commune, week, fileName, file.getId(), submittedBy, now, "cho_dong_bo", ""]);
   return { row: sheet.getLastRow(), file_id: file.getId(), forwarded: false };
+}
+
+/**
+ * Ghi 1 dòng "đã nộp trực tiếp" vào Sheet HangDoiPhu mà KHÔNG lưu file — dùng khi trang GitHub
+ * Pages (docs/index.html) đã nộp thành công thẳng vào máy chủ chính (bỏ qua Apps Script hoàn
+ * toàn) nhưng vẫn muốn tab "Tình hình nộp" (listStatus) trên chính trang GAS này phản ánh đúng,
+ * không bị hiểu nhầm là "chưa nộp" tuần đó. Gọi kiểu "cố gắng, không chặn" (fire-and-forget) từ
+ * trình duyệt — hàm này không tải/không cần nội dung file, chỉ ghi 1 dòng nhật ký.
+ */
+function handleLogStatus(payload) {
+  checkKey(payload.key);
+  var commune = String(payload.commune || "").trim();
+  var week = String(payload.week || "").trim();
+  if (!commune) throw new Error("Thiếu tên xã.");
+  if (COMMUNES.indexOf(commune) === -1) {
+    throw new Error("Đơn vị không hợp lệ — vui lòng chọn đúng tên từ danh sách gợi ý.");
+  }
+  if (!/^\d{4}-W\d{2}$/.test(week)) {
+    throw new Error("Định dạng tuần báo cáo không hợp lệ.");
+  }
+  logStatusRow(commune, week, String(payload.file_name || ""), "", String(payload.submitted_by || ""), "da_chuyen_tiep");
+  return { logged: true };
 }
 
 /**

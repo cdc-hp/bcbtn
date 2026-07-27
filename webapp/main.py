@@ -6,6 +6,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -17,6 +18,14 @@ from webapp.routers import (
     accounts, audit_log, backups, dashboard, dedup, login, queue, records, settings, submission_api, xuat_du_lieu,
 )
 
+# Origin duy nhất của trang GitHub Pages nộp báo cáo (docs/index.html) — CHỈ origin này được
+# phép gọi thẳng POST /queue/submit-xa từ trình duyệt (xem webapp/routers/submission_api.py).
+# `allow_credentials=False` (mặc định) là chủ đích: request cross-origin sẽ KHÔNG kèm cookie
+# `cdc_session`/`csrf_token`, nên dù CORSMiddleware áp dụng toàn app, các route đăng nhập bằng
+# cookie (/cdc/...) không lộ dữ liệu qua origin khác — chỉ /queue/submit-xa (tự xác thực bằng
+# header X-GSBTN-Password, không dùng cookie) thật sự cần cross-origin.
+PUBLIC_FRONTEND_ORIGIN = "https://cdc-hp.github.io"
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -26,6 +35,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Giám sát dịch bệnh — CDC Hải Phòng", docs_url=None, redoc_url=None, lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[PUBLIC_FRONTEND_ORIGIN],
+    allow_methods=["POST"],
+    allow_headers=["Content-Type", "X-GSBTN-Password"],
+    allow_credentials=False,
+)
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.include_router(login.router)

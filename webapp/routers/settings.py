@@ -71,7 +71,8 @@ def view(
 async def save(
     request: Request, csrf_token: str = Form(""),
     server_host: str = Form("0.0.0.0"), server_port: int = Form(8765), public_url: str = Form(""),
-    gas_api_key: str = Form(""), secondary_webapp_url: str = Form(""), secondary_shared_key: str = Form(""),
+    gas_api_key: str = Form(""), public_submit_key: str = Form(""),
+    secondary_webapp_url: str = Form(""), secondary_shared_key: str = Form(""),
     secondary_sync_interval_minutes: int = Form(20), backup_destination: str = Form(""),
     user: auth.CurrentUser = Depends(require_role(*CAN_CONFIGURE_ROLES)),
     settings: WebAppSettings = Depends(get_settings_dep),
@@ -85,6 +86,7 @@ async def save(
     config.server_port = server_port
     config.public_url = public_url.strip()
     config.gas_api_key = gas_api_key.strip() or config.gas_api_key
+    config.public_submit_key = public_submit_key.strip() or config.public_submit_key
     config.secondary_webapp_url = secondary_webapp_url.strip()
     config.secondary_shared_key = secondary_shared_key or config.secondary_shared_key
     config.secondary_sync_interval_minutes = secondary_sync_interval_minutes

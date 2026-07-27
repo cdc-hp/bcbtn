@@ -43,6 +43,14 @@ class DeploymentConfig:
     # hạn phạm vi nếu lộ và đổi được độc lập. Header vẫn là X-GSBTN-Password (không đổi phía
     # Code.gs) — chỉ khác giá trị nào được server đem ra so khớp. Xem webapp/routers/submission_api.py.
     gas_api_key: str = ""
+    # Khoá riêng cho POST /queue/submit-xa — nơi trang GitHub Pages (docs/index.html) nộp TRỰC
+    # TIẾP từ trình duyệt của xã (không qua Google Apps Script nữa khi máy chủ chính online).
+    # TÁCH RIÊNG khỏi `gas_api_key` vì khác hẳn về mức độ lộ: `gas_api_key` chỉ truyền giữa 2 máy
+    # chủ (Apps Script -> máy chủ chính, không lộ ra trình duyệt); khoá này thì mọi xã đều gõ vào
+    # form công khai mỗi lần nộp (giống hệt ô "Khóa máy chủ phụ" hiện có trên trang GAS) nên coi
+    # là bí mật dùng chung (không phải bí mật cấp máy chủ) — CDC có thể đặt TRÙNG giá trị với
+    # SHARED_KEY bên Google Apps Script để xã chỉ cần nhớ/gõ một khoá duy nhất cho cả 2 đường nộp.
+    public_submit_key: str = ""
     web_token_secret: str = ""
     admin_username: str = ""
     admin_token: str = ""
@@ -103,6 +111,7 @@ def load_config() -> DeploymentConfig:
         secondary_shared_key=str(raw.get("secondary_shared_key", "") or ""),
         secondary_sync_interval_minutes=max(5, min(180, int(raw.get("secondary_sync_interval_minutes", 20) or 20))),
         gas_api_key=str(raw.get("gas_api_key", "") or ""),
+        public_submit_key=str(raw.get("public_submit_key", "") or ""),
         web_token_secret=str(raw.get("web_token_secret", "") or ""),
         admin_username=str(raw.get("admin_username", "") or ""),
         admin_token=str(raw.get("admin_token", "") or ""),

@@ -78,6 +78,42 @@ for directory in (DATA_DIR, BACKUP_DIR, UPDATE_CACHE_DIR, QUEUE_DIR):
 QUEUE_STATUSES = {"cho_nhap", "dang_nhap", "da_nhap", "loi"}
 QUEUE_SOURCES = {"server_chinh", "server_phu"}
 
+# Danh mục chính thức 114 đơn vị hành chính cấp xã của Hải Phòng (67 xã, 45 phường, 2 đặc khu),
+# theo Nghị quyết số 1669/NQ-UBTVQH15 — PHẢI giữ đúng nguyên bản với `COMMUNES` trong
+# `google_apps_script/Code.gs` và mảng `COMMUNES` trong `docs/index.html` (3 nơi lặp lại do
+# JS/GAS/Python không chia sẻ được nguồn chung; xem TASKS.md mục "communes chuẩn hoá"). Dùng để
+# xác thực xã hợp lệ ở endpoint công khai `POST /queue/submit-xa`
+# (`webapp/routers/submission_api.py`) — chặn ngay tại đây thay vì chỉ tin phía trình duyệt.
+OFFICIAL_COMMUNES = frozenset({
+    "Phường Thủy Nguyên", "Phường Thiên Hương", "Phường Hòa Bình", "Phường Nam Triệu",
+    "Phường Bạch Đằng", "Phường Lưu Kiếm", "Phường Lê Ích Mộc", "Phường Hồng Bàng",
+    "Phường Hồng An", "Phường Ngô Quyền", "Phường Gia Viên", "Phường Lê Chân",
+    "Phường An Biên", "Phường Hải An", "Phường Đông Hải", "Phường Kiến An",
+    "Phường Phù Liễn", "Phường Nam Đồ Sơn", "Phường Đồ Sơn", "Phường Hưng Đạo",
+    "Phường Dương Kinh", "Phường An Dương", "Phường An Hải", "Phường An Phong",
+    "Phường Hải Dương", "Phường Lê Thanh Nghị", "Phường Việt Hòa", "Phường Thành Đông",
+    "Phường Nam Đồng", "Phường Tân Hưng", "Phường Thạch Khôi", "Phường Tứ Minh",
+    "Phường Ái Quốc", "Phường Chu Văn An", "Phường Chí Linh", "Phường Trần Hưng Đạo",
+    "Phường Nguyễn Trãi", "Phường Trần Nhân Tông", "Phường Lê Đại Hành", "Phường Kinh Môn",
+    "Phường Nguyễn Đại Năng", "Phường Trần Liễu", "Phường Bắc An Phụ", "Phường Phạm Sư Mạnh",
+    "Phường Nhị Chiểu",
+    "Xã An Hưng", "Xã An Khánh", "Xã An Quang", "Xã An Trường", "Xã An Lão",
+    "Xã Kiến Thụy", "Xã Kiến Minh", "Xã Kiến Hải", "Xã Kiến Hưng", "Xã Nghi Dương",
+    "Xã Quyết Thắng", "Xã Tiên Lãng", "Xã Tân Minh", "Xã Tiên Minh", "Xã Chấn Hưng",
+    "Xã Hùng Thắng", "Xã Vĩnh Bảo", "Xã Nguyễn Bỉnh Khiêm", "Xã Vĩnh Am", "Xã Vĩnh Hải",
+    "Xã Vĩnh Hòa", "Xã Vĩnh Thịnh", "Xã Vĩnh Thuận", "Xã Việt Khê", "Xã Nam An Phụ",
+    "Xã Nam Sách", "Xã Thái Tân", "Xã Trần Phú", "Xã Hợp Tiến", "Xã An Phú",
+    "Xã Thanh Hà", "Xã Hà Tây", "Xã Hà Bắc", "Xã Hà Nam", "Xã Hà Đông",
+    "Xã Mao Điền", "Xã Cẩm Giàng", "Xã Cẩm Giang", "Xã Tuệ Tĩnh", "Xã Kẻ Sặt",
+    "Xã Bình Giang", "Xã Đường An", "Xã Thượng Hồng", "Xã Gia Lộc", "Xã Yết Kiêu",
+    "Xã Gia Phúc", "Xã Trường Tân", "Xã Tứ Kỳ", "Xã Tân Kỳ", "Xã Đại Sơn",
+    "Xã Chí Minh", "Xã Lạc Phượng", "Xã Nguyên Giáp", "Xã Ninh Giang", "Xã Vĩnh Lại",
+    "Xã Khúc Thừa Dụ", "Xã Tân An", "Xã Hồng Châu", "Xã Thanh Miện", "Xã Bắc Thanh Miện",
+    "Xã Hải Hưng", "Xã Nguyễn Lương Bằng", "Xã Nam Thanh Miện", "Xã Phú Thái", "Xã Lai Khê",
+    "Xã An Thành", "Xã Kim Thành",
+    "Đặc khu Cát Hải", "Đặc khu Bạch Long Vĩ",
+})
+
 
 CASE_FIELDS: list[tuple[str, str]] = [
     ("STT", "source_stt"),

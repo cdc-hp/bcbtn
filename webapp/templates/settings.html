@@ -111,8 +111,13 @@
       <div class="fw-semibold mb-2">Google Apps Script (nộp dữ liệu từ xã)</div>
       <div class="row g-3 cdc-form-grid-md">
         <div class="col-12">
-          <label class="form-label small mb-0">Khoá API cho POST /queue/submit</label>
+          <label class="form-label small mb-0">Khoá API cho POST /queue/submit (Apps Script gọi máy chủ)</label>
           <input type="password" name="gas_api_key" value="" placeholder="{% if config.gas_api_key %}●●●●●●●● (để trống nếu giữ nguyên){% else %}Chưa cấu hình{% endif %}" class="form-control form-control-sm">
+        </div>
+        <div class="col-12">
+          <label class="form-label small mb-0">Khoá cho trang GitHub Pages nộp trực tiếp (POST /queue/submit-xa)</label>
+          <input type="password" name="public_submit_key" value="" placeholder="{% if config.public_submit_key %}●●●●●●●● (để trống nếu giữ nguyên){% else %}Chưa cấu hình — xã sẽ luôn nộp qua Apps Script{% endif %}" class="form-control form-control-sm">
+          <div class="form-text small">Khoá này xã gõ trực tiếp vào form nộp trên GitHub Pages (docs/index.html) — nên đặt TRÙNG với <code>SHARED_KEY</code> bên Google Apps Script để xã chỉ cần nhớ một khoá. Bỏ trống = tắt hẳn đường nộp trực tiếp, xã luôn nộp qua Apps Script như trước.</div>
         </div>
       </div>
     </section>

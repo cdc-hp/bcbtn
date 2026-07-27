@@ -5,59 +5,500 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Nộp danh sách ca bệnh — CDC Hải Phòng</title>
 <style>
+  :root {
+    --blue-900:#1e3a8a; --blue-600:#2563eb; --blue-600h:#1d4ed8; --blue-50:#eff6ff;
+    --green-700:#166534; --green-50:#dcfce7;
+    --red-700:#991b1b; --red-50:#fee2e2; --red-600:#dc2626;
+    --amber-700:#92400e; --amber-50:#fef3c7;
+    --slate-900:#1f2937; --slate-500:#64748b; --slate-300:#cbd5e1; --slate-200:#e2e8f0; --slate-50:#f8fafc;
+  }
   * { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; background: #e2e8f0; }
-  header {
-    display: flex; align-items: center; gap: 10px; padding: 12px 16px 16px;
-    background: #eff6ff; color: #1e3a8a; box-shadow: 0 3px 10px rgba(30,58,138,.10);
-    border-radius: 0 0 18px 18px;
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    margin: 0; background: var(--slate-200); color: var(--slate-900); -webkit-font-smoothing: antialiased;
   }
-  .logo-badge {
-    flex: none; width: 32px; height: 32px; border-radius: 9px; object-fit: contain;
-    box-shadow: 0 1px 4px rgba(30,58,138,.20); background: #fff;
+  .page { max-width: 640px; margin: 0 auto; padding-bottom: 32px; }
+  .app-header {
+    background: var(--blue-50); padding: 18px 20px 24px; border-radius: 0 0 22px 22px;
+    box-shadow: 0 3px 10px rgba(30,58,138,.10);
   }
-  header strong { font-weight: 700; }
-  header span.sub { opacity: .85; font-size: .85rem; }
-  #frame-wrap { position: absolute; top: 60px; left: 0; right: 0; bottom: 0; }
-  iframe { width: 100%; height: 100%; border: none; opacity: 0; transition: opacity .25s; }
-  iframe.loaded { opacity: 1; }
-  #loading {
-    position: absolute; top: 60px; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 10px; color: #64748b; font-size: .88rem;
+  .app-header-inner { display: flex; align-items: center; gap: 12px; }
+  .logo-badge { flex: none; width: 44px; height: 44px; border-radius: 12px; object-fit: contain;
+    box-shadow: 0 1px 4px rgba(30,58,138,.20); background: #fff; }
+  .app-header h1 { font-size: 1.15rem; margin: 0; font-weight: 700; color: var(--blue-900); }
+  .app-header p { margin: 2px 0 0; font-size: .85rem; color: var(--slate-500); }
+
+  .content { margin: 16px 16px 0; }
+
+  .card { background: #fff; border-radius: 14px; padding: 20px; border: 1px solid var(--slate-200);
+    box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04); }
+  .lede { font-size: .88rem; color: var(--slate-500); margin: 0 0 16px; line-height: 1.5; }
+  .missing-notice { color: var(--red-600); font-weight: 600; font-size: .88rem; line-height: 1.6; margin: 0 0 16px; }
+
+  label { display: block; margin-top: 14px; font-weight: 600; font-size: .88rem; }
+  label:first-of-type { margin-top: 0; }
+  label .req { color: var(--red-600); }
+  input[type=text], input[type=password], input[type=week], input:not([type]) {
+    width: 100%; padding: 11px 12px; margin-top: 6px; border: 1px solid var(--slate-300);
+    border-radius: 9px; font-size: 1rem; background: #fff; color: var(--slate-900);
   }
-  #loading .spinner {
-    width: 26px; height: 26px; border: 3px solid #e2e8f0; border-top-color: #2563eb; border-radius: 50%;
-    animation: spin .7s linear infinite;
-  }
+  input:focus { outline: none; border-color: var(--blue-600); box-shadow: 0 0 0 3px var(--blue-50); }
+  .hint { font-size: .8rem; color: var(--slate-500); margin-top: 5px; }
+  .hint a { color: var(--blue-600); }
+
+  .dropzone { margin-top: 8px; border: 2px dashed var(--slate-300); border-radius: 12px; padding: 22px 16px;
+    text-align: center; cursor: pointer; background: var(--slate-50); transition: border-color .15s, background .15s; }
+  .dropzone.drag { border-color: var(--blue-600); background: var(--blue-50); }
+  .dropzone:focus { outline: 2px solid var(--blue-600); outline-offset: 2px; }
+  .dropzone-icon { font-size: 1.6rem; }
+  .dropzone-text { font-size: .9rem; margin-top: 6px; }
+  .dropzone-text b { color: var(--blue-600); font-weight: 600; }
+  .dropzone-hint { font-size: .78rem; color: var(--slate-500); margin-top: 4px; }
+
+  .file-chip { margin-top: 8px; display: flex; align-items: center; gap: 8px; background: var(--blue-50);
+    border: 1px solid #bfdbfe; border-radius: 10px; padding: 10px 12px; font-size: .86rem; }
+  .file-chip .file-info { flex: 1; min-width: 0; }
+  .file-chip .fname { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-chip .fsize { color: var(--slate-500); font-size: .78rem; }
+  .file-chip button { flex: none; border: none; background: none; color: var(--slate-500); cursor: pointer;
+    font-size: 1rem; padding: 2px 6px; border-radius: 6px; }
+  .file-chip button:hover { background: rgba(0,0,0,.06); color: var(--red-600); }
+
+  button[type=submit] { margin-top: 20px; width: 100%; padding: 13px 16px; background: var(--blue-600); color: #fff;
+    border: none; border-radius: 10px; cursor: pointer; font-size: 1rem; font-weight: 600; transition: background .15s; }
+  button[type=submit]:hover { background: var(--blue-600h); }
+  button[type=submit]:disabled { background: var(--slate-300); cursor: not-allowed; }
+  .link-btn { font-size: .82rem; color: var(--blue-600); cursor: pointer; text-decoration: underline;
+    background: none; border: none; padding: 0; margin-top: 14px; display: inline-block; }
+
+  .spinner { display: inline-block; width: 15px; height: 15px; border: 2px solid rgba(255,255,255,.4);
+    border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -3px; margin-right: 7px; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  #fallback { max-width: 560px; margin: 80px auto; padding: 16px; text-align: center; color: #991b1b; }
+
+  #msg { margin-top: 16px; padding: 12px 14px; border-radius: 10px; display: none; font-size: .88rem; line-height: 1.5; }
+  #msg.ok { background: var(--green-50); color: var(--green-700); display: block; }
+  #msg.err { background: var(--red-50); color: var(--red-700); display: block; }
+
+  .footer-note { text-align: center; font-size: .76rem; color: var(--slate-500); margin-top: 20px; }
 </style>
 </head>
 <body>
-<header>
-  <img class="logo-badge" src="logo.png" alt="CDC Hải Phòng">
-  <div><strong>CDC Hải Phòng</strong> — Nộp danh sách ca bệnh hằng tuần</div>
-</header>
-<div id="frame-wrap">
-  <div id="loading"><div class="spinner"></div>Đang tải trang nộp báo cáo...</div>
-  <iframe id="gasFrame" title="Nộp danh sách ca bệnh"></iframe>
+<div class="page">
+  <div class="app-header">
+    <div class="app-header-inner">
+      <img class="logo-badge" src="logo.png" alt="CDC Hải Phòng">
+      <div>
+        <h1>Nộp danh sách ca bệnh</h1>
+        <p>CDC Hải Phòng — báo cáo hằng tuần</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="content">
+    <datalist id="communeList"></datalist>
+
+    <div class="card">
+      <p class="lede">Đây là link cố định để nộp mỗi tuần. Hệ thống tự thử nộp thẳng vào máy chủ chính; nếu máy chủ chính tạm thời không phản hồi được, dữ liệu sẽ lưu tạm và CDC đồng bộ bù sau.</p>
+      <div id="missingWeeksNotice" class="missing-notice" style="display:none"></div>
+      <form id="f">
+        <label>Xã / phường / đặc khu <span class="req">*</span></label>
+        <input name="commune" list="communeList" autocomplete="off" placeholder="Gõ để tìm..." required>
+
+        <label>Tuần báo cáo <span class="req">*</span></label>
+        <input name="week" type="week" id="weekInput" required>
+        <div class="hint" id="weekRangeInfo"></div>
+
+        <label>Người nộp</label>
+        <input name="submitted_by" placeholder="Họ tên (không bắt buộc)">
+
+        <label>Khóa nộp báo cáo (do CDC cung cấp) <span class="req">*</span></label>
+        <input name="key" type="password" required>
+
+        <label>File Excel theo mẫu (.xlsx) <span class="req">*</span></label>
+        <div class="hint"><a href="Mau_Danh_sach_ca_benh.xlsx" target="_blank" rel="noopener">⬇ Tải file mẫu Excel (48 trường)</a></div>
+
+        <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Chọn file Excel">
+          <div class="dropzone-icon">📄</div>
+          <div class="dropzone-text">Kéo thả file vào đây, hoặc <b>chọn file</b></div>
+          <div class="dropzone-hint">Chỉ nhận .xlsx / .xlsm theo mẫu</div>
+        </div>
+        <input name="file" id="fileInput" type="file" accept=".xlsx,.xlsm" required hidden>
+        <div class="file-chip" id="fileChip" style="display:none">
+          <span>📄</span>
+          <div class="file-info"><div class="fname" id="fileName"></div><div class="fsize" id="fileSize"></div></div>
+          <button type="button" id="removeFile" title="Bỏ chọn file">✕</button>
+        </div>
+
+        <button type="submit" id="submitBtn">Nộp báo cáo</button>
+        <button type="button" class="link-btn" id="clearCacheLink">Xoá thông tin đã lưu (đổi đơn vị/người nộp)</button>
+      </form>
+      <div id="msg"></div>
+    </div>
+
+    <div class="footer-note">CDC Hải Phòng · Ứng dụng Giám sát dịch bệnh</div>
+  </div>
 </div>
-<div id="fallback" style="display:none">
-  Chưa cấu hình được link nộp báo cáo. Vui lòng liên hệ CDC Hải Phòng để được hỗ trợ.
-</div>
+
 <script src="config.js"></script>
 <script>
-  if (typeof GAS_URL === "string" && GAS_URL.indexOf("https://script.google.com/") === 0) {
-    var frame = document.getElementById("gasFrame");
-    frame.addEventListener("load", function () {
-      document.getElementById("loading").style.display = "none";
-      frame.classList.add("loaded");
+// Danh mục chính thức 114 xã/phường/đặc khu Hải Phòng — PHẢI giữ đúng nguyên bản với `COMMUNES`
+// trong google_apps_script/Code.gs và `OFFICIAL_COMMUNES` trong core.py (3 nơi lặp lại do
+// JS tĩnh/Apps Script/Python không chia sẻ được nguồn chung — xem CLAUDE.md).
+var COMMUNES = [
+  "Phường Thủy Nguyên", "Phường Thiên Hương", "Phường Hòa Bình", "Phường Nam Triệu",
+  "Phường Bạch Đằng", "Phường Lưu Kiếm", "Phường Lê Ích Mộc", "Phường Hồng Bàng",
+  "Phường Hồng An", "Phường Ngô Quyền", "Phường Gia Viên", "Phường Lê Chân",
+  "Phường An Biên", "Phường Hải An", "Phường Đông Hải", "Phường Kiến An",
+  "Phường Phù Liễn", "Phường Nam Đồ Sơn", "Phường Đồ Sơn", "Phường Hưng Đạo",
+  "Phường Dương Kinh", "Phường An Dương", "Phường An Hải", "Phường An Phong",
+  "Phường Hải Dương", "Phường Lê Thanh Nghị", "Phường Việt Hòa", "Phường Thành Đông",
+  "Phường Nam Đồng", "Phường Tân Hưng", "Phường Thạch Khôi", "Phường Tứ Minh",
+  "Phường Ái Quốc", "Phường Chu Văn An", "Phường Chí Linh", "Phường Trần Hưng Đạo",
+  "Phường Nguyễn Trãi", "Phường Trần Nhân Tông", "Phường Lê Đại Hành", "Phường Kinh Môn",
+  "Phường Nguyễn Đại Năng", "Phường Trần Liễu", "Phường Bắc An Phụ", "Phường Phạm Sư Mạnh",
+  "Phường Nhị Chiểu",
+  "Xã An Hưng", "Xã An Khánh", "Xã An Quang", "Xã An Trường", "Xã An Lão",
+  "Xã Kiến Thụy", "Xã Kiến Minh", "Xã Kiến Hải", "Xã Kiến Hưng", "Xã Nghi Dương",
+  "Xã Quyết Thắng", "Xã Tiên Lãng", "Xã Tân Minh", "Xã Tiên Minh", "Xã Chấn Hưng",
+  "Xã Hùng Thắng", "Xã Vĩnh Bảo", "Xã Nguyễn Bỉnh Khiêm", "Xã Vĩnh Am", "Xã Vĩnh Hải",
+  "Xã Vĩnh Hòa", "Xã Vĩnh Thịnh", "Xã Vĩnh Thuận", "Xã Việt Khê", "Xã Nam An Phụ",
+  "Xã Nam Sách", "Xã Thái Tân", "Xã Trần Phú", "Xã Hợp Tiến", "Xã An Phú",
+  "Xã Thanh Hà", "Xã Hà Tây", "Xã Hà Bắc", "Xã Hà Nam", "Xã Hà Đông",
+  "Xã Mao Điền", "Xã Cẩm Giàng", "Xã Cẩm Giang", "Xã Tuệ Tĩnh", "Xã Kẻ Sặt",
+  "Xã Bình Giang", "Xã Đường An", "Xã Thượng Hồng", "Xã Gia Lộc", "Xã Yết Kiêu",
+  "Xã Gia Phúc", "Xã Trường Tân", "Xã Tứ Kỳ", "Xã Tân Kỳ", "Xã Đại Sơn",
+  "Xã Chí Minh", "Xã Lạc Phượng", "Xã Nguyên Giáp", "Xã Ninh Giang", "Xã Vĩnh Lại",
+  "Xã Khúc Thừa Dụ", "Xã Tân An", "Xã Hồng Châu", "Xã Thanh Miện", "Xã Bắc Thanh Miện",
+  "Xã Hải Hưng", "Xã Nguyễn Lương Bằng", "Xã Nam Thanh Miện", "Xã Phú Thái", "Xã Lai Khê",
+  "Xã An Thành", "Xã Kim Thành",
+  "Đặc khu Cát Hải", "Đặc khu Bạch Long Vĩ",
+];
+var COMMUNE_SET = {};
+COMMUNES.forEach(function (c) { COMMUNE_SET[c] = true; });
+(function fillCommuneList() {
+  var list = document.getElementById("communeList");
+  COMMUNES.forEach(function (c) {
+    var opt = document.createElement("option");
+    opt.value = c;
+    list.appendChild(opt);
+  });
+})();
+
+var CACHE_KEY = "gsbtn_submit_cache_v1";
+
+function loadCache() {
+  try { return JSON.parse(localStorage.getItem(CACHE_KEY) || "{}"); } catch (e) { return {}; }
+}
+function saveCache(patch) {
+  var cur = loadCache();
+  for (var k in patch) cur[k] = patch[k];
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(cur)); } catch (e) {}
+}
+function clearCache() {
+  try { localStorage.removeItem(CACHE_KEY); } catch (e) {}
+}
+
+// Thuật toán tuần ISO-8601 chuẩn (thứ Năm của tuần quyết định số tuần/năm).
+function isoWeekString(date) {
+  var d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  var dayNum = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - dayNum + 3);
+  var firstThursday = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  var firstDayNum = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNum + 3);
+  var weekNum = 1 + Math.round((d - firstThursday) / (7 * 24 * 3600 * 1000));
+  return d.getUTCFullYear() + "-W" + (weekNum < 10 ? "0" : "") + weekNum;
+}
+function isoWeekRange(weekStr) {
+  var m = /^(\d{4})-W(\d{2})$/.exec(weekStr);
+  if (!m) return null;
+  var year = parseInt(m[1], 10), week = parseInt(m[2], 10);
+  var simple = new Date(Date.UTC(year, 0, 1 + (week - 1) * 7));
+  var dow = simple.getUTCDay();
+  var monday = new Date(simple);
+  if (dow <= 4) monday.setUTCDate(simple.getUTCDate() - dow + 1);
+  else monday.setUTCDate(simple.getUTCDate() + 8 - dow);
+  var sunday = new Date(monday);
+  sunday.setUTCDate(monday.getUTCDate() + 6);
+  return { start: monday, end: sunday };
+}
+function formatVNDate(d) {
+  var dd = String(d.getUTCDate()).padStart(2, "0");
+  var mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return dd + "/" + mm + "/" + d.getUTCFullYear();
+}
+function updateWeekRangeInfo() {
+  var input = document.getElementById("weekInput");
+  var info = document.getElementById("weekRangeInfo");
+  var range = isoWeekRange(input.value);
+  if (!range) { info.textContent = ""; return; }
+  info.textContent = "Từ " + formatVNDate(range.start) + " đến " + formatVNDate(range.end);
+}
+
+(function initWeekInput() {
+  var input = document.getElementById("weekInput");
+  var currentWeek = isoWeekString(new Date());
+  input.max = currentWeek;
+  if (!input.value) input.value = currentWeek;
+  updateWeekRangeInfo();
+  input.addEventListener("change", function () {
+    if (input.value > currentWeek) {
+      input.value = currentWeek;
+      alert("Không được chọn tuần báo cáo trong tương lai — đã đặt lại về tuần hiện tại.");
+    }
+    updateWeekRangeInfo();
+  });
+})();
+
+// Nạp cache vào form nộp báo cáo: đơn vị, khoá, người nộp không cần nhập lại mỗi lần.
+(function initSubmitCache() {
+  var cache = loadCache();
+  var form = document.getElementById("f");
+  if (cache.commune) form.commune.value = cache.commune;
+  if (cache.key) form.key.value = cache.key;
+  if (cache.submitted_by) form.submitted_by.value = cache.submitted_by;
+  ["commune", "key", "submitted_by"].forEach(function (field) {
+    form[field].addEventListener("change", function () {
+      var patch = {}; patch[field] = form[field].value;
+      saveCache(patch);
+      if (field === "commune" || field === "key") refreshMissingWeeksNotice();
     });
-    frame.src = GAS_URL;
-  } else {
-    document.getElementById("frame-wrap").style.display = "none";
-    document.getElementById("fallback").style.display = "block";
+  });
+  document.getElementById("clearCacheLink").addEventListener("click", function () {
+    clearCache();
+    form.commune.value = ""; form.key.value = ""; form.submitted_by.value = "";
+    refreshMissingWeeksNotice();
+  });
+  refreshMissingWeeksNotice();
+})();
+
+// --- Dropzone / chọn file ---
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+function isExcelFile(name) {
+  var n = name.toLowerCase();
+  return n.endsWith(".xlsx") || n.endsWith(".xlsm");
+}
+function showFileChip(file) {
+  document.getElementById("dropzone").style.display = "none";
+  var chip = document.getElementById("fileChip");
+  chip.style.display = "flex";
+  document.getElementById("fileName").textContent = file.name;
+  document.getElementById("fileSize").textContent = formatFileSize(file.size);
+}
+function clearFileChip() {
+  document.getElementById("fileInput").value = "";
+  document.getElementById("fileChip").style.display = "none";
+  document.getElementById("dropzone").style.display = "block";
+}
+(function initDropzone() {
+  var dropzone = document.getElementById("dropzone");
+  var fileInput = document.getElementById("fileInput");
+  var msg = document.getElementById("msg");
+  dropzone.addEventListener("click", function () { fileInput.click(); });
+  dropzone.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); fileInput.click(); }
+  });
+  fileInput.addEventListener("change", function () {
+    if (fileInput.files[0]) showFileChip(fileInput.files[0]);
+  });
+  document.getElementById("removeFile").addEventListener("click", function (ev) {
+    ev.stopPropagation();
+    clearFileChip();
+  });
+  ["dragenter", "dragover"].forEach(function (evt) {
+    dropzone.addEventListener(evt, function (ev) {
+      ev.preventDefault(); ev.stopPropagation();
+      dropzone.classList.add("drag");
+    });
+  });
+  ["dragleave", "drop"].forEach(function (evt) {
+    dropzone.addEventListener(evt, function (ev) {
+      ev.preventDefault(); ev.stopPropagation();
+      dropzone.classList.remove("drag");
+    });
+  });
+  dropzone.addEventListener("drop", function (ev) {
+    var files = ev.dataTransfer.files;
+    if (!files || !files[0]) return;
+    if (!isExcelFile(files[0].name)) {
+      msg.className = "err"; msg.textContent = "Chỉ nhận file .xlsx hoặc .xlsm — vui lòng chọn đúng file mẫu.";
+      return;
+    }
+    msg.className = ""; msg.style.display = "none";
+    fileInput.files = files;
+    showFileChip(files[0]);
+  });
+})();
+
+// --- Nộp báo cáo: thử máy chủ chính trước, rơi xuống Google Apps Script nếu không kết nối được ---
+
+// Gọi thẳng /queue/submit-xa trên máy chủ chính. Trả về JSON đã phân tích nếu máy chủ CÓ phản
+// hồi (kể cả phản hồi lỗi thật — sai khoá, dữ liệu không hợp lệ — vẫn coi là "có trả lời", hiện
+// thẳng lỗi đó thay vì âm thầm rơi xuống GAS). Trả về null khi lỗi mạng/hết thời gian chờ (8s)
+// — CHỈ trường hợp này mới rơi xuống GAS, giống hệt cách Code.gs tự làm ở chặng kế tiếp.
+function trySubmitDirect(baseUrl, payload) {
+  var controller = new AbortController();
+  var timer = setTimeout(function () { controller.abort(); }, 8000);
+  return fetch(baseUrl.replace(/\/+$/, "") + "/queue/submit-xa", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-GSBTN-Password": payload.key },
+    body: JSON.stringify(payload),
+    signal: controller.signal,
+  }).then(function (r) { return r.json(); }).catch(function () { return null; }).finally(function () { clearTimeout(timer); });
+}
+
+// Rơi xuống Google Apps Script — KHÔNG đặt Content-Type tường minh (mặc định "text/plain" khi
+// body là chuỗi) để tránh trình duyệt gửi preflight OPTIONS mà Apps Script không xử lý được;
+// Code.gs vẫn tự JSON.parse(e.postData.contents) nên không phụ thuộc Content-Type khai báo.
+function trySubmitGas(gasUrl, payload) {
+  var body = Object.assign({ action: "submit" }, payload);
+  return fetch(gasUrl, { method: "POST", body: JSON.stringify(body) })
+    .then(function (r) { return r.json(); })
+    .catch(function () { return null; });
+}
+
+// Báo cho Apps Script biết 1 lượt đã nộp thẳng vào máy chủ chính, để tab "Tình hình nộp" bên
+// Apps Script (list_status) không hiểu nhầm tuần đó là "chưa nộp". Cố gắng, không chặn UI, lỗi
+// thì bỏ qua lặng lẽ — đây chỉ là tiện ích hiển thị, không phải đường lưu dữ liệu chính.
+function logStatusToGas(gasUrl, payload) {
+  if (!gasUrl) return;
+  fetch(gasUrl, {
+    method: "POST",
+    body: JSON.stringify({
+      action: "log_status", commune: payload.commune, week: payload.week,
+      file_name: payload.file_name, submitted_by: payload.submitted_by, key: payload.key,
+    }),
+  }).catch(function () {});
+}
+
+document.getElementById("f").addEventListener("submit", function (ev) {
+  ev.preventDefault();
+  var form = ev.target, msg = document.getElementById("msg"), file = form.file.files[0];
+  if (!file) {
+    msg.className = "err"; msg.textContent = "Vui lòng chọn file Excel trước khi nộp.";
+    return;
   }
+  if (!COMMUNE_SET[form.commune.value]) {
+    msg.className = "err"; msg.textContent = "Vui lòng chọn đúng tên đơn vị từ danh sách gợi ý (gõ để tìm).";
+    return;
+  }
+  var currentWeek = isoWeekString(new Date());
+  if (form.week.value > currentWeek) {
+    msg.className = "err"; msg.textContent = "Không được chọn tuần báo cáo trong tương lai.";
+    return;
+  }
+  var submitBtn = document.getElementById("submitBtn");
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = '<span class="spinner"></span>Đang gửi...';
+  msg.className = ""; msg.style.display = "none";
+  var reader = new FileReader();
+  reader.onload = function () {
+    var base64 = reader.result.split(",")[1];
+    var payload = {
+      commune: form.commune.value, week: form.week.value, submitted_by: form.submitted_by.value,
+      key: form.key.value, file_name: file.name, content_base64: base64,
+    };
+
+    var attempt;
+    if (typeof MAIN_SERVER_URL === "string" && MAIN_SERVER_URL) {
+      attempt = trySubmitDirect(MAIN_SERVER_URL, payload);
+    } else {
+      attempt = Promise.resolve(null);
+    }
+
+    attempt.then(function (directResult) {
+      if (directResult) {
+        logStatusToGas(typeof GAS_URL === "string" ? GAS_URL : "", payload);
+        return { data: directResult, viaDirect: true };
+      }
+      return trySubmitGas(typeof GAS_URL === "string" ? GAS_URL : "", payload).then(function (gasResult) {
+        return { data: gasResult, viaDirect: false };
+      });
+    }).then(function (outcome) {
+      submitBtn.disabled = false; submitBtn.textContent = "Nộp báo cáo";
+      var data = outcome.data;
+      if (!data) {
+        msg.className = "err";
+        msg.textContent = "Không kết nối được máy chủ nào (đã thử máy chủ chính và máy chủ phụ). Vui lòng kiểm tra mạng và thử lại sau.";
+        return;
+      }
+      if (data.ok) {
+        saveCache({ commune: form.commune.value, key: form.key.value, submitted_by: form.submitted_by.value });
+        refreshMissingWeeksNotice();
+      }
+      if (data.ok && outcome.viaDirect) {
+        msg.className = "ok";
+        msg.textContent = "✓ Đã nộp trực tiếp vào máy chủ chính, mã hàng đợi #" + data.result.queue_id + ".";
+        clearFileChip();
+      } else if (data.ok && data.result.forwarded) {
+        msg.className = "ok";
+        msg.textContent = "✓ Đã nộp trực tiếp vào máy chủ chính, mã hàng đợi #" + data.result.queue_id + ".";
+        clearFileChip();
+      } else if (data.ok) {
+        msg.className = "ok";
+        msg.textContent = "✓ Máy chủ chính tạm thời không phản hồi — đã lưu tạm, dòng #" + data.result.row + ". CDC sẽ đồng bộ bù sau.";
+        clearFileChip();
+      } else {
+        msg.className = "err"; msg.textContent = "Lỗi: " + data.error;
+      }
+    });
+  };
+  reader.readAsDataURL(file);
+});
+
+// Liệt kê mọi tuần ISO từ startWeek đến endWeek (bao gồm cả 2 đầu). Trả về [] nếu startWeek
+// sai định dạng hoặc đã ở sau endWeek (cấu hình TRACKING_START_WEEK sai — không đoán bừa).
+function weeksBetween(startWeek, endWeek) {
+  var startRange = isoWeekRange(startWeek);
+  if (!startRange || startWeek > endWeek) return [];
+  var weeks = [];
+  var cursor = new Date(startRange.start);
+  var guard = 0;
+  while (guard < 600) { // chặn vòng lặp chạy tràn nếu mốc cấu hình quá xa (~11 năm)
+    var w = isoWeekString(cursor);
+    weeks.push(w);
+    if (w === endWeek) break;
+    cursor.setUTCDate(cursor.getUTCDate() + 7);
+    guard++;
+  }
+  return weeks;
+}
+
+function renderMissingWeeks(trackingStartWeek, submittedWeeksSet) {
+  var notice = document.getElementById("missingWeeksNotice");
+  if (!trackingStartWeek) { notice.style.display = "none"; return; }
+  var currentWeek = isoWeekString(new Date());
+  var allWeeks = weeksBetween(trackingStartWeek, currentWeek);
+  if (!allWeeks.length) { notice.style.display = "none"; return; }
+  var missing = allWeeks.filter(function (w) { return !submittedWeeksSet[w]; });
+  if (!missing.length) { notice.style.display = "none"; return; }
+  notice.textContent = "⚠ Chưa nộp báo cáo các tuần: " + missing.join(", ") + ".";
+  notice.style.display = "block";
+}
+
+// Tình hình nộp vẫn tra cứu qua Google Apps Script (Sheet HangDoiPhu ghi nhận cả lượt nộp thẳng
+// nhờ logStatusToGas ở trên lẫn lượt qua GAS) — không cần trang này tự giữ một bản ghi riêng.
+function refreshMissingWeeksNotice() {
+  var form = document.getElementById("f");
+  var commune = form.commune.value, key = form.key.value;
+  var notice = document.getElementById("missingWeeksNotice");
+  if (!COMMUNE_SET[commune] || !key || typeof GAS_URL !== "string" || !GAS_URL) {
+    notice.style.display = "none"; return;
+  }
+  fetch(GAS_URL, {
+    method: "POST",
+    body: JSON.stringify({ action: "list_status", commune: commune, key: key }),
+  }).then(function (r) { return r.json(); }).then(function (data) {
+    if (!data.ok) { notice.style.display = "none"; return; }
+    var submittedWeeksSet = {};
+    data.result.rows.forEach(function (row) { submittedWeeksSet[row.week] = true; });
+    renderMissingWeeks(data.result.tracking_start_week, submittedWeeksSet);
+  }).catch(function () { notice.style.display = "none"; });
+}
 </script>
 </body>
 </html>

@@ -410,6 +410,35 @@ trùng, xuất dữ liệu, đồng bộ máy chủ phụ, GAS gửi thật) nê
     danh sách ca bệnh". `query_records`/`CASE_TABLE_COLUMNS` mở rộng để SELECT đủ 48 trường +
     `birth_year` thay vì 12 cột cố định như trước.
 
+### Web nộp báo cáo trực tiếp từ GitHub Pages tới máy chủ chính (mới)
+
+`docs/index.html` không còn là khung `<iframe>` nhúng trang Apps Script — nay là form tĩnh thật
+(HTML/CSS/JS), tự thử `POST /queue/submit-xa` thẳng vào máy chủ chính trước (CORS chỉ mở cho
+origin `https://cdc-hp.github.io`, xem `webapp/main.py: PUBLIC_FRONTEND_ORIGIN`), chỉ rơi xuống
+Google Apps Script (`action:"submit"`, không đổi phía `Code.gs`) khi lỗi mạng/hết 8 giây. Khoá
+xác thực đường nộp thẳng (`public_submit_key`, cấu hình ở `/cdc/cau-hinh`) **TÁCH RIÊNG**
+`gas_api_key` vì bị lộ ra trình duyệt công khai — xem CLAUDE.md mục "Web nộp báo cáo trực tiếp
+từ GitHub Pages" để biết đầy đủ lý do và luồng dữ liệu. Thêm `Code.gs: log_status` (action mới,
+không phá vỡ action cũ) để Sheet `HangDoiPhu` vẫn ghi nhận đầy đủ cả lượt nộp thẳng, giữ đúng
+cảnh báo "Chưa nộp báo cáo các tuần" trên form. Mặc định AN TOÀN: bỏ trống `public_submit_key`
+hoặc `MAIN_SERVER_URL` (`docs/config.js`) = tắt hẳn đường nộp thẳng, hành vi giữ nguyên như
+trước cho tới khi CDC chủ động cấu hình.
+
+Danh mục 114 xã/phường/đặc khu giờ lặp ở 3 nơi thay vì 2 (`core.OFFICIAL_COMMUNES` mới thêm,
+cạnh `Code.gs: COMMUNES` và `docs/index.html: COMMUNES`) — xem backlog "Bảng communes chuẩn
+hoá" bên dưới, vẫn chưa giải quyết triệt để, chỉ thêm 1 bản sao nữa phục vụ validate phía
+server.
+
+**Chưa xác nhận trên hạ tầng thật**: đường nộp thẳng cần CDC thật sự mở `MAIN_SERVER_URL` qua
+Cloudflare Tunnel + cấu hình `public_submit_key` rồi thử nộp từ trang GitHub Pages thật để xác
+nhận CORS/preflight hoạt động đúng ngoài môi trường phát triển (sandbox không gọi được ra
+Internet thật để kiểm thử `fetch` cross-origin với Apps Script). Cũng cần xác nhận nhánh dự
+phòng (gọi thẳng `GAS_URL` bằng `fetch` từ origin GitHub Pages, không phải từ origin
+script.google.com như trước) nhận được phản hồi JSON đọc được (không bị chặn bởi CORS) — về lý
+thuyết hoạt động nhờ Apps Script tự chuyển hướng qua `script.googleusercontent.com` (có
+`Access-Control-Allow-Origin: *`) và request dùng `Content-Type: text/plain` mặc định để tránh
+preflight, nhưng chưa kiểm thử được bằng trình duyệt thật.
+
 ## Backlog — chưa cài đặt
 
 Thứ tự không nhất thiết phản ánh độ ưu tiên; đánh giá lại theo nhu cầu triển khai thật.

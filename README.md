@@ -111,10 +111,11 @@ Danh sách file chính và vai trò từng file: xem `CLAUDE.md` mục "File ch�
 
 Theo mặc định, máy chủ chính chỉ nghe trong LAN nội bộ CDC, nên **Trạm Y tế xã ở xa không vào
 thẳng được máy chủ chính**. Kênh nộp chính thức, cố định gửi cho các xã:
-**`https://cdc-hp.github.io/bcbtn/`** (trang GitHub Pages, iframe tới Google Apps Script — tự
-chuyển tiếp vào hàng đợi máy chủ chính nếu CDC đã mở máy chủ ra Internet, hoặc lưu tạm trên
-Google rồi CDC đồng bộ bù). Khi ở ngay trong LAN của CDC còn có thể vào thẳng
-`http://<địa-chỉ-máy-chủ>:<cổng>/xa` (yêu cầu tài khoản riêng của xã).
+**`https://cdc-hp.github.io/bcbtn/`** (trang GitHub Pages — form nộp thật, không còn iframe).
+Trang này tự thử nộp **thẳng vào máy chủ chính** (nếu CDC đã mở máy chủ ra Internet và cấu hình
+`MAIN_SERVER_URL`/`public_submit_key`); chỉ khi không kết nối được mới rơi xuống Google Apps
+Script để lưu tạm trên Sheet/Drive, chờ CDC đồng bộ bù. Khi ở ngay trong LAN của CDC còn có thể
+vào thẳng `http://<địa-chỉ-máy-chủ>:<cổng>/xa` (yêu cầu tài khoản riêng của xã).
 
 Khi chạy ở chế độ Máy chủ, còn có `http://<địa-chỉ-máy-chủ>:<cổng>/cdc/hang-doi` (CDC duyệt
 hàng đợi, nhập CSDL, đồng bộ máy chủ phụ, quản lý tài khoản xã, xem nhật ký kiểm toán).

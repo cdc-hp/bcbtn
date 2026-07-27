@@ -4,8 +4,9 @@ Tài liệu **cốt lõi** của dự án: kiến trúc, schema, vận hành. Vi
 [`TASKS.md`](TASKS.md). Hướng dẫn cài đặt/build cho người dùng cuối xem [`README.md`](README.md).
 
 Desktop **PyQt6 + SQLite** để quản lý ca bệnh/ổ dịch, lọc trùng, chia sẻ trong LAN — mở rộng
-thêm một tầng Web (xã nộp báo cáo qua GitHub Pages + Google Apps Script) và cơ chế nhiều máy
-chủ/nhiều quản trị viên. Phiên bản hiện tại: xem `VERSION.txt`.
+thêm một tầng Web (xã nộp báo cáo qua trang tĩnh GitHub Pages, gọi thẳng máy chủ chính, dự
+phòng Google Apps Script khi máy chủ chính không phản hồi được) và cơ chế nhiều máy chủ/nhiều
+quản trị viên. Phiên bản hiện tại: xem `VERSION.txt`.
 
 ## Repo chính thức — đọc kỹ trước khi làm gì
 
@@ -25,11 +26,16 @@ chủ/nhiều quản trị viên. Phiên bản hiện tại: xem `VERSION.txt`.
 ## Kiến trúc tổng thể
 
 ```
-Xã/phường  ──►  GitHub Pages (docs/index.html, iframe)  ──►  Google Apps Script (Code.gs)
-                 link cố định: cdc-hp.github.io/bcbtn         │  chuyển tiếp thẳng nếu
-                                                                │  MAIN_SERVER_URL cấu hình,
-                                                                ▼  không thì đệm Sheet/Drive
-                                                        Máy chủ chính (lan_server.py + core.py, SQLite)
+Xã/phường  ──►  GitHub Pages (docs/index.html — form thật, không còn iframe)
+                 link cố định: cdc-hp.github.io/bcbtn
+                        │ 1. thử POST thẳng /queue/submit-xa (CORS, khoá public_submit_key)
+                        ▼    — nếu lỗi mạng/hết giờ (8s) mới rơi xuống bước 2
+                 Máy chủ chính (webapp/, FastAPI, SQLite) ◄──────────────────────┐
+                        ▲                                                       │
+                        │ 2. (dự phòng) POST tới Google Apps Script (Code.gs)   │ chuyển tiếp
+                        │    action="submit" — chuyển tiếp thẳng nếu             │ thẳng nếu
+                        │    MAIN_SERVER_URL cấu hình, không thì đệm Sheet/Drive │ MAIN_SERVER_URL
+                        └────────────────────────────────────────────────────────┘ cấu hình
                                                                 │
                           Máy trạm quản trị (remote_core.py) ◄──┤ đăng nhập /cdc/login,
                           — tài khoản riêng từng người            tài khoản trong cdc_accounts
@@ -38,12 +44,52 @@ Xã/phường  ──►  GitHub Pages (docs/index.html, iframe)  ──►  Goo
 - `core.py` là **lõi nghiệp vụ** dùng chung cho cả desktop (LAN) và Web — mọi tầng khác (Web
   API, GAS) chỉ bọc thêm quanh các hàm có sẵn (`import_excel`, `find_duplicate_groups`,
   `merge_duplicate_records`, `export_rows`...), không viết lại logic import/dedup/export.
-- Toàn bộ AJAX của trang nộp báo cáo nằm **trong `doGet` của `Code.gs`** (cùng origin
-  script.google.com), GitHub Pages chỉ là khung `<iframe>` — tránh vướng CORS.
-- `docs/config.js` chứa `GAS_URL` hiện tại. Chỉ cần sửa khi tạo **deployment GAS mới** (đổi
-  ID); nếu chỉ "New version" trên deployment cũ thì URL không đổi, không cần sửa gì ở đây.
+- `docs/index.html` là **form nộp báo cáo thật** (HTML/CSS/JS tĩnh, không còn iframe nhúng
+  trang Apps Script) — xem mục "Web nộp báo cáo trực tiếp từ GitHub Pages" bên dưới.
+- `docs/config.js` chứa `GAS_URL` (đường dự phòng) và `MAIN_SERVER_URL` (đường ưu tiên, để trống
+  nếu máy chủ chính chưa mở ra Internet). Chỉ cần sửa `GAS_URL` khi tạo **deployment GAS mới**
+  (đổi ID); nếu chỉ "New version" trên deployment cũ thì URL không đổi, không cần sửa gì ở đây.
 - `gas_deploy/` (bị `.gitignore`) là thư mục làm việc với `clasp` để đẩy `Code.gs` lên project
   GAS thật (`scriptId` trong `gas_deploy/.clasp.json`) — không commit vào git.
+
+### Web nộp báo cáo trực tiếp từ GitHub Pages
+
+Trước đây `docs/index.html` chỉ là khung `<iframe>` nhúng thẳng trang HTML do `Code.gs: doGet`
+tự phục vụ (cùng origin script.google.com, tránh vướng CORS) — mọi request nộp báo cáo đều đi
+qua Apps Script trước, kể cả khi máy chủ chính đang online. Nay `docs/index.html` là **trang
+tĩnh độc lập** (form/JS thật, không còn iframe), tự quyết định gọi thẳng máy chủ chính trước:
+
+- **Ưu tiên gọi thẳng** `POST {MAIN_SERVER_URL}/queue/submit-xa` (CORS, `webapp/main.py` chỉ mở
+  cho đúng origin `https://cdc-hp.github.io`, xem `PUBLIC_FRONTEND_ORIGIN`) — xác thực bằng
+  header `X-GSBTN-Password` so khớp `public_submit_key` (`/cdc/cau-hinh`), **KHÁC** `gas_api_key`
+  vì khoá này bị lộ ra trình duyệt công khai của mọi xã (gõ vào ô "Khóa nộp báo cáo" mỗi lần
+  nộp) — không còn là bí mật server-to-server. CDC nên đặt `public_submit_key` TRÙNG
+  `SHARED_KEY` bên Apps Script để xã chỉ cần nhớ một khoá cho cả 2 đường nộp. Bỏ trống
+  `public_submit_key` hoặc `MAIN_SERVER_URL` = tắt hẳn đường gọi thẳng, xã luôn nộp qua Apps
+  Script như trước (không có gì thay đổi hành vi cho tới khi CDC chủ động bật).
+  `webapp/routers/submission_api.py: submit_xa` tự kiểm tra lại xã (`core.OFFICIAL_COMMUNES`),
+  định dạng/không được ở tương lai của tuần báo cáo, và chữ ký file `.xlsx` (`PK\x03\x04`) —
+  những điều `Code.gs` từng làm hộ trước khi chuyển tiếp, nay phải tự làm vì trình duyệt gọi
+  thẳng, không còn qua Apps Script chặn giữa nữa.
+- **Rơi xuống Apps Script CHỈ khi lỗi mạng/hết thời gian chờ** (8 giây) khi gọi thẳng — một phản
+  hồi thật từ máy chủ chính (kể cả lỗi nghiệp vụ như sai khoá/xã không hợp lệ) được hiển thị
+  thẳng cho xã, không âm thầm rơi xuống Apps Script (giống hệt logic
+  `Code.gs: tryForwardToMainServer` vốn đã áp dụng nguyên tắc này ở chặng kế tiếp).
+  `docs/index.html: trySubmitGas` gửi y hệt request cũ (`action:"submit"`, không đặt
+  `Content-Type` tường minh để tránh preflight OPTIONS mà Apps Script không xử lý được) — phía
+  `Code.gs` **không đổi gì**, vẫn hoạt động nếu ai đó mở thẳng URL Apps Script.
+- **Giữ đúng tab "Tình hình nộp"** (thực chất là dòng cảnh báo "Chưa nộp báo cáo các tuần" trên
+  form): khi nộp thẳng thành công, `docs/index.html: logStatusToGas` gọi thêm (cố gắng, không
+  chặn UI) action mới `log_status` trên `Code.gs` để ghi 1 dòng vào Sheet `HangDoiPhu` — không
+  kèm file — để Sheet này vẫn là nguồn dữ liệu đầy đủ cho `listStatus`, không bị thiếu các lượt
+  nộp thẳng bỏ qua Apps Script hoàn toàn.
+- **Máy chủ chính lấy dữ liệu buffer ngược lại từ Apps Script** vẫn dùng cơ chế có sẵn, không
+  đổi gì: `secondary_sync.pull_secondary_queue` gọi `action:"list_pending"`/`"mark_synced"` trên
+  `Code.gs` — đây chính là "API đầu ra" của máy chủ phụ mà máy chủ chính dùng để đồng bộ bù, đã
+  có từ trước (xem mục "Máy chủ phụ Google Apps Script — vận hành" bên dưới).
+- 3 nơi lặp lại danh mục 114 xã/phường/đặc khu (`core.OFFICIAL_COMMUNES`, `Code.gs: COMMUNES`,
+  `docs/index.html: COMMUNES`) — JS tĩnh/Apps Script/Python không chia sẻ được nguồn chung, phải
+  sửa cả 3 nơi nếu danh mục hành chính thay đổi (xem TASKS.md mục "communes chuẩn hoá").
 
 ### File chính
 
@@ -278,7 +324,14 @@ CSDL chính luôn là SQLite trên máy chủ chính.
 - **Xác thực**: khóa `SHARED_KEY` dùng chung cho mọi xã trên GAS (khác với
   `commune_accounts`/`cdc_accounts` ở máy chủ chính — có chủ đích, GAS không tự nhiên hỗ trợ
   tốt việc đồng bộ danh sách tài khoản từ máy chủ chính sang). Chặng GAS → máy chủ chính dùng
-  riêng `MAIN_SERVER_PASSWORD`, độc lập với `SHARED_KEY`.
+  riêng `MAIN_SERVER_PASSWORD`, độc lập với `SHARED_KEY`. Từ khi có đường nộp thẳng
+  `POST /queue/submit-xa` (xem mục "Web nộp báo cáo trực tiếp từ GitHub Pages" phía trên), còn
+  thêm khóa thứ 3 cùng vai trò `public_submit_key` phía máy chủ chính — CDC nên đặt cả 3 khóa
+  (`SHARED_KEY`, `MAIN_SERVER_PASSWORD`/`gas_api_key`, `public_submit_key`) độc lập, KHÔNG dùng
+  chung 1 giá trị giữa `gas_api_key` và `public_submit_key` (2 khóa khác trust boundary — một cái
+  chỉ 2 máy chủ biết, một cái mọi xã đều gõ vào form công khai); riêng `SHARED_KEY` và
+  `public_submit_key` NÊN trùng nhau vì cả 2 đều là "khóa xã tự gõ vào form" — trùng để xã chỉ
+  cần nhớ một khóa duy nhất.
 - **`SHARED_KEY` không nằm trong bất kỳ file nào trong repo** (chủ đích thiết kế, không đồng
   bộ qua Git) — chỉ tồn tại trong Script Properties của project GAS đang chạy thật. Xem/đổi:
   `script.google.com` → đăng nhập đúng tài khoản Google đã tạo project → **Project Settings**
