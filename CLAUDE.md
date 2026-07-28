@@ -429,6 +429,56 @@ trước khi phản hồi bị rớt. Không phải lỗi ứng dụng, không m
 hết hẳn: vào `dash.cloudflare.com` → chọn domain `cdc-hp.io.vn` → tab **Network** → tắt
 **"HTTP/3 (with QUIC)"** — Chrome khi đó chỉ dùng HTTP/2, không còn thương lượng QUIC nữa.
 
+### Máy chủ dự phòng — cài đặt & vận hành
+
+Failover **thủ công** (super-admin bấm nút, không tự động dò máy chính chết — tránh split-brain
+khi chỉ mất mạng tạm thời). Module `ha_sync.py` + router `webapp/routers/ha.py` + middleware
+chặn ghi trong `webapp/main.py`. **KHÔNG liên quan** "máy chủ phụ" Google Apps Script (mục trên)
+— đó là đệm nộp báo cáo, đây là 1 bản cài **CÙNG ứng dụng này** trên máy khác để dự phòng.
+
+**Cài đặt lần đầu:**
+1. Cài bản Setup giống hệt máy chính lên máy thứ 2 (`CDC-GiamSatDichBenh-Server-Setup-vX.Y.Z.exe`).
+2. Cài **cùng token** Cloudflare Tunnel lên máy đó (dashboard Tunnel → nút "Add a replica") — để
+   Cloudflare tự cân bằng tải/định tuyến giữa các máy đang kết nối.
+3. Ở `/cdc/cau-hinh` của CẢ HAI máy: đặt `peer_server_url` = địa chỉ LAN của máy kia (vd
+   `http://192.168.1.20:8765`), `peer_shared_key` **đặt TRÙNG giá trị ở cả 2 máy** (khoá riêng
+   cho gọi máy-tới-máy, không dùng chung với `gas_api_key`/`public_submit_key`).
+4. Ở máy thứ 2: bấm "Đặt máy này làm máy dự phòng" ngay (mặc định mọi bản cài mới đều là
+   `server_role=primary`) — máy dự phòng sẽ tự kéo snapshot CSDL định kỳ (mặc định 15 phút,
+   chỉnh ở `standby_sync_interval_minutes`) từ máy chính qua `GET /noi-bo/ha/snapshot`.
+
+**Khi máy chính hỏng/tắt:** đăng nhập vào máy dự phòng → `/cdc/cau-hinh` → bấm "Đặt máy này làm
+MÁY CHÍNH". Trước khi đổi vai trò, app tự **kéo bù 1 lần cuối** từ máy kia (trong lúc còn là dự
+phòng — cố lấy dữ liệu mới nhất có thể, kể cả khi máy kia không phản hồi được thì bỏ qua lỗi này,
+KHÔNG chặn việc thăng cấp), rồi mới đổi `server_role=primary`, rồi gọi báo máy cũ hạ cấp (`POST
+/noi-bo/ha/demote`) nếu máy đó còn kết nối được; **nếu gọi thất bại (hiện cảnh báo đỏ)**, máy cũ
+vẫn ghi `server_role=primary` trên đĩa — xem cơ chế tự vệ lúc khởi động ngay dưới đây để biết
+chuyện gì xảy ra khi máy đó có điện/bật lại.
+
+**Máy chính cũ mất điện rồi bật lại — tự vệ lúc khởi động:** `ha_sync.resolve_startup_conflict`
+chạy đúng 1 lần lúc dịch vụ khởi động (`webapp/main.py::lifespan`, TRƯỚC khi nhận request) — nếu
+máy này đang ghi `server_role=primary` trên đĩa, nó hỏi máy kia (`GET /noi-bo/ha/vai-tro`) xem
+máy kia có đang CŨNG là chính không; nếu có, tự hạ cấp mình xuống dự phòng ngay (máy kia đáng tin
+hơn vì vai trò đó phản ánh 1 hành động thật gần đây của super-admin, còn cấu hình "primary" trên
+máy vừa bật lại chỉ là trạng thái cũ từ trước khi mất điện). Đây KHÔNG phải health-check định kỳ
+— chỉ chạy 1 lần lúc khởi động nên không tạo rủi ro tự động chuyển đổi qua lại (flapping) khi mất
+mạng tạm thời. Nếu không hỏi được máy kia (mất mạng, máy kia cũng chưa lên...), giữ nguyên vai
+trò cũ, không đổi gì — an toàn về phía "im lặng bỏ qua". Trường hợp cả 2 máy cùng bật lại đồng
+thời và cùng hỏi nhau cùng lúc, có thể **cả 2 cùng tự hạ cấp** (tạm thời không còn máy nào là
+chính) — an toàn hơn dual-primary, chỉ cần super-admin vào 1 trong 2 máy bấm lại "Đặt máy này làm
+máy chính".
+
+**Giới hạn đã biết (thiết kế có chủ đích, không phải lỗi):**
+- Đồng bộ là kéo định kỳ — dữ liệu ghi vào máy chính giữa 2 lần đồng bộ gần nhất trước khi máy đó
+  hỏng có thể chưa kịp có trên máy dự phòng tại thời điểm thăng cấp.
+- Khi `server_role=standby`, middleware trong `main.py` chặn MỌI request ghi dữ liệu (POST/PUT/
+  PATCH/DELETE) trừ đăng nhập/`/cdc/cau-hinh`/`/cdc/vai-tro-may-chu`/`/noi-bo/ha/` — kể cả xã nộp
+  báo cáo (`/queue/submit-xa`) nếu Cloudflare lỡ định tuyến trúng máy dự phòng, xã sẽ thấy lỗi rõ
+  ràng thay vì mất dữ liệu âm thầm.
+- Cơ chế tự vệ lúc khởi động chỉ xử lý đúng lúc khởi động dịch vụ — nếu 2 máy cùng "primary" phát
+  sinh theo cách khác (vd chỉnh tay cấu hình) mà không có máy nào khởi động lại, sẽ không tự phát
+  hiện; vẫn cần super-admin chủ động kiểm tra khi nghi ngờ.
+
 ## Build & test
 
 ```bat

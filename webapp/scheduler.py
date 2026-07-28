@@ -18,9 +18,11 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 import core
 import deployment_config
+import ha_sync
 import secondary_sync
 
 _JOB_ID = "secondary_sync"
+_HA_JOB_ID = "ha_standby_pull"
 
 _run_lock = threading.Lock()
 _state_lock = threading.Lock()
@@ -93,9 +95,17 @@ def start(db_path: str | None = None) -> None:
         return
     config = deployment_config.load_config()
     interval = max(5, min(180, int(config.secondary_sync_interval_minutes or 20)))
+    ha_interval = max(5, min(180, int(config.standby_sync_interval_minutes or 15)))
     _scheduler = BackgroundScheduler(daemon=True)
     _scheduler.add_job(
         run_sync_once, "interval", minutes=interval, id=_JOB_ID,
+        max_instances=1, coalesce=True, kwargs={"db_path": db_path},
+    )
+    # Job này tự no-op (xem ha_sync.run_standby_pull_once) trừ khi máy hiện đang ở vai trò
+    # "standby" — an toàn đăng ký trên MỌI máy (kể cả đang là chính) mà không cần gắn/gỡ job
+    # động theo vai trò, giống lý do run_sync_once tự no-op khi chưa cấu hình máy chủ phụ.
+    _scheduler.add_job(
+        ha_sync.run_standby_pull_once, "interval", minutes=ha_interval, id=_HA_JOB_ID,
         max_instances=1, coalesce=True, kwargs={"db_path": db_path},
     )
     _scheduler.start()

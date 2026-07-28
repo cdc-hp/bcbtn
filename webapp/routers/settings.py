@@ -21,6 +21,7 @@ from fastapi.templating import Jinja2Templates
 import backup_manager
 import core
 import deployment_config
+import ha_sync
 import service_windows
 import update_manager
 from webapp import TEMPLATES_DIR, auth
@@ -57,7 +58,7 @@ def view(
     response = templates.TemplateResponse(request, "settings.html", {
         "user": user, "csrf_token": token, "active": "cau-hinh",
         "config": config, "backup_destination": backup_destination,
-        "service_status": service_status,
+        "service_status": service_status, "ha_status": ha_sync.get_status(),
         "update_status": web_update.get_public_status(),
         "auto_update_supported": web_update.auto_install_supported(service_status),
         "update_releases_url": update_manager.GITHUB_RELEASES_PAGE,
@@ -74,6 +75,8 @@ async def save(
     gas_api_key: str = Form(""), public_submit_key: str = Form(""),
     secondary_webapp_url: str = Form(""), secondary_shared_key: str = Form(""),
     secondary_sync_interval_minutes: int = Form(20), backup_destination: str = Form(""),
+    peer_server_url: str = Form(""), peer_shared_key: str = Form(""),
+    standby_sync_interval_minutes: int = Form(15),
     user: auth.CurrentUser = Depends(require_role(*CAN_CONFIGURE_ROLES)),
     settings: WebAppSettings = Depends(get_settings_dep),
 ):
@@ -90,6 +93,9 @@ async def save(
     config.secondary_webapp_url = secondary_webapp_url.strip()
     config.secondary_shared_key = secondary_shared_key or config.secondary_shared_key
     config.secondary_sync_interval_minutes = secondary_sync_interval_minutes
+    config.peer_server_url = peer_server_url.strip()
+    config.peer_shared_key = peer_shared_key or config.peer_shared_key
+    config.standby_sync_interval_minutes = standby_sync_interval_minutes
     deployment_config.save_config(config)
 
     policy = backup_manager.load_policy()

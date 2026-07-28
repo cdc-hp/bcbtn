@@ -46,6 +46,19 @@ class DeploymentConfig:
     # Giữ máy không vào chế độ ngủ trong lúc server đang chạy (không giữ màn hình sáng) — dùng
     # bởi service_tray.py khi chạy chế độ thủ công (thu vào khay hệ thống thay vì dịch vụ Windows).
     prevent_sleep: bool = False
+    # Máy chủ dự phòng (failover thủ công, xem ha_sync.py) — KHÔNG liên quan "máy chủ phụ" Google
+    # Apps Script ở trên (secondary_*), đó là đệm nộp báo cáo, còn đây là 1 bản cài Web App khác
+    # của CHÍNH ứng dụng này, cùng public qua Cloudflare Tunnel Replica. "primary" = đang phục vụ
+    # ghi dữ liệu thật; "standby" = chỉ đọc, tự kéo bản sao CSDL định kỳ từ máy chính.
+    server_role: str = "primary"
+    # Địa chỉ LAN của máy kia (vd "http://192.168.1.20:8765") — dùng cả 2 chiều: máy dự phòng gọi
+    # sang để kéo snapshot, máy vừa được thăng cấp gọi sang để báo máy kia tự hạ cấp.
+    peer_server_url: str = ""
+    # Khoá riêng cho gọi máy-tới-máy (kéo snapshot CSDL + báo hạ cấp) — TÁCH RIÊNG khỏi
+    # gas_api_key/public_submit_key/secondary_shared_key vì khác trust boundary (khoá này cho
+    # phép đọc toàn bộ CSDL qua /noi-bo/ha/snapshot, không phải chỉ nộp 1 file như các khoá kia).
+    peer_shared_key: str = ""
+    standby_sync_interval_minutes: int = 15
 
 
 def load_config() -> DeploymentConfig:
@@ -71,12 +84,20 @@ def load_config() -> DeploymentConfig:
         web_token_secret=str(raw.get("web_token_secret", "") or ""),
         public_url=str(raw.get("public_url", "") or "").strip().rstrip("/"),
         prevent_sleep=bool(raw.get("prevent_sleep", False)),
+        server_role=str(raw.get("server_role", "primary") or "primary").strip() or "primary",
+        peer_server_url=str(raw.get("peer_server_url", "") or "").strip().rstrip("/"),
+        peer_shared_key=str(raw.get("peer_shared_key", "") or ""),
+        standby_sync_interval_minutes=max(5, min(180, int(raw.get("standby_sync_interval_minutes", 15) or 15))),
     )
 
 
 def save_config(config: DeploymentConfig) -> Path:
     config.server_port = max(1, min(65535, int(config.server_port)))
     config.secondary_sync_interval_minutes = max(5, min(180, int(config.secondary_sync_interval_minutes)))
+    if config.server_role not in ("primary", "standby"):
+        config.server_role = "primary"
+    config.peer_server_url = config.peer_server_url.strip().rstrip("/")
+    config.standby_sync_interval_minutes = max(5, min(180, int(config.standby_sync_interval_minutes)))
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     temp = CONFIG_PATH.with_suffix(".tmp")
     temp.write_text(json.dumps(asdict(config), ensure_ascii=False, indent=2), encoding="utf-8")

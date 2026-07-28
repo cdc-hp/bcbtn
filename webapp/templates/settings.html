@@ -150,7 +150,75 @@
       </div>
     </section>
 
+    <section class="cdc-card cdc-admin-card">
+      <div class="fw-semibold mb-2">Máy chủ dự phòng (failover thủ công, Cloudflare Tunnel Replica)</div>
+      <div class="text-secondary small mb-2">
+        Cài thêm bản Web App này trên máy khác, cùng token Cloudflare Tunnel (Add a replica) để
+        cùng public ra tên miền — máy đó tự kéo bản sao CSDL định kỳ từ máy chính. KHÁC "Máy chủ
+        phụ (GAS/Sheet/Drive)" ở trên — đó là đệm nộp báo cáo, còn đây là 1 bản cài CÙNG ứng dụng
+        này để dự phòng.
+      </div>
+      <div class="row g-3 cdc-form-grid-md">
+        <div class="col-12">
+          <label class="form-label small mb-0">Địa chỉ LAN máy kia (vd. http://192.168.1.20:8765)</label>
+          <input type="text" name="peer_server_url" value="{{ config.peer_server_url }}" class="form-control form-control-sm" placeholder="http://192.168.1.20:8765">
+        </div>
+        <div class="col-6">
+          <label class="form-label small mb-0">Khoá máy-tới-máy</label>
+          <input type="password" name="peer_shared_key" value="" placeholder="{% if config.peer_shared_key %}●●●●●●●● (để trống nếu giữ nguyên){% else %}Chưa cấu hình{% endif %}" class="form-control form-control-sm">
+          <div class="form-text small">Đặt TRÙNG giá trị ở cả 2 máy.</div>
+        </div>
+        <div class="col-6">
+          <label class="form-label small mb-0">Chu kỳ đồng bộ khi là dự phòng (phút)</label>
+          <input type="number" name="standby_sync_interval_minutes" min="5" max="180" value="{{ config.standby_sync_interval_minutes }}" class="form-control form-control-sm">
+        </div>
+      </div>
+    </section>
+
     <button type="submit" class="btn btn-sm btn-primary">Lưu cấu hình</button>
   </form>
+
+  <section class="cdc-card cdc-admin-card">
+    <div class="fw-semibold mb-2">
+      Vai trò máy chủ hiện tại:
+      {% if config.server_role == "primary" %}
+        <span class="badge bg-success">Chính</span>
+      {% else %}
+        <span class="badge bg-warning text-dark">Dự phòng</span>
+      {% endif %}
+    </div>
+
+    {% if config.server_role == "standby" %}
+      <div class="small text-secondary mb-2">
+        Máy này KHÔNG nhận thay đổi dữ liệu (nộp báo cáo, sửa/xoá ca bệnh...) cho tới khi được đặt
+        làm máy chính.
+        {% if ha_status.configured %}
+          {% if ha_status.last_success_at %}Lần đồng bộ gần nhất: {{ ha_status.last_success_at }}.{% else %}Chưa đồng bộ lần nào.{% endif %}
+          {% if ha_status.last_error %}<span class="text-danger">Lỗi gần nhất: {{ ha_status.last_error }}</span>{% endif %}
+        {% else %}
+          Chưa cấu hình đủ địa chỉ/khoá máy kia ở trên — chưa thể tự đồng bộ.
+        {% endif %}
+      </div>
+      <form method="post" action="/cdc/vai-tro-may-chu/dong-bo-ngay" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn-sm btn-outline-secondary">Đồng bộ ngay</button>
+      </form>
+      <form method="post" action="/cdc/vai-tro-may-chu/thang-cap" class="d-inline"
+            onsubmit="return confirm('Đặt máy này làm MÁY CHÍNH? Máy chính cũ sẽ được báo tự chuyển sang dự phòng nếu còn kết nối được.');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn-sm btn-success">Đặt máy này làm MÁY CHÍNH</button>
+      </form>
+    {% else %}
+      <div class="small text-secondary mb-2">
+        Chỉ đặt máy này làm dự phòng khi máy khác đã sẵn sàng làm máy chính — máy này sẽ ngừng
+        nhận thay đổi dữ liệu ngay lập tức.
+      </div>
+      <form method="post" action="/cdc/vai-tro-may-chu/xuong-cap"
+            onsubmit="return confirm('Đặt máy này làm máy DỰ PHÒNG? Máy sẽ ngừng nhận thay đổi dữ liệu ngay lập tức.');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn-sm btn-outline-warning">Đặt máy này làm máy dự phòng</button>
+      </form>
+    {% endif %}
+  </section>
 </div>
 {% endblock %}
