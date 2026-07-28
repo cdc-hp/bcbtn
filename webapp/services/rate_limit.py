@@ -33,3 +33,10 @@ class SlidingWindowRateLimiter:
 
 
 queue_submit_limiter = SlidingWindowRateLimiter()
+
+# /noi-bo/ha/* (webapp/routers/ha.py) giờ công khai ra Internet (mỗi máy dùng 1 tên miền Cloudflare
+# Tunnel riêng cho gọi máy-tới-máy, xem CLAUDE.md mục "Máy chủ dự phòng") — khác giả định ban đầu
+# là chỉ LAN nội bộ, nên cần giới hạn tần suất chống dò `peer_shared_key`. Hào phóng hơn
+# queue_submit_limiter vì máy kia gọi định kỳ hợp lệ (kéo snapshot mỗi standby_sync_interval_minutes
+# + thỉnh thoảng thăng/hạ cấp), không phải request công khai từ nhiều xã khác nhau.
+ha_peer_limiter = SlidingWindowRateLimiter(limit=20, window_seconds=300)

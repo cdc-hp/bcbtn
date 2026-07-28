@@ -151,22 +151,30 @@
     </section>
 
     <section class="cdc-card cdc-admin-card">
-      <div class="fw-semibold mb-2">Máy chủ dự phòng (failover thủ công, Cloudflare Tunnel Replica)</div>
+      <div class="fw-semibold mb-2">Máy chủ dự phòng (failover thủ công, đặt Ở NƠI KHÁC máy chính)</div>
       <div class="text-secondary small mb-2">
-        Cài thêm bản Web App này trên máy khác, cùng token Cloudflare Tunnel (Add a replica) để
-        cùng public ra tên miền — máy đó tự kéo bản sao CSDL định kỳ từ máy chính. KHÁC "Máy chủ
-        phụ (GAS/Sheet/Drive)" ở trên — đó là đệm nộp báo cáo, còn đây là 1 bản cài CÙNG ứng dụng
-        này để dự phòng.
+        Cài thêm bản Web App này trên máy khác — máy đó tự kéo bản sao CSDL định kỳ từ máy chính.
+        <strong>Nên đặt máy dự phòng ở nơi khác điện/mạng với máy chính</strong> (vd nhà admin, chi
+        nhánh khác) — đặt cùng văn phòng/LAN thì mất điện/mạng tại chỗ sẽ làm hỏng CẢ HAI cùng lúc,
+        không còn ý nghĩa dự phòng. KHÁC "Máy chủ phụ (GAS/Sheet/Drive)" ở trên — đó là đệm nộp báo
+        cáo, còn đây là 1 bản cài CÙNG ứng dụng này để dự phòng.
       </div>
       <div class="row g-3 cdc-form-grid-md">
         <div class="col-12">
-          <label class="form-label small mb-0">Địa chỉ LAN máy kia (vd. http://192.168.1.20:8765)</label>
-          <input type="text" name="peer_server_url" value="{{ config.peer_server_url }}" class="form-control form-control-sm" placeholder="http://192.168.1.20:8765">
+          <label class="form-label small mb-0">Tên miền Cloudflare Tunnel RIÊNG của máy kia (vd. https://may2.cdc-hp.io.vn)</label>
+          <input type="text" name="peer_server_url" value="{{ config.peer_server_url }}" class="form-control form-control-sm" placeholder="https://may2.cdc-hp.io.vn">
+          <div class="form-text small">
+            KHÔNG dùng IP LAN hay tên miền dùng chung <code>cdc-hp.io.vn</code> — 2 máy ở 2 nơi
+            khác nhau chỉ nói chuyện được qua Internet, và tên miền dùng chung không định tuyến
+            được tới đúng 1 máy cụ thể (Cloudflare Tunnel Replica cân bằng tải giữa các máy). Mỗi
+            máy cần cài thêm 1 Cloudflare Tunnel + tên miền RIÊNG chỉ dùng để 2 máy gọi nhau — xem
+            CLAUDE.md mục "Máy chủ dự phòng".
+          </div>
         </div>
         <div class="col-6">
           <label class="form-label small mb-0">Khoá máy-tới-máy</label>
           <input type="password" name="peer_shared_key" value="" placeholder="{% if config.peer_shared_key %}●●●●●●●● (để trống nếu giữ nguyên){% else %}Chưa cấu hình{% endif %}" class="form-control form-control-sm">
-          <div class="form-text small">Đặt TRÙNG giá trị ở cả 2 máy.</div>
+          <div class="form-text small">Đặt TRÙNG giá trị ở cả 2 máy — đặt khoá dài/ngẫu nhiên vì đường gọi này công khai ra Internet.</div>
         </div>
         <div class="col-6">
           <label class="form-label small mb-0">Chu kỳ đồng bộ khi là dự phòng (phút)</label>

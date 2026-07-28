@@ -436,14 +436,37 @@ khi chỉ mất mạng tạm thời). Module `ha_sync.py` + router `webapp/route
 chặn ghi trong `webapp/main.py`. **KHÔNG liên quan** "máy chủ phụ" Google Apps Script (mục trên)
 — đó là đệm nộp báo cáo, đây là 1 bản cài **CÙNG ứng dụng này** trên máy khác để dự phòng.
 
+**Máy dự phòng PHẢI đặt ở nơi khác điện/mạng với máy chính** (vd nhà admin, chi nhánh CDC khác)
+— cạm bẫy đã gặp lúc thiết kế: đặt cùng văn phòng/LAN với máy chính thì mất điện/Internet tại chỗ
+sẽ làm hỏng **CẢ HAI máy cùng lúc**, không còn bảo vệ được đúng loại sự cố nghiêm trọng nhất. Vì 2
+máy ở 2 nơi khác nhau, chúng chỉ nói chuyện được qua Internet — KHÔNG dùng IP LAN.
+
 **Cài đặt lần đầu:**
 1. Cài bản Setup giống hệt máy chính lên máy thứ 2 (`CDC-GiamSatDichBenh-Server-Setup-vX.Y.Z.exe`).
-2. Cài **cùng token** Cloudflare Tunnel lên máy đó (dashboard Tunnel → nút "Add a replica") — để
-   Cloudflare tự cân bằng tải/định tuyến giữa các máy đang kết nối.
-3. Ở `/cdc/cau-hinh` của CẢ HAI máy: đặt `peer_server_url` = địa chỉ LAN của máy kia (vd
-   `http://192.168.1.20:8765`), `peer_shared_key` **đặt TRÙNG giá trị ở cả 2 máy** (khoá riêng
-   cho gọi máy-tới-máy, không dùng chung với `gas_api_key`/`public_submit_key`).
-4. Ở máy thứ 2: bấm "Đặt máy này làm máy dự phòng" ngay (mặc định mọi bản cài mới đều là
+2. Cài **cùng token** Cloudflare Tunnel (tunnel dùng chung cho `cdc-hp.io.vn`) lên máy đó
+   (dashboard Tunnel → nút "Add a replica") — để Cloudflare tự định tuyến traffic công khai tới
+   máy nào đang thật sự phục vụ (đang là chính).
+3. **Cần thêm 1 Cloudflare Tunnel + tên miền RIÊNG cho TỪNG máy**, chỉ dùng để 2 máy gọi nhau
+   (kéo snapshot/báo hạ cấp/hỏi vai trò — `/noi-bo/ha/*`) — KHÔNG dùng chung tunnel/tên miền
+   `cdc-hp.io.vn` ở bước 2, vì Tunnel Replica cân bằng tải giữa các máy, không định tuyến được
+   TỚI ĐÚNG 1 máy cụ thể. Trên dashboard Cloudflare: tạo thêm 1 Tunnel mới (`cloudflared tunnel
+   create ...` hoặc qua dashboard) cho từng máy, đặt Public Hostname riêng (vd `may1.cdc-hp.io.vn`
+   cho máy chính, `may2.cdc-hp.io.vn` cho máy dự phòng) → `localhost:8765` (cùng cổng, cùng app).
+   Máy sẽ chạy 2 tiến trình `cloudflared` song song (2 token khác nhau) — vì
+   `cloudflared.exe service install` chỉ hỗ trợ 1 dịch vụ tên "Cloudflared" mặc định, tunnel thứ 2
+   cần đăng ký dịch vụ Windows với TÊN KHÁC bằng `sc.exe` (PowerShell, quyền Administrator):
+   ```
+   sc create CloudflaredHA binPath= "\"C:\Program Files (x86)\cloudflared\cloudflared.exe\" tunnel run --token <TOKEN_TUNNEL_RIENG>" start= auto
+   sc start CloudflaredHA
+   ```
+   (Lưu ý `sc create` bắt buộc có dấu cách ngay sau `binPath=`/`start=`.)
+4. Ở `/cdc/cau-hinh` của CẢ HAI máy: đặt `peer_server_url` = tên miền Cloudflare Tunnel RIÊNG của
+   máy KIA (vd máy chính đặt `https://may2.cdc-hp.io.vn`, máy dự phòng đặt `https://may1.cdc-hp.io.vn`
+   — **không phải IP, không phải `cdc-hp.io.vn`**), `peer_shared_key` **đặt TRÙNG giá trị ở cả 2
+   máy, dùng khoá dài/ngẫu nhiên** (khoá riêng cho gọi máy-tới-máy, không dùng chung với
+   `gas_api_key`/`public_submit_key` — và vì endpoint này giờ công khai ra Internet nên khoá yếu
+   có thể bị dò, dù đã có giới hạn tần suất `ha_peer_limiter` làm chậm việc dò).
+5. Ở máy thứ 2: bấm "Đặt máy này làm máy dự phòng" ngay (mặc định mọi bản cài mới đều là
    `server_role=primary`) — máy dự phòng sẽ tự kéo snapshot CSDL định kỳ (mặc định 15 phút,
    chỉnh ở `standby_sync_interval_minutes`) từ máy chính qua `GET /noi-bo/ha/snapshot`.
 
@@ -478,6 +501,11 @@ máy chính".
 - Cơ chế tự vệ lúc khởi động chỉ xử lý đúng lúc khởi động dịch vụ — nếu 2 máy cùng "primary" phát
   sinh theo cách khác (vd chỉnh tay cấu hình) mà không có máy nào khởi động lại, sẽ không tự phát
   hiện; vẫn cần super-admin chủ động kiểm tra khi nghi ngờ.
+- `/noi-bo/ha/*` công khai ra Internet (qua tên miền Cloudflare Tunnel riêng của từng máy, không
+  còn chỉ LAN nội bộ như bản thiết kế đầu tiên) — bảo vệ bằng khoá `peer_shared_key` +
+  `ha_peer_limiter` (20 lần/5 phút mỗi IP, `webapp/services/rate_limit.py`), nhưng an toàn thật sự
+  vẫn phụ thuộc khoá đủ dài/ngẫu nhiên; `GET /noi-bo/ha/snapshot` trả về TOÀN BỘ CSDL (dữ liệu ca
+  bệnh thật) nếu đúng khoá.
 
 ## Build & test
 

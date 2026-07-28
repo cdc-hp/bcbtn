@@ -26,8 +26,9 @@ def client(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(backup_manager, "CONFIG_PATH", tmp_path / "backup_policy.json")
     monkeypatch.setattr(backup_manager, "LOCAL_BACKUP_DIR", tmp_path / "backups")
 
-    from webapp.services.rate_limit import queue_submit_limiter
+    from webapp.services.rate_limit import ha_peer_limiter, queue_submit_limiter
     queue_submit_limiter._hits.clear()
+    ha_peer_limiter._hits.clear()
 
     import webapp.main as webapp_main
     return TestClient(webapp_main.app)
@@ -212,3 +213,14 @@ def test_role_status_reports_current_role(client: TestClient):
     resp = client.get("/noi-bo/ha/vai-tro", headers={"X-CDC-Peer-Key": "khoa-dung"})
     assert resp.status_code == 200
     assert resp.json()["server_role"] == "standby"
+
+
+def test_noi_bo_ha_endpoints_are_rate_limited(client: TestClient):
+    """`/noi-bo/ha/*` công khai ra Internet (mỗi máy 1 tên miền Cloudflare Tunnel riêng, xem
+    CLAUDE.md mục "Máy chủ dự phòng") nên cần giới hạn tần suất chống dò `peer_shared_key`."""
+    _set_role("primary", peer_key="khoa-dung")
+    for _ in range(20):
+        resp = client.get("/noi-bo/ha/vai-tro", headers={"X-CDC-Peer-Key": "khoa-sai"})
+        assert resp.status_code == 401
+    resp = client.get("/noi-bo/ha/vai-tro", headers={"X-CDC-Peer-Key": "khoa-sai"})
+    assert resp.status_code == 429

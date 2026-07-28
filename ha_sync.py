@@ -1,7 +1,11 @@
 """Đồng bộ máy chủ dự phòng (failover thủ công) — KHÔNG liên quan "máy chủ phụ" Google Apps
 Script (``secondary_sync.py``, đệm nộp báo cáo khi máy chính offline). Đây là đồng bộ giữa 2 bản
-cài CÙNG ứng dụng này, cùng public qua Cloudflare Tunnel Replica (xem CLAUDE.md mục "Máy chủ dự
-phòng").
+cài CÙNG ứng dụng này, đặt Ở NƠI KHÁC nhau (khác điện/mạng — mới bảo vệ được đúng loại sự cố
+nghiêm trọng nhất: mất điện/Internet tại nơi đặt máy chính). Máy chính vẫn public qua Cloudflare
+Tunnel Replica dùng chung (``cdc-hp.io.vn``) như bình thường; riêng gọi máy-tới-máy (module này)
+đi qua tên miền Cloudflare Tunnel RIÊNG của TỪNG máy (mỗi máy 1 tunnel/tên miền phụ chỉ để 2 máy
+gọi nhau) — xem CLAUDE.md mục "Máy chủ dự phòng" để biết lý do không thể dùng IP LAN hay tên miền
+dùng chung cho việc này.
 
 Chiều đồng bộ: máy đang ở vai trò "standby" định kỳ KÉO một bản sao gần như đầy đủ CSDL từ máy
 đang ở vai trò "primary" (không đẩy ngược chiều nào — máy dự phòng không bao giờ là nguồn dữ
@@ -26,9 +30,12 @@ import backup_manager
 import core
 import deployment_config
 
-DEFAULT_PULL_TIMEOUT = 60
-DEFAULT_DEMOTE_TIMEOUT = 8
-DEFAULT_ROLE_CHECK_TIMEOUT = 5
+# Cả 3 mốc thời gian đều rộng rãi hơn mức cần cho LAN nội bộ vì giờ đi qua Internet thật (2 máy ở
+# 2 nơi khác nhau) — độ trễ/băng thông tải lên (đặc biệt lúc kéo snapshot CSDL, có thể vài chục MB)
+# qua đường Internet của máy chính (không phải LAN tốc độ cao) chậm và biến thiên hơn nhiều.
+DEFAULT_PULL_TIMEOUT = 180
+DEFAULT_DEMOTE_TIMEOUT = 15
+DEFAULT_ROLE_CHECK_TIMEOUT = 15
 PEER_KEY_HEADER = "X-CDC-Peer-Key"
 
 _run_lock = threading.Lock()

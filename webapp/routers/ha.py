@@ -1,7 +1,10 @@
 """Máy chủ dự phòng (failover thủ công) — xem CLAUDE.md mục "Máy chủ dự phòng" và `ha_sync.py`.
 
 `/noi-bo/ha/*`: gọi máy-tới-máy, xác thực bằng khoá `peer_shared_key` (header `X-CDC-Peer-Key`,
-KHÔNG qua session — giống mẫu `webapp/routers/submission_api.py`).
+KHÔNG qua session — giống mẫu `webapp/routers/submission_api.py`). Máy dự phòng đặt ở nơi khác
+(khác điện/mạng với máy chính, xem CLAUDE.md) nên các endpoint này công khai ra Internet qua tên
+miền Cloudflare Tunnel RIÊNG của từng máy (khác `cdc-hp.io.vn` dùng chung) — có giới hạn tần suất
+(`ha_peer_limiter`) chống dò khoá, ngoài xác thực bằng khoá.
 
 `/cdc/vai-tro-may-chu/*`: hành động của super-admin (session + CSRF), giống mẫu
 `webapp/routers/settings.py`."""
@@ -22,6 +25,8 @@ import ha_sync
 from webapp import auth
 from webapp.dependencies import ForbiddenError, get_settings_dep, require_role
 from webapp.config import WebAppSettings
+from webapp.services.http import client_ip
+from webapp.services.rate_limit import ha_peer_limiter
 
 router = APIRouter()
 
@@ -49,6 +54,8 @@ def _redirect(msg: str = "", err: str = "") -> RedirectResponse:
 
 @router.get("/noi-bo/ha/snapshot")
 def snapshot(request: Request, settings: WebAppSettings = Depends(get_settings_dep)):
+    if not ha_peer_limiter.allow(client_ip(request)):
+        return _error(429, "Gửi quá nhiều lần trong thời gian ngắn, thử lại sau vài phút.")
     if not settings.config.peer_shared_key:
         return _error(503, "Máy chủ chưa cấu hình khoá máy-tới-máy (peer_shared_key).")
     provided_key = request.headers.get("x-cdc-peer-key", "")
@@ -68,6 +75,8 @@ def snapshot(request: Request, settings: WebAppSettings = Depends(get_settings_d
 
 @router.post("/noi-bo/ha/demote")
 def demote(request: Request, settings: WebAppSettings = Depends(get_settings_dep)):
+    if not ha_peer_limiter.allow(client_ip(request)):
+        return _error(429, "Gửi quá nhiều lần trong thời gian ngắn, thử lại sau vài phút.")
     if not settings.config.peer_shared_key:
         return _error(503, "Máy chủ chưa cấu hình khoá máy-tới-máy (peer_shared_key).")
     provided_key = request.headers.get("x-cdc-peer-key", "")
@@ -85,6 +94,8 @@ def demote(request: Request, settings: WebAppSettings = Depends(get_settings_dep
 def role_status(request: Request, settings: WebAppSettings = Depends(get_settings_dep)):
     """Cho máy kia hỏi vai trò hiện tại — dùng bởi `ha_sync.resolve_startup_conflict` lúc khởi
     động để phát hiện xung đột "song chính" (xem CLAUDE.md mục "Máy chủ dự phòng")."""
+    if not ha_peer_limiter.allow(client_ip(request)):
+        return _error(429, "Gửi quá nhiều lần trong thời gian ngắn, thử lại sau vài phút.")
     if not settings.config.peer_shared_key:
         return _error(503, "Máy chủ chưa cấu hình khoá máy-tới-máy (peer_shared_key).")
     provided_key = request.headers.get("x-cdc-peer-key", "")

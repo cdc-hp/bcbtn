@@ -51,12 +51,21 @@ class DeploymentConfig:
     # của CHÍNH ứng dụng này, cùng public qua Cloudflare Tunnel Replica. "primary" = đang phục vụ
     # ghi dữ liệu thật; "standby" = chỉ đọc, tự kéo bản sao CSDL định kỳ từ máy chính.
     server_role: str = "primary"
-    # Địa chỉ LAN của máy kia (vd "http://192.168.1.20:8765") — dùng cả 2 chiều: máy dự phòng gọi
-    # sang để kéo snapshot, máy vừa được thăng cấp gọi sang để báo máy kia tự hạ cấp.
+    # Địa chỉ CÔNG KHAI của máy kia qua tên miền Cloudflare Tunnel RIÊNG của máy đó (vd
+    # "https://may2.cdc-hp.io.vn") — KHÔNG phải IP LAN: máy dự phòng đặt ở nơi khác (khác điện/
+    # mạng với máy chính, mới bảo vệ được đúng loại sự cố mất điện/Internet tại chỗ), nên 2 máy
+    # chỉ nói chuyện được qua Internet. Mỗi máy cần 1 tunnel/tên miền phụ RIÊNG chỉ để gọi máy-
+    # tới-máy (khác tunnel dùng chung phục vụ cdc-hp.io.vn, vì Cloudflare Tunnel Replica cân bằng
+    # tải giữa các máy — không thể định tuyến TỚI ĐÚNG 1 máy cụ thể qua tên miền dùng chung). Dùng
+    # cả 2 chiều: máy dự phòng gọi sang để kéo snapshot, máy vừa được thăng cấp gọi sang để báo
+    # máy kia tự hạ cấp. Xem CLAUDE.md mục "Máy chủ dự phòng".
     peer_server_url: str = ""
     # Khoá riêng cho gọi máy-tới-máy (kéo snapshot CSDL + báo hạ cấp) — TÁCH RIÊNG khỏi
     # gas_api_key/public_submit_key/secondary_shared_key vì khác trust boundary (khoá này cho
     # phép đọc toàn bộ CSDL qua /noi-bo/ha/snapshot, không phải chỉ nộp 1 file như các khoá kia).
+    # Vì endpoint này công khai ra Internet (không còn chỉ LAN nội bộ), NÊN đặt khoá dài/ngẫu
+    # nhiên (`webapp/services/rate_limit.py::ha_peer_limiter` chỉ làm chậm dò khoá, không thay
+    # được khoá yếu).
     peer_shared_key: str = ""
     standby_sync_interval_minutes: int = 15
 
