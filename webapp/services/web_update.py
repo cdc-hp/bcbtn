@@ -77,14 +77,42 @@ def _write_status(**changes: Any) -> dict[str, Any]:
         return state
 
 
+# Các trạng thái này CHỈ tồn tại trong lúc perform_queued_update() còn đang chạy trong CHÍNH tiến
+# trình hiện tại (_job_running=True suốt thời gian đó) — nếu thấy 1 trong các trạng thái này mà
+# _job_running=False, chắc chắn tiến trình đã bị gián đoạn (dịch vụ khởi động lại/crash/mất điện
+# giữa chừng), KHÔNG phải đang chạy bình thường. Không áp dụng cho "installing": trạng thái đó
+# ghi xong là hàm return ngay (bộ cài chạy tiếp trong tiến trình PowerShell tách rời), nên
+# _job_running tự về False rất nhanh kể cả khi mọi việc đang diễn ra bình thường.
+_STALE_WHEN_JOB_NOT_RUNNING = frozenset({"queued", "backing_up", "downloading", "verifying"})
+# "installing" không có tín hiệu tin cậy nào khác ngoài thời gian — bộ cài + khởi động lại dịch
+# vụ bình thường mất tối đa vài phút; quá lâu hơn nhiều so với mức đó coi là kẹt.
+_INSTALLING_STALE_AFTER_SECONDS = 15 * 60
+
+
+def _seconds_since(iso_timestamp: str) -> float:
+    if not iso_timestamp:
+        return float("inf")
+    try:
+        stamp = datetime.fromisoformat(iso_timestamp)
+    except ValueError:
+        return float("inf")
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - stamp).total_seconds()
+
+
 def get_public_status() -> dict[str, Any]:
-    """Trả trạng thái không chứa URL tải nội bộ; tự nhận ra cập nhật đã xong sau khi service chạy lại."""
+    """Trả trạng thái không chứa URL tải nội bộ; tự nhận ra cập nhật đã xong sau khi service chạy
+    lại, VÀ tự nhận ra trạng thái "đang chạy" bị kẹt (tiến trình cập nhật đã chết nhưng chưa kịp
+    ghi lại lỗi — vd dịch vụ khởi động lại/mất điện giữa chừng) để không khoá chết nút "Kiểm tra
+    cập nhật" mãi mãi (xem CLAUDE.md — cạm bẫy đã gặp thật: kẹt ở "installing" do bug Move-Item)."""
     with _state_lock:
         state = _read_status_unlocked()
         target = str(state.get("target_version", ""))
+        status = state.get("status")
         if (
             target
-            and state.get("status") in ACTIVE_STATES | {"installed"}
+            and status in ACTIVE_STATES | {"installed"}
             and not update_manager.is_newer_version(target, core.VERSION)
         ):
             state = _write_status(
@@ -92,10 +120,42 @@ def get_public_status() -> dict[str, Any]:
                 message=f"Đã cập nhật thành công lên phiên bản {core.VERSION}.",
                 progress_percent=100,
             )
+        elif status in _STALE_WHEN_JOB_NOT_RUNNING and not _job_running:
+            state = _write_status(
+                status="failed",
+                message=(
+                    "Lần cập nhật trước bị gián đoạn giữa chừng (có thể do dịch vụ khởi động lại "
+                    "hoặc mất điện) — bấm \"Kiểm tra cập nhật\" để thử lại."
+                ),
+                progress_percent=0,
+            )
+        elif status == "installing" and _seconds_since(str(state.get("updated_at", ""))) > _INSTALLING_STALE_AFTER_SECONDS:
+            state = _write_status(
+                status="failed",
+                message=(
+                    "Bước cài đặt không hoàn tất trong thời gian dự kiến — kiểm tra dịch vụ Windows "
+                    "thủ công, hoặc bấm \"Kiểm tra cập nhật\" để thử lại."
+                ),
+                progress_percent=0,
+            )
         state["current_version"] = core.VERSION
         state["active"] = state.get("status") in ACTIVE_STATES
         state["release_url"] = update_manager.GITHUB_RELEASES_PAGE
         return state
+
+
+def reset_stuck_status(*, actor: str, db_path: str | Path) -> dict[str, Any]:
+    """Đặt lại trạng thái về "idle" theo yêu cầu thủ công của super-admin — lối thoát dự phòng khi
+    admin thấy giao diện kẹt nhưng cơ chế tự phát hiện ở get_public_status() vì lý do nào đó chưa
+    xử lý được (vd trạng thái "installing" chưa đủ 15 phút). An toàn kể cả khi có 1 job THẬT đang
+    chạy trong tiến trình này: reset chỉ xoá bản ghi trạng thái hiển thị, không huỷ job đang chạy
+    (job vẫn tự ghi đè lại trạng thái mới nhất ở lần cập nhật tiến độ kế tiếp của chính nó)."""
+    state = _write_status(
+        status="idle", message="Đã đặt lại trạng thái cập nhật.", progress_percent=None,
+        target_version="", asset_name="", sha256="", notes="",
+    )
+    core.log_audit("web_update_status_reset", actor=actor, db_path=db_path)
+    return state
 
 
 def check_for_update() -> tuple[update_manager.GithubReleaseInfo, dict[str, Any]]:
@@ -181,16 +241,29 @@ $LogPath = {_ps_quote(str(log_path))}
 $TargetVersion = {_ps_quote(target_version)}
 
 function Write-UpdateStatus([string]$State, [string]$Message, [int]$Progress) {{
-  $Payload = @{{
-    status = $State
-    message = $Message
-    target_version = $TargetVersion
-    progress_percent = $Progress
-    updated_at = (Get-Date).ToUniversalTime().ToString('o')
-  }} | ConvertTo-Json
-  $TempPath = $StatusPath + '.tmp'
-  Set-Content -LiteralPath $TempPath -Value $Payload -Encoding UTF8
-  Move-Item -LiteralPath $TempPath -Destination $StatusPath -Force
+  # $StatusPath LUÔN đã tồn tại (Python đã ghi "installing" trước khi script này chạy) —
+  # Move-Item -Force có bug đã biết trên Windows PowerShell 5.1: vẫn báo "Cannot create a file
+  # when that file already exists" dù đã có -Force (tái hiện được 100%, không phải do tranh chấp
+  # khoá file). Dùng thẳng [System.IO.File]::Copy(..., $true) để ghi đè tin cậy, không qua
+  # Move-Item — lỗi này từng khiến CẢ 2 nhánh (thành công lẫn catch) đều crash trước khi kịp ghi
+  # trạng thái cuối, làm giao diện kẹt mãi ở "installing" dù bộ cài đã chạy xong bên dưới.
+  try {{
+    $Payload = @{{
+      status = $State
+      message = $Message
+      target_version = $TargetVersion
+      progress_percent = $Progress
+      updated_at = (Get-Date).ToUniversalTime().ToString('o')
+    }} | ConvertTo-Json
+    $TempPath = $StatusPath + '.tmp'
+    Set-Content -LiteralPath $TempPath -Value $Payload -Encoding UTF8
+    [System.IO.File]::Copy($TempPath, $StatusPath, $true)
+    Remove-Item -LiteralPath $TempPath -Force -ErrorAction SilentlyContinue
+  }} catch {{
+    # Không để lỗi ghi trạng thái (vd đĩa đầy, bị khoá) làm mất luôn kết quả cài đặt thật —
+    # ghi thêm vào log để còn biết đường tra, nhưng không throw tiếp.
+    ($_ | Out-String) | Add-Content -LiteralPath $LogPath -Encoding UTF8 -ErrorAction SilentlyContinue
+  }}
 }}
 
 Start-Sleep -Seconds 2

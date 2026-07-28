@@ -76,6 +76,14 @@
       {% endif %}
 
       <a class="btn btn-sm btn-outline-secondary" href="{{ update_releases_url }}" target="_blank" rel="noopener noreferrer">Xem các bản phát hành</a>
+
+      {% if update_status.active %}
+      <form method="post" action="/cdc/cau-hinh/cap-nhat/dat-lai"
+            onsubmit="return confirm('Đặt lại trạng thái cập nhật? CHỈ bấm khi thấy tiến trình bị kẹt lâu bất thường (vd đứng yên nhiều phút không đổi), không dùng để huỷ 1 lần cập nhật đang chạy bình thường.');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn-sm btn-outline-danger">Đặt lại (nếu bị kẹt)</button>
+      </form>
+      {% endif %}
     </div>
 
     {% if update_status.status == 'available' and not auto_update_supported %}

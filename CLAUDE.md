@@ -238,6 +238,37 @@ trước khi phát hành.
 **Chưa kiểm thử được trên máy Windows thật có quyền Administrator** (chỉ kiểm thử được trong
 sandbox phát triển không có quyền này, cộng với CI trên `windows-latest`).
 
+### Tự cập nhật qua web (`/cdc/cau-hinh`, `webapp/services/web_update.py`)
+
+Luồng: sao lưu CSDL → tải bộ cài từ GitHub Releases → xác minh SHA-256 → giao cho 1 tiến trình
+PowerShell tách rời (`launch_silent_installer`) chạy `/VERYSILENT` rồi tự khởi động lại dịch vụ.
+Trạng thái ghi vào `update_cache/web_update_status.json` để trình duyệt đọc lại được kể cả sau
+khi dịch vụ tự khởi động lại giữa chừng.
+
+**Cạm bẫy đã gặp thật — kẹt mãi ở "installing" dù bộ cài thật đã chạy xong.** Nguyên nhân: script
+PowerShell tự sinh (`_create_installer_helper`) trước đây dùng `Move-Item -Force` để ghi đè
+`web_update_status.json` — file đích LUÔN đã tồn tại (Python ghi "installing" trước đó), và
+`Move-Item -Force` trên **Windows PowerShell 5.1 có bug đã biết**: vẫn báo `Cannot create a file
+when that file already exists` dù đã có `-Force` (tái hiện được 100%, không phải do tranh chấp
+khoá file — xác nhận được bằng cách chạy tay chính script bị kẹt). Vì `Write-UpdateStatus` được
+gọi ở CẢ nhánh thành công lẫn nhánh `catch`, lỗi này khiến script luôn crash trước khi ghi được
+trạng thái cuối (`installed` hoặc `failed`) — kể cả khi bộ cài Inno Setup đã chạy xong hoàn toàn
+đúng (đã xác nhận: `VERSION.txt` trong thư mục cài đặt đã đổi đúng phiên bản mới, dịch vụ đã chạy
+lại bình thường), giao diện vẫn hiện "đang cài đặt" vĩnh viễn. Đã sửa: dùng thẳng
+`[System.IO.File]::Copy(..., $true)` thay `Move-Item -Force` để ghi đè tin cậy.
+
+**Lối thoát dự phòng (phòng các nguyên nhân kẹt khác trong tương lai — mất mạng giữa chừng, dịch
+vụ khởi động lại/mất điện đúng lúc đang tải...):** `web_update.get_public_status()` tự phát hiện
+trạng thái "đang chạy" (`queued`/`backing_up`/`downloading`/`verifying`) mà không còn tiến trình
+nào thực sự chạy trong process hiện tại (`_job_running=False` — chỉ đúng khi PHÁT hiện được vì
+các trạng thái này luôn gắn với `perform_queued_update()` còn đang chạy trong CHÍNH process đó;
+KHÔNG áp dụng logic này cho "installing" vì trạng thái đó bàn giao việc cài đặt thật cho tiến
+trình PowerShell tách rời nên `_job_running` tự về `False` rất nhanh kể cả khi mọi việc đang diễn
+ra bình thường — "installing" dùng ngưỡng thời gian riêng, 15 phút) → tự chuyển sang "failed" với
+thông báo rõ, không khoá chết nút "Kiểm tra cập nhật". Ngoài ra có nút "Đặt lại (nếu bị kẹt)" trên
+giao diện (`POST /cdc/cau-hinh/cap-nhat/dat-lai`) để super-admin tự xử lý ngay lập tức, không cần
+đợi cơ chế tự phát hiện.
+
 ## Mô hình dữ liệu
 
 - **`cases`** — 48 trường danh sách ca bệnh + `birth_year`, thông tin file nguồn, `row_hash`,

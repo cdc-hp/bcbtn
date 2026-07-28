@@ -232,3 +232,22 @@ def test_web_update_routes_require_super_admin_and_csrf(client: TestClient):
 def test_web_update_check_requires_csrf(client: TestClient):
     _login(client, role=core.CDC_ROLE_SUPER_ADMIN)
     assert client.post("/cdc/cau-hinh/cap-nhat/kiem-tra", data={"csrf_token": "sai"}).status_code == 403
+
+
+def test_super_admin_can_reset_stuck_update_status(client: TestClient):
+    _login(client, role=core.CDC_ROLE_SUPER_ADMIN)
+    web_update._write_status(status="installing", message="Đang cài...", progress_percent=96, target_version="9.9.9")
+    csrf = _fresh_csrf(client, "/cdc/cau-hinh")
+    resp = client.post("/cdc/cau-hinh/cap-nhat/dat-lai", data={"csrf_token": csrf}, follow_redirects=False)
+    assert resp.status_code == 303
+    assert web_update.get_public_status()["status"] == "idle"
+    assert any(a["action"] == "web_update_status_reset" for a in core.list_audit_log(db_path=core.DB_PATH))
+
+
+def test_reset_update_status_requires_super_admin_and_csrf(client: TestClient):
+    _login(client, role=core.CDC_ROLE_ADMIN)
+    csrf = _fresh_csrf(client, "/cdc/dashboard")
+    assert client.post("/cdc/cau-hinh/cap-nhat/dat-lai", data={"csrf_token": csrf}).status_code == 403
+
+    _login(client, role=core.CDC_ROLE_SUPER_ADMIN)
+    assert client.post("/cdc/cau-hinh/cap-nhat/dat-lai", data={"csrf_token": "sai"}).status_code == 403

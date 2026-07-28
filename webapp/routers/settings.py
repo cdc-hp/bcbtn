@@ -189,3 +189,18 @@ def update_status(
     _user: auth.CurrentUser = Depends(require_role(*CAN_CONFIGURE_ROLES)),
 ):
     return JSONResponse(web_update.get_public_status(), headers={"Cache-Control": "no-store"})
+
+
+@router.post("/cdc/cau-hinh/cap-nhat/dat-lai", response_class=HTMLResponse)
+def reset_update_status(
+    request: Request, csrf_token: str = Form(""),
+    user: auth.CurrentUser = Depends(require_role(*CAN_CONFIGURE_ROLES)),
+    settings: WebAppSettings = Depends(get_settings_dep),
+):
+    """Lối thoát dự phòng khi trạng thái cập nhật bị kẹt (xem CLAUDE.md — cạm bẫy Move-Item) —
+    get_public_status() đã tự phát hiện phần lớn trường hợp kẹt, nút này cho super-admin tự xử
+    lý ngay cả khi chưa rơi vào diện tự phát hiện được."""
+    if not auth.verify_csrf(request, csrf_token):
+        raise ForbiddenError("Phiên làm việc đã hết hạn hoặc yêu cầu không hợp lệ (CSRF).")
+    web_update.reset_stuck_status(actor=user.username, db_path=settings.db_path)
+    return _redirect(msg="Đã đặt lại trạng thái cập nhật.")
