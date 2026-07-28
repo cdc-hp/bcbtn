@@ -9,4 +9,4 @@ var GAS_URL = "https://script.google.com/macros/s/AKfycbySJby7Yx1oOXeAw8bjcSILMs
 // ra Internet — trang sẽ bỏ qua bước gọi thẳng và luôn nộp qua GAS_URL như trước, không cần đổi
 // gì thêm. Máy chủ chính cũng phải cấu hình khoá `public_submit_key` ở /cdc/cau-hinh thì mới
 // nhận request thẳng từ đây (xem CLAUDE.md mục "Web nộp báo cáo trực tiếp từ GitHub Pages").
-var MAIN_SERVER_URL = "";
+var MAIN_SERVER_URL = "https://cdc-hp.io.vn";
