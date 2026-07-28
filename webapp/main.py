@@ -15,7 +15,8 @@ import core
 from webapp import STATIC_DIR, TEMPLATES_DIR, scheduler
 from webapp.dependencies import ForbiddenError, RedirectException
 from webapp.routers import (
-    accounts, audit_log, backups, dashboard, dedup, login, queue, records, settings, submission_api, xuat_du_lieu,
+    accounts, audit_log, backups, dashboard, dedup, import_history, login, queue, records, settings,
+    submission_api, xuat_du_lieu,
 )
 
 # Origin duy nhất của trang GitHub Pages nộp báo cáo (docs/index.html) — CHỈ origin này được
@@ -49,6 +50,7 @@ app.include_router(login.router)
 app.include_router(dashboard.router)
 app.include_router(queue.router)
 app.include_router(records.router)
+app.include_router(import_history.router)
 app.include_router(dedup.router)
 app.include_router(xuat_du_lieu.router)
 app.include_router(accounts.router)

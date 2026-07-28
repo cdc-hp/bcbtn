@@ -160,6 +160,7 @@ trên máy CDC — chưa xoá gì (xem ghi chú "Chưa kiểm thử được" �
 | `/setup`, `/login`, `/change-password`, `/logout` | công khai/đã đăng nhập | — | `routers/login.py` |
 | `/dashboard` | mọi vai trò | đồng bộ máy chủ phụ: super_admin/admin/data_operator | `routers/dashboard.py` |
 | `/hang-doi` | mọi vai trò | nhập: +data_operator; xoá: super_admin/admin | `routers/queue.py` |
+| `/lich-su-nhap` | +data_operator | xoá nguyên lần nhập: super_admin/admin | `routers/import_history.py` |
 | `/ca-benh`, `/o-dich` | mọi vai trò | — (đọc) | `routers/records.py` |
 | `/loc-trung` | mọi vai trò | hợp nhất: +data_operator; khôi phục/tiêu chí: super_admin/admin | `routers/dedup.py` |
 | `/xuat-du-lieu` | mọi vai trò (trang) | xuất file: super_admin/admin/data_operator (không viewer — dữ liệu có CCCD/SĐT) | `routers/xuat_du_lieu.py` |
@@ -184,6 +185,18 @@ CCCD/SĐT, rủi ro rò rỉ khác hẳn xem từng bản ghi trên màn hình.
 `core.export_filtered_records`/`export_cases_by_commune`; file xuất dùng file tạm + tự xoá sau
 khi gửi xong (`webapp/services/export_files.py`, `starlette.background.BackgroundTask`), không
 ghi vào thư mục dữ liệu chính.
+
+### Xóa theo lần nhập (`/cdc/lich-su-nhap`)
+
+Trang mới liệt kê `import_batches` (mỗi dòng = 1 lần gọi `import_excel` thành công: tên file +
+thời điểm nhập chính xác) kèm nút xóa nguyên lần nhập đó — dùng khi CDC phát hiện nhập nhầm
+file. `core.delete_import_batch` khớp bản ghi cần xóa theo cặp `(source_file, imported_at)` của
+batch (không phải theo `id` từng bản ghi) — `import_excel` gán CÙNG một mốc `imported_at` cho
+mọi dòng của một lần gọi VÀ cho chính dòng `import_batches` sinh ra từ lần đó, nên cặp này xác
+định đúng và chỉ đúng các bản ghi của lần nhập được chọn, kể cả khi cùng file được nhập lại nhiều
+lần. Tự gọi `create_backup` trước khi xóa (xóa hàng loạt không có "thùng rác", chỉ khôi phục
+được từ bản sao lưu). Xem trang: mọi vai trò trừ `viewer` (giống quyền nhập ở `/cdc/hang-doi`);
+xóa: chỉ `super_admin`/`admin`.
 
 ### Đồng bộ máy chủ phụ chạy nền (Giai đoạn 7)
 
@@ -426,6 +439,15 @@ hợp lệ) nhưng hiện KHÔNG dùng — ít phụ thuộc bên thứ ba hơn 
 
 Đây là thay đổi có rủi ro bảo mật (máy chủ nhận request công khai từ Internet), cân nhắc kỹ và
 luôn đảm bảo đã đặt mật khẩu trước khi bật.
+
+**Cạm bẫy đã gặp thật — trình duyệt báo `ERR_DNS_NO_MATCHING_SUPPORTED_ALPN` ngay sau khi bấm
+nút submit (vd "Nhập các mục đã chọn" ở `/cdc/hang-doi`), nhưng dữ liệu vẫn được xử lý đúng phía
+máy chủ** (F5 lại thấy đúng kết quả). Đây là lỗi thương lượng HTTP/3 (QUIC) của Chrome với
+Cloudflare — hay xảy ra ngay sau response POST → redirect 303, Chrome cố dùng lại kết nối QUIC
+vừa cache nhưng bắt tay lỗi, trong khi request POST thực tế đã tới nơi và server xử lý xong
+trước khi phản hồi bị rớt. Không phải lỗi ứng dụng, không mất dữ liệu — chỉ gây khó chịu. Cách
+hết hẳn: vào `dash.cloudflare.com` → chọn domain `cdc-hp.io.vn` → tab **Network** → tắt
+**"HTTP/3 (with QUIC)"** — Chrome khi đó chỉ dùng HTTP/2, không còn thương lượng QUIC nữa.
 
 ## Build & test
 

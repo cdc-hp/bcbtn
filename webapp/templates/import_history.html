@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Lịch sử nhập liệu{% endblock %}
+{% block body %}
+{% include "_navbar.html" %}
+<div class="container-fluid cdc-page">
+  <header class="cdc-page-header">
+    <h1>Lịch sử nhập liệu</h1>
+    <p>{{ rows|length }} lần nhập gần nhất. Xóa một lần nhập sẽ xóa toàn bộ ca bệnh/ổ dịch sinh ra từ đúng file và thời điểm đó — máy chủ tự sao lưu trước khi xóa.</p>
+  </header>
+
+  {% if msg %}<div class="alert alert-success" role="status">{{ msg }}</div>{% endif %}
+  {% if err %}<div class="alert alert-danger" role="alert">{{ err }}</div>{% endif %}
+
+  <div class="table-responsive cdc-table-card">
+    <table class="table table-sm table-hover align-middle">
+      <thead><tr>
+        <th>Thời điểm nhập</th><th>File</th><th>Loại</th><th>Đã đọc</th><th>Đã thêm</th>
+        <th>Trùng</th><th>Cảnh báo</th><th><span class="visually-hidden">Hành động</span></th>
+      </tr></thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td class="text-nowrap">{{ row.imported_at }}</td>
+          <td>{{ row.file_name }}</td>
+          <td>{{ row.entity_label }}</td>
+          <td>{{ row.rows_read }}</td>
+          <td>{{ row.inserted }}</td>
+          <td>{{ row.duplicates }}</td>
+          <td>{{ row.issue_count }}</td>
+          <td class="text-nowrap">
+            {% if can_delete %}
+            <form method="post" action="/cdc/lich-su-nhap/{{ row.id }}/xoa" onsubmit="return confirm('Xóa toàn bộ {{ row.inserted }} bản ghi từ file {{ row.file_name }} (nhập lúc {{ row.imported_at }})? Không thể hoàn tác qua giao diện.');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button type="submit" class="btn btn-sm btn-outline-danger">Xóa lần nhập này</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="cdc-empty-state">Chưa có lần nhập nào.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

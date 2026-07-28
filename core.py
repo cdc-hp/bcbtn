@@ -1563,6 +1563,44 @@ def list_import_batches(db_path: Path | str = DB_PATH, limit: int = 50) -> list[
         return [dict(r) for r in rows]
 
 
+def delete_import_batch(batch_id: int, db_path: Path | str = DB_PATH, actor: str = "") -> dict[str, Any]:
+    """Xóa toàn bộ ca bệnh/ổ dịch sinh ra từ đúng MỘT lần nhập file — dùng khi CDC phát hiện nhập
+    nhầm file. Khớp theo cặp (source_file, imported_at) của chính lần nhập đó: `import_excel` gán
+    cùng một mốc `imported_at` cho mọi dòng của một lần gọi VÀ cho chính dòng `import_batches`
+    sinh ra từ lần đó, nên cặp này xác định đúng và chỉ đúng các bản ghi của lần nhập được chọn —
+    kể cả khi cùng một file được nhập lại nhiều lần (mỗi lần có `imported_at` khác nhau).
+
+    Tự sao lưu trước khi xóa (`create_backup`) vì đây là xóa hàng loạt không thể hoàn tác qua
+    giao diện — chỉ khôi phục được từ bản sao lưu nếu xóa nhầm."""
+    init_db(db_path)
+    with _connect(db_path) as conn:
+        batch = conn.execute("SELECT * FROM import_batches WHERE id=?", (int(batch_id),)).fetchone()
+        if not batch:
+            raise ValueError("Không tìm thấy lần nhập này.")
+    entity_type = batch["entity_type"]
+    table, _ = _safe_table(entity_type)
+    file_name, imported_at = batch["file_name"], batch["imported_at"]
+    create_backup(db_path)
+    with _connect(db_path) as conn:
+        ids = [
+            int(r["id"]) for r in conn.execute(
+                f"SELECT id FROM {table} WHERE source_file=? AND imported_at=?", (file_name, imported_at),
+            ).fetchall()
+        ]
+        for entity_id in ids:
+            conn.execute(
+                "DELETE FROM data_quality_issues WHERE entity_type=? AND entity_id=?", (entity_type, entity_id),
+            )
+        conn.execute(f"DELETE FROM {table} WHERE source_file=? AND imported_at=?", (file_name, imported_at))
+        conn.execute("DELETE FROM import_batches WHERE id=?", (int(batch_id),))
+    log_audit(
+        "delete_import_batch", actor=actor,
+        detail=f"file={file_name} imported_at={imported_at} entity_type={entity_type} count={len(ids)}",
+        db_path=db_path,
+    )
+    return {"deleted_count": len(ids), "file_name": file_name, "entity_type": entity_type}
+
+
 def _safe_path_part(value: str) -> str:
     cleaned = re.sub(r"[^\w\-]+", "_", strip_text(value), flags=re.UNICODE)
     return cleaned.strip("_") or "khong_xac_dinh"

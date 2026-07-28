@@ -439,6 +439,26 @@ thuyết hoạt động nhờ Apps Script tự chuyển hướng qua `script.goo
 `Access-Control-Allow-Origin: *`) và request dùng `Content-Type: text/plain` mặc định để tránh
 preflight, nhưng chưa kiểm thử được bằng trình duyệt thật.
 
+### Bổ sung sau khi kích hoạt thật — 2 vấn đề vận hành + 1 chức năng mới (v0.15.1)
+
+1. **`MAIN_SERVER_URL` (`docs/config.js`) bị bỏ trống từ lúc xây tính năng ở trên** — nên trang
+   GitHub Pages luôn nộp qua Google Apps Script dù máy chủ chính đang online, dù CDC đã cấu hình
+   `public_submit_key`. Đã sửa thành `https://cdc-hp.io.vn`. Đây KHÔNG phải lỗi code — chỉ là
+   bước kích hoạt bị bỏ sót, vì giá trị này nằm trong file code (cần sửa + đẩy lên GitHub Pages)
+   chứ không phải một mục cấu hình qua form web như `public_submit_key`.
+2. **Máy trạm desktop (`app.py`: "Kết nối máy chủ LAN → Đăng nhập quản trị viên") không tương
+   thích với Web App tập trung** — xem CLAUDE.md mục "Cạm bẫy đã gặp thật" (ngay dưới Giai đoạn
+   8) để biết đầy đủ nguyên nhân (giao thức JSON thô vs form+CSRF, 2 CSDL riêng biệt). Tài khoản
+   tạo qua `/cdc/tai-khoan` không đăng nhập được từ máy trạm cũ dù đúng mật khẩu — không phải
+   lỗi mật khẩu, là do máy trạm và Web App đọc 2 CSDL khác nhau. Khuyến nghị: quản trị viên đăng
+   nhập thẳng bằng trình duyệt, không dùng lại tính năng máy trạm LAN của `app.py` nữa.
+3. **Xóa theo lần nhập** (`/cdc/lich-su-nhap`, `webapp/routers/import_history.py`,
+   `core.delete_import_batch`) — trang mới liệt kê lịch sử nhập Excel (bảng `import_batches` đã
+   có sẵn từ trước nhưng chưa có giao diện Web), cho phép xóa nguyên một lần nhập (mọi ca
+   bệnh/ổ dịch khớp đúng `source_file`+`imported_at` của lần đó) khi CDC phát hiện nhập nhầm
+   file — tự sao lưu CSDL trước khi xóa. Xem CLAUDE.md mục "Xóa theo lần nhập" để biết chi tiết
+   cơ chế khớp bản ghi. Test: `tests/test_webapp_import_history.py` (8 ca).
+
 ## Backlog — chưa cài đặt
 
 Thứ tự không nhất thiết phản ánh độ ưu tiên; đánh giá lại theo nhu cầu triển khai thật.
