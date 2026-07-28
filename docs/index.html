@@ -76,8 +76,14 @@
   @keyframes spin { to { transform: rotate(360deg); } }
 
   #msg { margin-top: 16px; padding: 12px 14px; border-radius: 10px; display: none; font-size: .88rem; line-height: 1.5; }
-  #msg.ok { background: var(--green-50); color: var(--green-700); display: block; }
   #msg.err { background: var(--red-50); color: var(--red-700); display: block; }
+  #msg.ok {
+    display: flex; align-items: center; gap: 10px; background: var(--green-50); color: var(--green-700);
+    border: 1px solid #86efac; border-radius: 12px; padding: 16px 18px; font-size: 1.02rem; font-weight: 700;
+    animation: msgPop .25s ease-out;
+  }
+  #msg.ok .msg-icon { flex: none; font-size: 1.6rem; line-height: 1; }
+  @keyframes msgPop { from { transform: scale(.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 
   .footer-note { text-align: center; font-size: .76rem; color: var(--slate-500); margin-top: 20px; }
 </style>
@@ -227,6 +233,16 @@ function formatVNDate(d) {
   var mm = String(d.getUTCMonth() + 1).padStart(2, "0");
   return dd + "/" + mm + "/" + d.getUTCFullYear();
 }
+// Đổi "2026-W15" (dễ hiểu nhầm/không hiểu với người không rành ISO week) sang "tuần 15/2026
+// (13/04 - 19/04)" để xã/phường đọc hiểu ngay không cần giải thích thêm.
+function formatWeekLabel(weekStr) {
+  var m = /^(\d{4})-W(\d{2})$/.exec(weekStr);
+  if (!m) return weekStr;
+  var range = isoWeekRange(weekStr);
+  var label = "tuần " + parseInt(m[2], 10) + "/" + m[1];
+  if (range) label += " (" + formatVNDate(range.start) + " - " + formatVNDate(range.end) + ")";
+  return label;
+}
 function updateWeekRangeInfo() {
   var input = document.getElementById("weekInput");
   var info = document.getElementById("weekRangeInfo");
@@ -375,6 +391,19 @@ function logStatusToGas(gasUrl, payload) {
   }).catch(function () {});
 }
 
+function showSuccessMsg(msg, text) {
+  msg.className = "ok";
+  msg.innerHTML = "";
+  var icon = document.createElement("span");
+  icon.className = "msg-icon";
+  icon.textContent = "✓";
+  var span = document.createElement("span");
+  span.textContent = text;
+  msg.appendChild(icon);
+  msg.appendChild(span);
+  msg.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
 document.getElementById("f").addEventListener("submit", function (ev) {
   ev.preventDefault();
   var form = ev.target, msg = document.getElementById("msg"), file = form.file.files[0];
@@ -431,16 +460,13 @@ document.getElementById("f").addEventListener("submit", function (ev) {
         refreshMissingWeeksNotice();
       }
       if (data.ok && outcome.viaDirect) {
-        msg.className = "ok";
-        msg.textContent = "✓ Đã nộp trực tiếp vào máy chủ chính, mã hàng đợi #" + data.result.queue_id + ".";
+        showSuccessMsg(msg, "Nộp báo cáo thành công! Mã hàng đợi #" + data.result.queue_id + ".");
         clearFileChip();
       } else if (data.ok && data.result.forwarded) {
-        msg.className = "ok";
-        msg.textContent = "✓ Đã nộp trực tiếp vào máy chủ chính, mã hàng đợi #" + data.result.queue_id + ".";
+        showSuccessMsg(msg, "Nộp báo cáo thành công! Mã hàng đợi #" + data.result.queue_id + ".");
         clearFileChip();
       } else if (data.ok) {
-        msg.className = "ok";
-        msg.textContent = "✓ Máy chủ chính tạm thời không phản hồi — đã lưu tạm, dòng #" + data.result.row + ". CDC sẽ đồng bộ bù sau.";
+        showSuccessMsg(msg, "Nộp báo cáo thành công! (Đã lưu tạm, dòng #" + data.result.row + " — CDC sẽ đồng bộ bù sau do máy chủ chính tạm thời không phản hồi.)");
         clearFileChip();
       } else {
         msg.className = "err"; msg.textContent = "Lỗi: " + data.error;
@@ -476,7 +502,7 @@ function renderMissingWeeks(trackingStartWeek, submittedWeeksSet) {
   if (!allWeeks.length) { notice.style.display = "none"; return; }
   var missing = allWeeks.filter(function (w) { return !submittedWeeksSet[w]; });
   if (!missing.length) { notice.style.display = "none"; return; }
-  notice.textContent = "⚠ Chưa nộp báo cáo các tuần: " + missing.join(", ") + ".";
+  notice.textContent = "⚠ Chưa nộp báo cáo các " + missing.map(formatWeekLabel).join(", ") + ".";
   notice.style.display = "block";
 }
 
