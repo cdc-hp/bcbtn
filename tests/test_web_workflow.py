@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import http.client
 import io
 import json
 import tempfile
@@ -10,18 +9,11 @@ from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from unittest.mock import patch
-from urllib.error import HTTPError
-from urllib.request import Request, urlopen
-
-import lan_server
 
 from openpyxl import Workbook, load_workbook
 
 import core
-import remote_core
 import secondary_sync
-from deployment_config import DeploymentConfig
-from lan_server import LanServerController
 
 
 def make_excel(path: Path, fields, rows, sheet="Disease Cases"):
@@ -221,40 +213,6 @@ def test_import_queue_item_concurrent_calls_only_import_once():
         assert items[0]["status"] == "da_nhap"
 
 
-def test_lan_server_queue_endpoints():
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        core.DATA_DIR = root / "data"; core.DATA_DIR.mkdir()
-        core.DB_PATH = core.DATA_DIR / "test.db"
-        core.BACKUP_DIR = root / "backups"; core.QUEUE_DIR = root / "queue"
-        cfg = DeploymentConfig(mode="server", server_host="127.0.0.1", server_port=0, password="")
-        ctrl = LanServerController(cfg)
-        ctrl.start()
-        addr = f"http://127.0.0.1:{ctrl.port}"
-        try:
-            html = urlopen(addr + "/xa", timeout=5).read().decode("utf-8")
-            assert "Nộp danh sách ca bệnh" in html
-            data = make_excel_bytes(core.CASE_FIELDS, [dict(BASE_CASE, case_code="CA-LAN")])
-            body = json.dumps({
-                "commune": "Xã Gia Viên", "week": "2026-W29", "file_name": "ds.xlsx",
-                "content_base64": base64.b64encode(data).decode("ascii"),
-            }).encode()
-            req = Request(addr + "/queue/submit", data=body, headers={"Content-Type": "application/json"}, method="POST")
-            resp = json.loads(urlopen(req, timeout=10).read().decode("utf-8"))
-            assert resp["ok"]
-            queue_id = resp["result"]["queue_id"]
-
-            req2 = Request(addr + "/rpc", data=json.dumps({"function": "list_import_queue"}).encode(), headers={"Content-Type": "application/json"}, method="POST")
-            resp2 = json.loads(urlopen(req2, timeout=10).read().decode("utf-8"))
-            assert resp2["ok"] and len(resp2["result"]) == 1
-
-            req3 = Request(addr + "/rpc", data=json.dumps({"function": "import_queue_item", "args": [queue_id]}).encode(), headers={"Content-Type": "application/json"}, method="POST")
-            resp3 = json.loads(urlopen(req3, timeout=10).read().decode("utf-8"))
-            assert resp3["ok"] and resp3["result"]["inserted"] == 1
-        finally:
-            ctrl.stop()
-
-
 class _FakeSecondaryServerHandler(BaseHTTPRequestHandler):
     pending = [{
         "row": 2, "commune": "Xã Đông Hải", "week": "2026-W29", "file_name": "xa_dong_hai.xlsx",
@@ -299,97 +257,6 @@ def test_secondary_sync_pulls_pending_into_local_queue():
             assert items[0]["commune"] == "Xã Đông Hải"
     finally:
         server.shutdown()
-
-
-def test_remote_core_queue_proxies_against_live_server(monkeypatch):
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        core.DATA_DIR = root / "data"; core.DATA_DIR.mkdir()
-        core.DB_PATH = core.DATA_DIR / "test.db"
-        core.BACKUP_DIR = root / "backups"; core.QUEUE_DIR = root / "queue"
-        cfg = DeploymentConfig(mode="server", server_host="127.0.0.1", server_port=0, password="")
-        ctrl = LanServerController(cfg)
-        ctrl.start()
-        try:
-            workstation_cfg = DeploymentConfig(mode="workstation", server_url=f"http://127.0.0.1:{ctrl.port}")
-            monkeypatch.setattr(remote_core, "load_config", lambda: workstation_cfg)
-            data = make_excel_bytes(core.CASE_FIELDS, [dict(BASE_CASE, case_code="CA-REMOTE")])
-            submitted = remote_core.queue_submit("Xã Gia Viên", "2026-W29", "ds.xlsx", data, submitted_by="Y tá C")
-            assert submitted["commune"] == "Xã Gia Viên"
-            items = remote_core.list_import_queue()
-            assert len(items) == 1 and items[0]["status"] == "cho_nhap"
-            imported = remote_core.import_queue_item(items[0]["id"])
-            assert imported["inserted"] == 1
-            items_after = remote_core.list_import_queue(status="da_nhap")
-            assert len(items_after) == 1
-        finally:
-            ctrl.stop()
-
-
-def test_queue_submit_rate_limit_returns_429(monkeypatch):
-    monkeypatch.setattr(lan_server, "QUEUE_SUBMIT_RATE_LIMIT", 2)
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        core.DATA_DIR = root / "data"; core.DATA_DIR.mkdir()
-        core.DB_PATH = core.DATA_DIR / "test.db"
-        core.BACKUP_DIR = root / "backups"; core.QUEUE_DIR = root / "queue"
-        cfg = DeploymentConfig(mode="server", server_host="127.0.0.1", server_port=0, password="")
-        ctrl = LanServerController(cfg)
-        ctrl.start()
-        addr = f"http://127.0.0.1:{ctrl.port}"
-        try:
-            data = make_excel_bytes(core.CASE_FIELDS, [dict(BASE_CASE, case_code="CA-RATE")])
-            body = json.dumps({
-                "commune": "Xã Gia Viên", "week": "2026-W29", "file_name": "ds.xlsx",
-                "content_base64": base64.b64encode(data).decode("ascii"),
-            }).encode()
-
-            def submit():
-                req = Request(addr + "/queue/submit", data=body, headers={"Content-Type": "application/json"}, method="POST")
-                return urlopen(req, timeout=10)
-
-            submit().read()
-            submit().read()
-            try:
-                submit()
-                assert False, "lần nộp thứ 3 trong cửa sổ giới hạn phải bị chặn (429)"
-            except HTTPError as exc:
-                assert exc.code == 429
-        finally:
-            ctrl.stop()
-
-
-def test_auth_rejection_drains_body_before_next_request_on_keepalive():
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        core.DATA_DIR = root / "data"; core.DATA_DIR.mkdir()
-        core.DB_PATH = core.DATA_DIR / "test.db"
-        core.BACKUP_DIR = root / "backups"; core.QUEUE_DIR = root / "queue"
-        cfg = DeploymentConfig(mode="server", server_host="127.0.0.1", server_port=0, password="secret")
-        ctrl = LanServerController(cfg)
-        ctrl.start()
-        try:
-            conn = http.client.HTTPConnection("127.0.0.1", ctrl.port, timeout=10)
-            body = json.dumps({"function": "dashboard_stats", "args": [], "kwargs": {}}).encode()
-            conn.request("POST", "/rpc", body=body, headers={
-                "Content-Type": "application/json", "X-GSBTN-Password": "wrong",
-            })
-            resp1 = conn.getresponse()
-            assert resp1.status == 401
-            resp1.read()
-            # Cùng một kết nối keep-alive: nếu request trên chưa đọc hết thân, request này sẽ bị
-            # đọc lệch (server hiểu nhầm phần thân cũ là dòng đầu request mới).
-            body2 = json.dumps({"function": "dashboard_stats", "args": [], "kwargs": {}}).encode()
-            conn.request("POST", "/rpc", body=body2, headers={
-                "Content-Type": "application/json", "X-GSBTN-Password": "secret",
-            })
-            resp2 = conn.getresponse()
-            payload = json.loads(resp2.read().decode("utf-8"))
-            assert resp2.status == 200
-            assert payload["ok"] is True
-            conn.close()
-        finally:
-            ctrl.stop()
 
 
 def test_list_import_queue_pagination():

@@ -3,10 +3,13 @@
 Tài liệu **cốt lõi** của dự án: kiến trúc, schema, vận hành. Việc còn phải làm/backlog xem
 [`TASKS.md`](TASKS.md). Hướng dẫn cài đặt/build cho người dùng cuối xem [`README.md`](README.md).
 
-Desktop **PyQt6 + SQLite** để quản lý ca bệnh/ổ dịch, lọc trùng, chia sẻ trong LAN — mở rộng
-thêm một tầng Web (xã nộp báo cáo qua trang tĩnh GitHub Pages, gọi thẳng máy chủ chính, dự
-phòng Google Apps Script khi máy chủ chính không phản hồi được) và cơ chế nhiều máy chủ/nhiều
-quản trị viên. Phiên bản hiện tại: xem `VERSION.txt`.
+Web App tập trung (**FastAPI/Uvicorn + SQLite**, `webapp/`) chạy như 1 dịch vụ Windows duy nhất
+để quản lý ca bệnh/ổ dịch, lọc trùng — quản trị viên chỉ cần trình duyệt, không cài/mở gì thêm.
+Xã nộp báo cáo qua trang tĩnh GitHub Pages, gọi thẳng máy chủ chính, dự phòng Google Apps Script
+khi máy chủ chính không phản hồi được. Phiên bản hiện tại: xem `VERSION.txt`.
+
+Bản desktop PyQt6 cũ (`app.py`/`lan_server.py`/`remote_core.py`, các chế độ Máy đơn
+lẻ/Trạm/Chủ) **đã gỡ bỏ hoàn toàn** kể từ v0.17.0 — Web App tập trung nay là bản DUY NHẤT.
 
 ## Repo chính thức — đọc kỹ trước khi làm gì
 
@@ -36,14 +39,14 @@ Xã/phường  ──►  GitHub Pages (docs/index.html — form thật, không 
                         │    action="submit" — chuyển tiếp thẳng nếu             │ thẳng nếu
                         │    MAIN_SERVER_URL cấu hình, không thì đệm Sheet/Drive │ MAIN_SERVER_URL
                         └────────────────────────────────────────────────────────┘ cấu hình
-                                                                │
-                          Máy trạm quản trị (remote_core.py) ◄──┤ đăng nhập /cdc/login,
-                          — tài khoản riêng từng người            tài khoản trong cdc_accounts
+                                    ▲
+              Quản trị viên (trình duyệt, không cài gì) ── đăng nhập /cdc/login,
+                                                            tài khoản trong cdc_accounts
 ```
 
-- `core.py` là **lõi nghiệp vụ** dùng chung cho cả desktop (LAN) và Web — mọi tầng khác (Web
-  API, GAS) chỉ bọc thêm quanh các hàm có sẵn (`import_excel`, `find_duplicate_groups`,
-  `merge_duplicate_records`, `export_rows`...), không viết lại logic import/dedup/export.
+- `core.py` là **lõi nghiệp vụ** dùng chung cho toàn bộ hệ thống — `webapp/` chỉ bọc thêm quanh
+  các hàm có sẵn (`import_excel`, `find_duplicate_groups`, `merge_duplicate_records`,
+  `export_rows`...), không viết lại logic import/dedup/export.
 - `docs/index.html` là **form nộp báo cáo thật** (HTML/CSS/JS tĩnh, không còn iframe nhúng
   trang Apps Script) — xem mục "Web nộp báo cáo trực tiếp từ GitHub Pages" bên dưới.
 - `docs/config.js` chứa `GAS_URL` (đường dự phòng) và `MAIN_SERVER_URL` (đường ưu tiên, để trống
@@ -94,43 +97,37 @@ tĩnh độc lập** (form/JS thật, không còn iframe), tự quyết định 
 ### File chính
 
 ```text
-app.py                 Giao diện, menu, lọc trùng, máy trạm và tab Server
 core.py                SQLite, nhập/xuất, chất lượng, thuật toán lọc trùng, cdc_accounts
-deployment_config.py   Cấu hình standalone/workstation/server
-lan_server.py          HTTP API, /xa, /cdc/hang-doi, /cdc/login, chuyển máy chủ, khóa ghi khi sao lưu
-lan_discovery.py       Tự dò máy chủ trong mạng LAN
-remote_core.py         Lớp gọi API, retry và trạng thái kết nối máy trạm
+deployment_config.py   Cấu hình triển khai (cổng, khoá GAS, máy chủ phụ, tên miền công khai...)
 backup_manager.py      Chính sách, kiểm tra, lưu giữ và phục hồi sao lưu
 duplicate_config.py    Trọng số và ngưỡng lọc trùng
 case_view_config.py    Cấu hình cột hiển thị danh sách ca bệnh (chọn/đổi tên/cột tính toán)
 update_manager.py      Cập nhật ứng dụng
 secondary_sync.py      Đồng bộ hàng đợi từ máy chủ phụ (Google Apps Script) khi online lại
-setup.iss              Bộ cài desktop tổng hợp (3 chế độ: đơn lẻ/máy trạm/máy chủ)
-setup-server.iss       Bộ cài desktop riêng — chỉ chế độ Máy chủ, cài 1 lần duy nhất
-setup-admin.iss        Bộ cài desktop riêng — chỉ máy trạm quản trị, đăng nhập tài khoản riêng
 webapp/                Web App tập trung (FastAPI/Uvicorn) — xem mục riêng bên dưới
-service_windows.py     Dịch vụ Windows chạy webapp/ (pywin32) — thay app.py cho triển khai server
-setup-webapp-server.iss Bộ cài DUY NHẤT cho Web App tập trung, cài như dịch vụ Windows
+service_windows.py     Entry point dịch vụ Windows chạy webapp/ (pywin32)
+service_tray.py        Chạy webapp/ thủ công + icon khay hệ thống — thay cho dịch vụ Windows khi
+                        chưa muốn/chưa thể đăng ký dịch vụ (xem `Chay_May_Chu.bat`)
+setup-webapp-server.iss Bộ cài DUY NHẤT, cài Web App làm dịch vụ Windows
 docs/                  GitHub Pages (index.html + config.js) + docs/huong-dan (nguồn HTML + PDF)
-tests/                 Kiểm thử lõi, lọc trùng, cấu hình, LAN, cdc_accounts, chuyển máy chủ,
-                        webapp/ (test_webapp_*.py), scheduler, service_windows
+tests/                 Kiểm thử lõi, lọc trùng, cấu hình, cdc_accounts, webapp/ (test_webapp_*.py),
+                        scheduler, service_windows
 ```
 
 ## Web App tập trung (`webapp/`) — xem TASKS.md
 
-Kiến trúc **mới**, chạy song song với desktop PyQt6 trong lúc chuyển đổi (xem TASKS.md mục
-"Đang làm: chuyển sang Web App tập trung" cho tiến độ 11 giai đoạn — tính tới Giai đoạn 10 đã
-xong, Giai đoạn 11 tài liệu/dọn dẹp). Chạy trên đúng 1 máy chủ, dưới dạng **dịch vụ Windows**
-(`service_windows.py`, tên dịch vụ `CDCGiamSatDichBenh`) — quản trị viên chỉ cần trình duyệt tại
-`/cdc/login`, không cài/mở gì thêm. `app.py`/`lan_server.py`/`setup.iss`/`setup-server.iss`/
-`setup-admin.iss` **vẫn giữ nguyên, chạy song song** cho tới khi Web App được xác nhận dùng thật
-trên máy CDC — chưa xoá gì (xem ghi chú "Chưa kiểm thử được" ở cuối mục này).
+Kiến trúc **duy nhất** của hệ thống (bản desktop PyQt6 cũ đã gỡ bỏ hoàn toàn, xem TASKS.md mục
+"Đang làm: chuyển sang Web App tập trung" cho lịch sử 11 giai đoạn chuyển đổi). Chạy trên đúng 1
+máy chủ, dưới dạng **dịch vụ Windows** (`service_windows.py`, tên dịch vụ `CDCGiamSatDichBenh`)
+— quản trị viên chỉ cần trình duyệt tại `/cdc/login`, không cài/mở gì thêm.
 
-- Chạy dev: `uvicorn webapp.main:app --reload` (không phải `python app.py`). Chạy như dịch vụ
-  thật: `python service_windows.py install|start|stop|remove|debug`; chạy tay không qua khung
-  dịch vụ (để phát triển/kiểm thử nhanh, không đăng ký gì với Windows): `python service_windows.py run`.
-- `webapp/config.py`: đọc chung `deployment.json` với app desktop qua `deployment_config.py`
-  (không tạo hệ cấu hình riêng) — `web_token_secret` dùng để ký cookie phiên.
+- Chạy dev: `uvicorn webapp.main:app --reload`. Chạy như dịch vụ thật:
+  `python service_windows.py install|start|stop|remove|debug`; chạy tay không qua khung dịch vụ
+  (để phát triển/kiểm thử nhanh, không đăng ký gì với Windows): `python service_windows.py run`;
+  chạy tay kèm icon khay hệ thống (thay dịch vụ Windows khi chưa muốn đăng ký):
+  `python service_tray.py` (hoặc bấm đúp `Chay_May_Chu.bat`).
+- `webapp/config.py` đọc `deployment.json` qua `deployment_config.py` — `web_token_secret` dùng
+  để ký cookie phiên.
 - `webapp/auth.py`: đăng nhập **tái dùng** `core.issue_admin_token`/`verify_admin_token` đã có
   sẵn (không thêm thư viện session) — chỉ khác chỗ lưu: cookie `cdc_session` (HttpOnly,
   `Secure` khi request có `X-Forwarded-Proto: https` — Cloudflare Tunnel gắn header này) thay
@@ -201,8 +198,8 @@ xóa: chỉ `super_admin`/`admin`.
 ### Đồng bộ máy chủ phụ chạy nền (Giai đoạn 7)
 
 `webapp/scheduler.py` dùng `APScheduler` (`BackgroundScheduler`), khởi động/tắt qua `lifespan`
-của `webapp/main.py` — thay hẳn kiểu `QTimer` (`MainWindow.run_auto_secondary_sync`) của desktop
-cũ, chạy trong tiến trình Uvicorn nên không phụ thuộc có ai mở trình duyệt. Chống chạy chồng lấp
+của `webapp/main.py`, chạy trong tiến trình Uvicorn nên không phụ thuộc có ai mở trình duyệt.
+Chống chạy chồng lấp
 bằng `threading.Lock` không chặn (`_run_lock`), dùng chung cho cả tác vụ định kỳ lẫn nút "Đồng
 bộ ngay" trên dashboard — idempotent, bỏ qua im lặng thay vì xếp hàng nếu đang có lần chạy khác.
 Đổi `secondary_sync_interval_minutes` (5-180 phút) cần khởi động lại tiến trình mới có hiệu lực
@@ -227,34 +224,19 @@ ràng khi chưa cài đặt/thiếu quyền Administrator thay vì giả vờ th
 ### Installer (Giai đoạn 9-10)
 
 `setup-webapp-server.iss` — bộ cài **duy nhất** `CDC-GiamSatDichBenh-Server-Setup-v{version}.exe`,
-`PrivilegesRequired=admin` (khác 3 bộ cài desktop, đều `lowest`) vì phải đăng ký dịch vụ Windows.
-Wizard chỉ hỏi **đúng 1 câu** (cổng lắng nghe) — không hỏi tài khoản/GAS/đồng bộ/thư mục sao lưu
-như installer desktop cũ, vì những cái đó nay cấu hình qua trình duyệt sau khi cài
+`PrivilegesRequired=admin` vì phải đăng ký dịch vụ Windows. Wizard chỉ hỏi **đúng 1 câu** (cổng
+lắng nghe) — tài khoản/GAS/đồng bộ/thư mục sao lưu cấu hình qua trình duyệt sau khi cài
 (`/cdc/setup`, `/cdc/cau-hinh`). Dừng+gỡ dịch vụ cũ TRƯỚC khi copy file (`PrepareToInstall`,
 tránh lỗi file bị khoá lúc nâng cấp); ghi `deployment.json` vào ProgramData CHỈ khi máy chưa
 từng cài (giữ nguyên cấu hình/khoá bí mật khi nâng cấp). `build.bat` build `service_windows.py`
-bằng PyInstaller riêng (`--console`, loại trừ `PyQt5`/`PyQt6` — máy build có cả 2 khiến
-PyInstaller từ chối build vì xung đột Qt binding, dù webapp/ không dùng Qt). CI
+bằng PyInstaller (`--console`, loại trừ `PyQt5`/`PyQt6` phòng khi máy build có cài sẵn — webapp/
+không dùng Qt, chỉ để tránh PyInstaller từ chối build vì xung đột Qt binding). CI
 (`.github/workflows/release.yml`) có bước cài đặt/khởi động/gỡ cài **thật** trên `windows-latest`
 (có quyền Administrator, khác sandbox phát triển) để xác nhận dịch vụ Windows hoạt động đúng
 trước khi phát hành.
 
 **Chưa kiểm thử được trên máy Windows thật có quyền Administrator** (chỉ kiểm thử được trong
-sandbox phát triển không có quyền này, cộng với CI trên `windows-latest`) — nên `app.py`/
-`lan_server.py`/`setup.iss`/`setup-server.iss`/`setup-admin.iss` vẫn giữ nguyên cho tới khi có
-người xác nhận cài Web App thành công trên máy CDC thật.
-
-**Cạm bẫy đã gặp thật — máy trạm desktop (`app.py`: "Kết nối máy chủ LAN → Đăng nhập quản trị
-viên") KHÔNG tương thích với Web App tập trung**, dù trỏ đúng địa chỉ máy chủ: máy trạm gửi
-`POST /cdc/login` dạng JSON thô (giao thức riêng của `lan_server.py`), còn Web App yêu cầu dữ
-liệu dạng form + mã CSRF (trả lỗi 422 với JSON thô) — hai máy chủ có 2 CSDL RIÊNG BIỆT
-(`%LOCALAPPDATA%` cho desktop, `C:\ProgramData\...` cho Web App/dịch vụ Windows, xem mục Giai
-đoạn 8 phía trên). Hậu quả thực tế: tài khoản tạo qua `/cdc/tai-khoan` (chỉ có ở Web App) không
-đăng nhập được từ máy trạm desktop cũ dù đúng mật khẩu — báo "sai mật khẩu" gây hiểu nhầm, thực
-chất là "không tìm thấy trong CSDL này". Một khi CDC đã chuyển sang dùng Web App tập trung
-(bằng chứng: tài khoản được tạo qua `/cdc/tai-khoan`), **mọi quản trị viên nên đăng nhập thẳng
-bằng trình duyệt** (`https://<tên-miền-hoặc-IP>/cdc/login`), không dùng lại tính năng "Kết nối
-máy chủ LAN" của `app.py` nữa — tính năng đó chỉ dành cho khi máy chủ thật là `lan_server.py`.
+sandbox phát triển không có quyền này, cộng với CI trên `windows-latest`).
 
 ## Mô hình dữ liệu
 
@@ -288,7 +270,13 @@ sinh), `days_between` (số ngày giữa 2 mốc thời gian trong `DATE_FIELDS`
 `concat` (nối nhiều cột). Tính lại mỗi lần hiển thị (`compute_row_values`), không lưu vào CSDL.
 `query_records`/`CASE_TABLE_COLUMNS` đã mở rộng để SELECT đủ toàn bộ 48 trường + `birth_year`
 (trước đây chỉ 12 cột cố định) — cần thiết để cột tuỳ chọn/tính toán truy cập được mọi trường.
-Mở từ nút "Cấu hình cột..." trên tab Ca bệnh (`app.CaseColumnsSettingsDialog`).
+
+**Hiện MỒ CÔI — chưa có giao diện gọi tới** kể từ khi gỡ `app.py` (nơi duy nhất từng gọi qua
+`CaseColumnsSettingsDialog`, xem TASKS.md mục "Bổ sung sau khi kích hoạt thật"). `webapp/routers/
+records.py` hiện tự có `CASE_DEFAULT_VISIBLE_COLUMNS` riêng (ẩn/hiện cột phía client, không đọc
+`case_view_config.py`) — muốn dùng lại cột tính toán (`age_years`/`days_between`/`concat`)/đổi
+tiêu đề đã lưu thì cần xây thêm 1 trang cấu hình trong `webapp/` gọi `case_view_config.py`
+(module + dữ liệu JSON vẫn còn nguyên, chỉ thiếu giao diện).
 
 ### Hai lớp chống trùng
 
@@ -300,14 +288,6 @@ Mở từ nút "Cấu hình cột..." trên tab Ca bệnh (`app.CaseColumnsSetti
    ngưỡng như bản cũ) — hai bản ghi trùng nếu khớp **ít nhất một** tiêu chí đang bật. Có thể
    lưu bộ tiêu chí thành preset (`dedup_criteria_sets`). `merge_duplicate_records()` sao lưu
    CSDL trước khi hợp nhất; `restore_duplicate_action()` khôi phục được.
-
-### Triển khai LAN
-
-- Máy chủ và máy đơn lẻ dùng SQLite cục bộ; máy chủ mở HTTP API, mỗi request 1 kết nối SQLite
-  riêng + WAL. Máy trạm gọi API, không truy cập file `.db` qua thư mục chia sẻ mạng.
-- Mật khẩu máy chủ dùng chung là tùy chọn (để trống = API không yêu cầu header xác thực) —
-  **độc lập** với tài khoản `cdc_accounts`/`commune_accounts` (hai đường xác thực song song,
-  không loại trừ nhau, xem `lan_server._handle_queue_submit`).
 
 ### Sao lưu và phục hồi
 
@@ -359,13 +339,13 @@ nhất làm ngoài giờ cao điểm nộp báo cáo.
   Google Drive `MayChuPhu_GSBTN/<xã>/<tuần>/<file>.xlsx` — **không chia sẻ công khai**.
 - **Đồng bộ bù** (`secondary_sync.pull_secondary_queue`): kéo các dòng `cho_dong_bo`, tạo bản
   ghi `import_queue` (`source='server_phu'`), đánh dấu `da_dong_bo` (idempotent). **Tự động**
-  chạy theo chu kỳ (`MainWindow.run_auto_secondary_sync`, mặc định 20 phút, chỉnh ở tab Server
-  → "Tự động đồng bộ mỗi", 5-180 phút, lưu ở `secondary_sync_interval_minutes`) khi ứng dụng
-  đang chạy ở chế độ Máy đơn lẻ/Máy chủ (không chạy ở Máy trạm) và đã cấu hình URL + khóa máy
-  chủ phụ — không cần CDC bấm tay, nút "Đồng bộ máy chủ phụ" trên tab Hàng đợi vẫn còn để chạy
-  ngay khi cần. Sau khi kéo thành công, `Code.gs: handleMarkSynced` **xoá (Thùng rác Drive, tự
-  dọn hẳn sau ~30 ngày)** file Excel gốc tương ứng trên Drive — tránh Drive phình to theo thời
-  gian, vì dữ liệu đã nằm an toàn trong CSDL chính.
+  chạy theo chu kỳ qua `webapp/scheduler.py` (APScheduler, mặc định 20 phút, chỉnh ở
+  `/cdc/cau-hinh`, 5-180 phút, lưu ở `secondary_sync_interval_minutes` — xem mục "Đồng bộ máy
+  chủ phụ chạy nền" phía trên) khi đã cấu hình URL + khóa máy chủ phụ — không cần CDC bấm tay,
+  nút "Đồng bộ ngay" trên dashboard vẫn còn để chạy ngay khi cần. Sau khi kéo thành công,
+  `Code.gs: handleMarkSynced` **xoá (Thùng rác Drive, tự dọn hẳn sau ~30 ngày)** file Excel gốc
+  tương ứng trên Drive — tránh Drive phình to theo thời gian, vì dữ liệu đã nằm an toàn trong
+  CSDL chính.
 - **Xác thực**: khóa `SHARED_KEY` dùng chung cho mọi xã trên GAS (khác với
   `commune_accounts`/`cdc_accounts` ở máy chủ chính — có chủ đích, GAS không tự nhiên hỗ trợ
   tốt việc đồng bộ danh sách tài khoản từ máy chủ chính sang). Chặng GAS → máy chủ chính dùng
@@ -403,7 +383,7 @@ nhất làm ngoài giờ cao điểm nộp báo cáo.
 5. Chỉ cần sửa lại `docs/config.js` khi tạo **deployment mới** (đổi ID). Nếu chỉ deploy lại
    đúng deployment cũ (New version), URL giữ nguyên.
 
-### Mở máy chủ chính ra Internet (để GAS chuyển tiếp trực tiếp + máy trạm quản trị ở xa)
+### Mở máy chủ chính ra Internet (để GAS chuyển tiếp trực tiếp + quản trị viên truy cập từ xa)
 
 **Domain thật đã có: `cdc-hp.io.vn`. Phương án đang dùng: Cloudflare Tunnel** — KHÔNG
 port-forward, KHÔNG cần IP tĩnh/Dynamic DNS, KHÔNG cần quyền quản trị router. Lý do đổi từ
@@ -412,8 +392,8 @@ CDC không có quyền đăng nhập router để tự port-forward — Cloudfla
 nối ra ngoài tới Cloudflare (luôn được phép, không cần cấu hình gì ở phía mạng CDC), Cloudflare
 nhận request từ domain rồi chuyển vào qua đúng đường kết nối đó.
 
-Cài đặt: `cloudflared` (daemon nhỏ của Cloudflare) chạy **trên chính máy đang chạy chế độ Máy
-chủ**, đăng ký làm dịch vụ Windows qua lệnh `cloudflared.exe service install <token>` (token lấy
+Cài đặt: `cloudflared` (daemon nhỏ của Cloudflare) chạy **trên chính máy đang chạy Web App**,
+đăng ký làm dịch vụ Windows qua lệnh `cloudflared.exe service install <token>` (token lấy
 từ dashboard `one.dash.cloudflare.com` lúc tạo Tunnel — mỗi CDC/mỗi lần tạo tunnel có token
 riêng, không dùng chung). Cấu hình "Public Hostname" trỏ `cdc-hp.io.vn` → `localhost:8765` làm
 trực tiếp trên dashboard Cloudflare (không cần sửa file .yml thủ công cho cách làm khuyến nghị).
@@ -421,16 +401,16 @@ File mẫu cho ai muốn cấu hình bằng dòng lệnh thay vì dashboard:
 `deploy/cloudflared-config.example.yml` (đã kiểm tra hợp lệ). Hướng dẫn từng bước đầy đủ (kể cả
 cho người không rành kỹ thuật): `docs/huong-dan/5-mo-ra-internet.pdf`.
 
-**Bắt buộc trước khi bật**: đặt mật khẩu máy chủ (tab Server) — đây là lớp xác thực duy nhất
-cho request từ Internet khi không có token cá nhân (`cdc_accounts`)/không có `commune_token`.
-Cloudflare Tunnel chỉ lo việc kết nối, không thay được xác thực của ứng dụng.
+**Bắt buộc trước khi bật**: đặt `gas_api_key`/`public_submit_key` (`/cdc/cau-hinh`) — Cloudflare
+Tunnel chỉ lo việc kết nối, không thay được xác thực của ứng dụng; request từ Internet vào
+`POST /queue/submit`/`/queue/submit-xa` vẫn phải qua đúng khoá tương ứng, và quản trị viên vẫn
+phải đăng nhập `cdc_accounts` như bình thường.
 
 Sau khi tunnel "Connected" và Public Hostname đã cấu hình:
 - **GAS chuyển tiếp trực tiếp**: đặt Script Property `MAIN_SERVER_URL = https://cdc-hp.io.vn`
-  + `MAIN_SERVER_PASSWORD` = mật khẩu máy chủ.
-- **Máy trạm quản trị ở xa** (ngoài LAN CDC): mở app → "Kết nối máy chủ LAN" → đổi "Địa chỉ máy
-  chủ" thành `https://cdc-hp.io.vn` (thay vì IP LAN) — vẫn cùng 1 bản cài `setup-admin.iss`,
-  chỉ khác giá trị nhập lúc cấu hình, không cần build riêng.
+  + `MAIN_SERVER_PASSWORD` = đúng giá trị `gas_api_key` đã đặt ở `/cdc/cau-hinh`.
+- **Quản trị viên truy cập từ xa** (ngoài LAN CDC): mở trình duyệt tại
+  `https://cdc-hp.io.vn/cdc/login` — không cần cài/cấu hình gì thêm, y hệt truy cập trong LAN.
 
 **Phương án dự phòng** (nếu sau này CDC có máy chủ cố định + quyền quản trị router thật):
 Caddy + port-forward truyền thống, cấu hình có sẵn ở `deploy/Caddyfile` (đã `caddy validate`
@@ -438,7 +418,7 @@ hợp lệ) nhưng hiện KHÔNG dùng — ít phụ thuộc bên thứ ba hơn 
 ở thời điểm hiện tại.
 
 Đây là thay đổi có rủi ro bảo mật (máy chủ nhận request công khai từ Internet), cân nhắc kỹ và
-luôn đảm bảo đã đặt mật khẩu trước khi bật.
+luôn đảm bảo đã đặt các khoá bí mật trước khi bật.
 
 **Cạm bẫy đã gặp thật — trình duyệt báo `ERR_DNS_NO_MATCHING_SUPPORTED_ALPN` ngay sau khi bấm
 nút submit (vd "Nhập các mục đã chọn" ở `/cdc/hang-doi`), nhưng dữ liệu vẫn được xử lý đúng phía
@@ -453,8 +433,7 @@ hết hẳn: vào `dash.cloudflare.com` → chọn domain `cdc-hp.io.vn` → tab
 
 ```bat
 python -m pytest -q          REM chạy toàn bộ test (tests/)
-build.bat                     REM build 2 lần bằng PyInstaller (app.py + service_windows.py)
-                               REM + Inno Setup (4 bộ cài: 3 desktop cũ + webapp mới)
+build.bat                     REM PyInstaller (service_windows.py) + Inno Setup (1 bộ cài duy nhất)
 ```
 
 `.github/workflows/release.yml` build/test trên Windows khi push `main` hoặc tạo tag, quét

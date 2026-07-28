@@ -1,20 +1,13 @@
 from __future__ import annotations
 
-import base64
 import io
-import json
 import tempfile
 import time
 from pathlib import Path
-from urllib.error import HTTPError
-from urllib.request import Request, urlopen
 
 from openpyxl import Workbook
 
 import core
-import remote_core
-from deployment_config import DeploymentConfig
-from lan_server import LanServerController
 
 
 def make_excel_bytes(fields, rows, sheet="Disease Cases") -> bytes:
@@ -23,18 +16,6 @@ def make_excel_bytes(fields, rows, sheet="Disease Cases") -> bytes:
     for values in rows:
         ws.append([values.get(key, "") for _, key in fields])
     buf = io.BytesIO(); wb.save(buf); return buf.getvalue()
-
-
-def post(addr: str, path: str, payload: dict, password: str | None = None) -> dict:
-    body = json.dumps(payload).encode()
-    headers = {"Content-Type": "application/json"}
-    if password is not None:
-        headers["X-GSBTN-Password"] = password
-    req = Request(addr + path, data=body, headers=headers, method="POST")
-    try:
-        return json.loads(urlopen(req, timeout=10).read().decode())
-    except HTTPError as exc:
-        return json.loads(exc.read().decode())
 
 
 def test_create_verify_disable_commune_account():
@@ -130,131 +111,3 @@ def test_audit_log_records_key_actions():
         commune_filtered = core.list_audit_log(db_path=db, commune="Xã Gia Viên")
         assert all(item["commune"] == "Xã Gia Viên" for item in commune_filtered)
         assert any(item["action"] == "queue_submit" for item in commune_filtered)
-
-
-def test_queue_submit_accepts_token_or_shared_password_side_by_side():
-    """/queue/submit phải chấp nhận song song 2 đường xác thực (không loại trừ nhau):
-    token đăng nhập xã (dùng bởi trang /xa) và mật khẩu máy chủ dùng chung (dùng bởi máy trạm
-    nội bộ và bởi Google Apps Script khi chuyển tiếp trực tiếp — GAS không có token riêng
-    từng xã). Việc đã có tài khoản xã không được làm mất đường mật khẩu dùng chung."""
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        core.DATA_DIR = root / "data"; core.DATA_DIR.mkdir()
-        core.DB_PATH = core.DATA_DIR / "test.db"
-        core.BACKUP_DIR = root / "backups"; core.QUEUE_DIR = root / "queue"
-        cfg = DeploymentConfig(mode="server", server_host="127.0.0.1", server_port=0, password="matkhauchung")
-        ctrl = LanServerController(cfg)
-        ctrl.start()
-        addr = f"http://127.0.0.1:{ctrl.port}"
-        try:
-            data = make_excel_bytes(core.CASE_FIELDS, [{"case_code": "CA-1"}])
-            legacy = post(addr, "/queue/submit", {
-                "commune": "Xã Legacy", "week": "2026-W29", "file_name": "ds.xlsx",
-                "content_base64": base64.b64encode(data).decode("ascii"),
-            }, password="matkhauchung")
-            assert legacy["ok"] and legacy["result"]["commune"] == "Xã Legacy"
-
-            core.create_commune_account("Xã Gia Viên", "xagiavien", "matkhau123", db_path=core.DB_PATH)
-
-            # Không token, không mật khẩu đúng -> bị chặn.
-            no_auth = post(addr, "/queue/submit", {
-                "commune": "Xã Bất Kỳ", "week": "2026-W29", "file_name": "ds2.xlsx",
-                "content_base64": base64.b64encode(data).decode("ascii"),
-            })
-            assert no_auth["ok"] is False
-
-            # Không token nhưng đúng mật khẩu dùng chung (mô phỏng GAS chuyển tiếp trực tiếp)
-            # -> vẫn nộp được dù hệ thống đã có tài khoản xã.
-            via_shared_password = post(addr, "/queue/submit", {
-                "commune": "Xã Đông Hải", "week": "2026-W29", "file_name": "ds2.xlsx",
-                "content_base64": base64.b64encode(data).decode("ascii"),
-            }, password="matkhauchung")
-            assert via_shared_password["ok"] and via_shared_password["result"]["commune"] == "Xã Đông Hải"
-
-            bad_login = post(addr, "/xa/login", {"username": "xagiavien", "password": "sai"})
-            assert bad_login["ok"] is False
-
-            login = post(addr, "/xa/login", {"username": "xagiavien", "password": "matkhau123"})
-            assert login["ok"]
-            token = login["result"]["token"]
-
-            # Có token hợp lệ -> nộp được dù KHÔNG gửi mật khẩu, và commune lấy theo token
-            # (bỏ qua "Xã Giả Mạo" tự khai trên payload).
-            submitted = post(addr, "/queue/submit", {
-                "commune": "Xã Giả Mạo", "week": "2026-W30", "file_name": "ds3.xlsx", "commune_token": token,
-                "content_base64": base64.b64encode(data).decode("ascii"),
-            })
-            assert submitted["ok"] and submitted["result"]["commune"] == "Xã Gia Viên"
-
-            with_bad_token = post(addr, "/queue/submit", {
-                "commune": "Xã X", "week": "2026-W30", "file_name": "ds4.xlsx", "commune_token": "token-gia-mao",
-                "content_base64": base64.b64encode(data).decode("ascii"),
-            })
-            assert with_bad_token["ok"] is False
-        finally:
-            ctrl.stop()
-
-
-def test_queue_submit_rate_limit_keyed_by_commune_not_only_ip():
-    """Nhiều xã cùng đi qua một IP (giả lập GAS chuyển tiếp) không được dùng chung 1 hạn mức —
-    xã A gửi dồn dập không được chặn oan xã B chỉ vì cùng nguồn IP."""
-    import lan_server as lan_server_module
-
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        core.DATA_DIR = root / "data"; core.DATA_DIR.mkdir()
-        core.DB_PATH = core.DATA_DIR / "test.db"
-        core.BACKUP_DIR = root / "backups"; core.QUEUE_DIR = root / "queue"
-        original_limit = lan_server_module.QUEUE_SUBMIT_RATE_LIMIT
-        lan_server_module.QUEUE_SUBMIT_RATE_LIMIT = 2
-        cfg = DeploymentConfig(mode="server", server_host="127.0.0.1", server_port=0, password="")
-        ctrl = LanServerController(cfg)
-        ctrl.start()
-        addr = f"http://127.0.0.1:{ctrl.port}"
-        try:
-            data = make_excel_bytes(core.CASE_FIELDS, [{"case_code": "CA-1"}])
-
-            def submit(commune: str) -> dict:
-                return post(addr, "/queue/submit", {
-                    "commune": commune, "week": "2026-W29", "file_name": "ds.xlsx",
-                    "content_base64": base64.b64encode(data).decode("ascii"),
-                })
-
-            assert submit("Xã A")["ok"]
-            assert submit("Xã A")["ok"]
-            assert submit("Xã A")["ok"] is False  # Xã A đã chạm hạn mức riêng của mình.
-
-            # Xã B (cùng IP localhost trong test) vẫn nộp được vì có hạn mức riêng theo (IP, xã).
-            assert submit("Xã B")["ok"]
-        finally:
-            ctrl.stop()
-            lan_server_module.QUEUE_SUBMIT_RATE_LIMIT = original_limit
-
-
-def test_remote_core_account_and_audit_proxies(monkeypatch):
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        core.DATA_DIR = root / "data"; core.DATA_DIR.mkdir()
-        core.DB_PATH = core.DATA_DIR / "test.db"
-        core.BACKUP_DIR = root / "backups"; core.QUEUE_DIR = root / "queue"
-        cfg = DeploymentConfig(mode="server", server_host="127.0.0.1", server_port=0, password="")
-        ctrl = LanServerController(cfg)
-        ctrl.start()
-        try:
-            workstation_cfg = DeploymentConfig(mode="workstation", server_url=f"http://127.0.0.1:{ctrl.port}")
-            monkeypatch.setattr(remote_core, "load_config", lambda: workstation_cfg)
-
-            created = remote_core.create_commune_account("Xã Gia Viên", "xagiavien", "matkhau123", actor="tester")
-            assert created["commune"] == "Xã Gia Viên"
-
-            accounts = remote_core.list_commune_accounts()
-            assert len(accounts) == 1 and accounts[0]["username"] == "xagiavien"
-
-            remote_core.set_commune_account_active(accounts[0]["id"], False, actor="tester")
-            remote_core.reset_commune_account_password(accounts[0]["id"], "matkhaumoi123", actor="tester")
-
-            logs = remote_core.list_audit_log(limit=50)
-            actions = {item["action"] for item in logs}
-            assert {"create_commune_account", "disable_commune_account", "reset_commune_account_password"} <= actions
-        finally:
-            ctrl.stop()

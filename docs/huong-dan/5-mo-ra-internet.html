@@ -51,7 +51,7 @@
 <h2>2. Chuẩn bị</h2>
 <ul>
   <li>Tài khoản Cloudflare (miễn phí) — đăng ký tại <span class="mono">cloudflare.com</span> nếu chưa có.</li>
-  <li>Máy đang chạy chế độ <b>Máy chủ</b> (app <span class="mono">GiamSatDichBenh-Server-Setup-*.exe</span>) — cloudflared cài trên chính máy này.</li>
+  <li>Máy đang chạy Web App (dịch vụ Windows <span class="mono">CDCGiamSatDichBenh</span>, cài bằng <span class="mono">CDC-GiamSatDichBenh-Server-Setup-*.exe</span>) — cloudflared cài trên chính máy này.</li>
 </ul>
 
 <h2>3. Chuyển domain sang Cloudflare quản lý DNS</h2>
@@ -64,7 +64,7 @@
 
 <h2>4. Cài cloudflared trên máy chủ</h2>
 <div class="step"><div class="num">1</div><div class="content">Tải <span class="mono">cloudflared</span> cho Windows tại <span class="mono">github.com/cloudflare/cloudflared/releases/latest</span> (file <span class="mono">cloudflared-windows-amd64.exe</span>), đổi tên thành <span class="mono">cloudflared.exe</span>, đặt vào thư mục cố định vd <span class="mono">C:\cloudflared\</span>.</div></div>
-<div class="step"><div class="num">2</div><div class="content">Đảm bảo máy chủ chính (app, chế độ Máy chủ) đang chạy, nghe cổng 8765 — kiểm tra ở tab Server.</div></div>
+<div class="step"><div class="num">2</div><div class="content">Đảm bảo dịch vụ Windows <span class="mono">CDCGiamSatDichBenh</span> đang chạy, nghe cổng 8765 — kiểm tra ở trang <span class="mono">/cdc/cau-hinh</span> sau khi đăng nhập.</div></div>
 
 <h2>5. Tạo Tunnel (làm trên trang web Cloudflare)</h2>
 <div class="step"><div class="num">1</div><div class="content">Vào <span class="mono">one.dash.cloudflare.com</span> → chọn tài khoản → mục <b>Networks → Tunnels</b> (tên mục có thể hơi khác nếu Cloudflare đổi giao diện, tìm chữ "Tunnels").</div></div>
@@ -87,7 +87,7 @@
 <div class="box warn">Từ bước 4, <span class="mono">cloudflared</span> chạy nền như dịch vụ Windows — tự khởi động lại cùng máy, không cần mở cửa sổ PowerShell chờ sẵn.</div>
 
 <h2>6. Bảo mật</h2>
-<p><b>Bắt buộc đặt mật khẩu máy chủ</b> (tab Server trong app) trước khi hoàn tất — đây là lớp xác thực duy nhất cho request đến từ Internet, vì Cloudflare Tunnel chỉ lo việc kết nối, không thay được việc xác thực của ứng dụng.</p>
+<p><b>Bắt buộc đặt các khoá bí mật</b> (<span class="mono">gas_api_key</span>/<span class="mono">public_submit_key</span> ở trang <span class="mono">/cdc/cau-hinh</span>) trước khi hoàn tất — Cloudflare Tunnel chỉ lo việc kết nối, không thay được việc xác thực của ứng dụng; quản trị viên vẫn đăng nhập bằng tài khoản riêng như bình thường.</p>
 
 <h2>7. Cập nhật cấu hình sau khi đã chạy</h2>
 <h3>7.1 Google Apps Script (chuyển tiếp trực tiếp)</h3>
@@ -95,13 +95,12 @@
 <table>
 <tr><th>Thuộc tính</th><th>Giá trị</th></tr>
 <tr><td><span class="mono">MAIN_SERVER_URL</span></td><td><span class="mono">https://cdc-hp.io.vn</span></td></tr>
-<tr><td><span class="mono">MAIN_SERVER_PASSWORD</span></td><td>Đúng mật khẩu máy chủ đã đặt ở Mục 6</td></tr>
+<tr><td><span class="mono">MAIN_SERVER_PASSWORD</span></td><td>Đúng giá trị <span class="mono">gas_api_key</span> đã đặt ở Mục 6</td></tr>
 </table>
 
-<h3>7.2 Máy trạm quản trị ở xa</h3>
-<div class="step"><div class="num">1</div><div class="content">Mở app → "Kết nối máy chủ LAN".</div></div>
-<div class="step"><div class="num">2</div><div class="content">Đổi "Địa chỉ máy chủ" thành <span class="mono">https://cdc-hp.io.vn</span>.</div></div>
-<div class="step"><div class="num">3</div><div class="content">Bấm "Kiểm tra kết nối" để xác nhận trước khi Lưu.</div></div>
+<h3>7.2 Quản trị viên truy cập từ xa</h3>
+<div class="step"><div class="num">1</div><div class="content">Mở trình duyệt tại <span class="mono">https://cdc-hp.io.vn/cdc/login</span>.</div></div>
+<div class="step"><div class="num">2</div><div class="content">Đăng nhập bằng tài khoản quản trị viên như bình thường — không cần cài/cấu hình gì thêm.</div></div>
 
 <h2>8. Xử lý sự cố thường gặp</h2>
 <table>

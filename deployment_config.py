@@ -3,11 +3,8 @@ from __future__ import annotations
 import json
 import os
 import secrets
-import socket
 from dataclasses import asdict, dataclass
 from pathlib import Path
-
-VALID_MODES = {"standalone", "workstation", "server"}
 
 
 def _user_data_root() -> Path:
@@ -24,24 +21,15 @@ CONFIG_PATH = _user_data_root() / "deployment.json"
 
 @dataclass
 class DeploymentConfig:
-    mode: str = "standalone"
     server_host: str = "0.0.0.0"
     server_port: int = 8765
-    server_url: str = "http://127.0.0.1:8765"
-    password: str = ""
-    auto_start_server: bool = True
-    server_name: str = ""
-    discovery_enabled: bool = True
-    auto_reconnect: bool = True
-    reconnect_attempts: int = 3
-    reconnect_delay_seconds: float = 1.0
     secondary_webapp_url: str = ""
     secondary_shared_key: str = ""
     secondary_sync_interval_minutes: int = 20
     # Khoá riêng cho Google Apps Script gọi POST /queue/submit trên webapp/ (Web App tập
-    # trung) — TÁCH RIÊNG khỏi `password` (mật khẩu LAN dùng chung cho app desktop cũ) để giới
-    # hạn phạm vi nếu lộ và đổi được độc lập. Header vẫn là X-GSBTN-Password (không đổi phía
-    # Code.gs) — chỉ khác giá trị nào được server đem ra so khớp. Xem webapp/routers/submission_api.py.
+    # trung) — TÁCH RIÊNG khỏi `public_submit_key` để giới hạn phạm vi nếu lộ và đổi được độc
+    # lập. Header vẫn là X-GSBTN-Password (không đổi phía Code.gs) — chỉ khác giá trị nào được
+    # server đem ra so khớp. Xem webapp/routers/submission_api.py.
     gas_api_key: str = ""
     # Khoá riêng cho POST /queue/submit-xa — nơi trang GitHub Pages (docs/index.html) nộp TRỰC
     # TIẾP từ trình duyệt của xã (không qua Google Apps Script nữa khi máy chủ chính online).
@@ -52,31 +40,12 @@ class DeploymentConfig:
     # SHARED_KEY bên Google Apps Script để xã chỉ cần nhớ/gõ một khoá duy nhất cho cả 2 đường nộp.
     public_submit_key: str = ""
     web_token_secret: str = ""
-    admin_username: str = ""
-    admin_token: str = ""
-    # Đặt khi máy chủ này đã "Chuyển máy chủ" thành công sang địa chỉ mới — từ đó máy chủ chỉ
-    # còn báo địa chỉ mới cho mọi request thay vì phục vụ dữ liệu (xem migrate_to_new_server).
-    retired_redirect_url: str = ""
     # Địa chỉ Internet công khai của máy chủ này (vd. qua Cloudflare Tunnel), dùng để tự kiểm tra
     # kết nối ra ngoài và điền vào MAIN_SERVER_URL của Google Apps Script.
     public_url: str = ""
-    # Đóng cửa sổ (nút X) chỉ ẩn xuống khay hệ thống thay vì thoát hẳn — tránh vô tình tắt máy
-    # chủ khi chỉ định đóng cửa sổ. Áp dụng từ lần mở ứng dụng kế tiếp sau khi bật.
-    minimize_to_tray: bool = False
-    # Giữ máy không vào chế độ ngủ trong lúc server đang chạy (không giữ màn hình sáng).
+    # Giữ máy không vào chế độ ngủ trong lúc server đang chạy (không giữ màn hình sáng) — dùng
+    # bởi service_tray.py khi chạy chế độ thủ công (thu vào khay hệ thống thay vì dịch vụ Windows).
     prevent_sleep: bool = False
-
-    @property
-    def is_standalone(self) -> bool:
-        return self.mode == "standalone"
-
-    @property
-    def is_workstation(self) -> bool:
-        return self.mode == "workstation"
-
-    @property
-    def is_server(self) -> bool:
-        return self.mode == "server"
 
 
 def load_config() -> DeploymentConfig:
@@ -86,50 +55,27 @@ def load_config() -> DeploymentConfig:
         raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return DeploymentConfig()
-    mode = str(raw.get("mode", "standalone")).strip().lower()
-    if mode not in VALID_MODES:
-        mode = "standalone"
     try:
         port = int(raw.get("server_port", 8765))
     except (TypeError, ValueError):
         port = 8765
     port = max(1, min(65535, port))
-    server_url = str(raw.get("server_url", f"http://127.0.0.1:{port}") or "").strip().rstrip("/")
     return DeploymentConfig(
-        mode=mode,
         server_host=str(raw.get("server_host", "0.0.0.0") or "0.0.0.0").strip(),
         server_port=port,
-        server_url=server_url or f"http://127.0.0.1:{port}",
-        password=str(raw.get("password", "") or ""),
-        auto_start_server=bool(raw.get("auto_start_server", True)),
-        server_name=str(raw.get("server_name", "") or socket.gethostname()).strip(),
-        discovery_enabled=bool(raw.get("discovery_enabled", True)),
-        auto_reconnect=bool(raw.get("auto_reconnect", True)),
-        reconnect_attempts=max(1, min(10, int(raw.get("reconnect_attempts", 3) or 3))),
-        reconnect_delay_seconds=max(0.1, min(10.0, float(raw.get("reconnect_delay_seconds", 1.0) or 1.0))),
         secondary_webapp_url=str(raw.get("secondary_webapp_url", "") or "").strip(),
         secondary_shared_key=str(raw.get("secondary_shared_key", "") or ""),
         secondary_sync_interval_minutes=max(5, min(180, int(raw.get("secondary_sync_interval_minutes", 20) or 20))),
         gas_api_key=str(raw.get("gas_api_key", "") or ""),
         public_submit_key=str(raw.get("public_submit_key", "") or ""),
         web_token_secret=str(raw.get("web_token_secret", "") or ""),
-        admin_username=str(raw.get("admin_username", "") or ""),
-        admin_token=str(raw.get("admin_token", "") or ""),
-        retired_redirect_url=str(raw.get("retired_redirect_url", "") or ""),
         public_url=str(raw.get("public_url", "") or "").strip().rstrip("/"),
-        minimize_to_tray=bool(raw.get("minimize_to_tray", False)),
         prevent_sleep=bool(raw.get("prevent_sleep", False)),
     )
 
 
 def save_config(config: DeploymentConfig) -> Path:
-    if config.mode not in VALID_MODES:
-        raise ValueError("Chế độ triển khai không hợp lệ.")
     config.server_port = max(1, min(65535, int(config.server_port)))
-    config.server_url = config.server_url.strip().rstrip("/")
-    config.server_name = (config.server_name or socket.gethostname()).strip()
-    config.reconnect_attempts = max(1, min(10, int(config.reconnect_attempts)))
-    config.reconnect_delay_seconds = max(0.1, min(10.0, float(config.reconnect_delay_seconds)))
     config.secondary_sync_interval_minutes = max(5, min(180, int(config.secondary_sync_interval_minutes)))
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     temp = CONFIG_PATH.with_suffix(".tmp")
@@ -144,11 +90,3 @@ def ensure_web_token_secret(config: DeploymentConfig) -> DeploymentConfig:
         config.web_token_secret = secrets.token_hex(32)
         save_config(config)
     return config
-
-
-def mode_label(mode: str) -> str:
-    return {
-        "standalone": "Máy đơn lẻ",
-        "workstation": "Máy trạm",
-        "server": "Máy chủ",
-    }.get(mode, mode)

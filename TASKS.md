@@ -3,7 +3,7 @@
 Kiến trúc & schema hiện tại xem [`CLAUDE.md`](CLAUDE.md). File này chỉ theo dõi **việc đã xong
 gần đây** (để không làm lại) và **việc còn mở**.
 
-## Đang làm: chuyển sang Web App tập trung (FastAPI)
+## ĐÃ XONG: chuyển sang Web App tập trung (FastAPI) — bản desktop đã gỡ bỏ hoàn toàn ở v0.17.0
 
 Nhiệm vụ lớn: bỏ mô hình desktop PyQt6 + máy trạm quản trị riêng, chuyển toàn bộ quản trị sang
 Web App chạy trên đúng 1 máy chủ, quản trị viên chỉ cần trình duyệt (Chrome/Edge) qua
@@ -203,10 +203,10 @@ lúc giao việc này — tóm tắt tiến độ theo 11 giai đoạn:
         Chưa xác minh được cài đặt dịch vụ Windows thật trên máy có quyền Administrator (xem
         Giai đoạn 8/9), nên chưa tự ý kích hoạt phát hành công khai — để CDC/người phụ trách
         release tự bump khi đã sẵn sàng phát hành, sau khi xác nhận cài thật thành công.
-      - Xoá `app.py`/`lan_server.py`/`setup.iss`/`setup-server.iss`/`setup-admin.iss` — theo
-        đúng điều kiện đã ghi từ đầu nhiệm vụ này ("chưa xoá cho tới khi Web App thay thế đủ
-        chức năng VÀ được xác nhận dùng thật"), điều kiện đó chưa thoả (chưa có xác nhận cài đặt
-        dịch vụ Windows thật trên máy CDC). Giữ nguyên toàn bộ, chạy song song.
+      - ~~Xoá `app.py`/`lan_server.py`/`setup.iss`/`setup-server.iss`/`setup-admin.iss`~~ — **ĐÃ
+        LÀM ở v0.17.0** (xem mục "Gỡ bỏ hoàn toàn bản desktop PyQt6" bên dưới), theo yêu cầu
+        tường minh của CDC, không đợi điều kiện "xác nhận cài dịch vụ Windows thật" đã ghi ở đây
+        trước đó nữa.
       - Vẽ lại sơ đồ ASCII "Kiến trúc tổng thể" ở đầu `CLAUDE.md` — vẫn đúng cho luồng desktop cũ
         (`lan_server.py`), chưa vẽ thêm nhánh Web App mới; mục "Web App tập trung" đã mô tả đủ
         bằng văn bản nên không chặn việc dùng tài liệu, nhưng nên làm khi có dịp.
@@ -447,11 +447,11 @@ preflight, nhưng chưa kiểm thử được bằng trình duyệt thật.
    bước kích hoạt bị bỏ sót, vì giá trị này nằm trong file code (cần sửa + đẩy lên GitHub Pages)
    chứ không phải một mục cấu hình qua form web như `public_submit_key`.
 2. **Máy trạm desktop (`app.py`: "Kết nối máy chủ LAN → Đăng nhập quản trị viên") không tương
-   thích với Web App tập trung** — xem CLAUDE.md mục "Cạm bẫy đã gặp thật" (ngay dưới Giai đoạn
-   8) để biết đầy đủ nguyên nhân (giao thức JSON thô vs form+CSRF, 2 CSDL riêng biệt). Tài khoản
-   tạo qua `/cdc/tai-khoan` không đăng nhập được từ máy trạm cũ dù đúng mật khẩu — không phải
-   lỗi mật khẩu, là do máy trạm và Web App đọc 2 CSDL khác nhau. Khuyến nghị: quản trị viên đăng
-   nhập thẳng bằng trình duyệt, không dùng lại tính năng máy trạm LAN của `app.py` nữa.
+   thích với Web App tập trung** — nguyên nhân: giao thức JSON thô vs form+CSRF, 2 CSDL riêng
+   biệt. Tài khoản tạo qua `/cdc/tai-khoan` không đăng nhập được từ máy trạm cũ dù đúng mật khẩu
+   — không phải lỗi mật khẩu, là do máy trạm và Web App đọc 2 CSDL khác nhau. Khuyến nghị lúc đó:
+   quản trị viên đăng nhập thẳng bằng trình duyệt. **Từ v0.17.0, vấn đề này không còn tồn tại vì
+   `app.py` đã bị xoá hẳn** — xem mục ngay dưới đây.
 3. **Xóa theo lần nhập** (`/cdc/lich-su-nhap`, `webapp/routers/import_history.py`,
    `core.delete_import_batch`) — trang mới liệt kê lịch sử nhập Excel (bảng `import_batches` đã
    có sẵn từ trước nhưng chưa có giao diện Web), cho phép xóa nguyên một lần nhập (mọi ca
@@ -459,13 +459,70 @@ preflight, nhưng chưa kiểm thử được bằng trình duyệt thật.
    file — tự sao lưu CSDL trước khi xóa. Xem CLAUDE.md mục "Xóa theo lần nhập" để biết chi tiết
    cơ chế khớp bản ghi. Test: `tests/test_webapp_import_history.py` (8 ca).
 
+### Gỡ bỏ hoàn toàn bản desktop PyQt6 (v0.17.0) — theo yêu cầu tường minh của CDC
+
+CDC yêu cầu "bỏ hết bản khác ngoài bản web" — không đợi điều kiện "xác nhận cài dịch vụ Windows
+thật" đã ghi ở Giai đoạn 11 nữa (Web App đã dùng thật trong phiên làm việc này: tạo tài khoản,
+nhập/xoá dữ liệu thật). Đã xoá:
+
+- **File**: `app.py`, `lan_server.py`, `remote_core.py`, `lan_discovery.py`, `setup.iss`,
+  `setup-server.iss`, `setup-admin.iss`.
+- **`deployment_config.py`**: bỏ các trường chỉ phục vụ desktop/LAN cũ — `mode`, `server_url`,
+  `password` (mật khẩu LAN dùng chung), `auto_start_server`, `server_name`, `discovery_enabled`,
+  `auto_reconnect`, `reconnect_attempts`, `reconnect_delay_seconds`, `admin_username`,
+  `admin_token`, `retired_redirect_url`; bỏ `VALID_MODES`/`is_standalone`/`is_workstation`/
+  `is_server`/`mode_label`. Giữ nguyên các trường webapp/ đang dùng thật (`server_host`,
+  `server_port`, `secondary_webapp_url`, `secondary_shared_key`,
+  `secondary_sync_interval_minutes`, `gas_api_key`, `public_submit_key`, `web_token_secret`,
+  `public_url`, `prevent_sleep`).
+- **Test**: xoá hẳn `tests/test_migrate_server.py` (toàn bộ chỉ test tính năng "Chuyển máy chủ"
+  của `lan_server.py`, không có tương đương ở webapp/). Ở 5 file còn lại
+  (`tests/test_accounts_audit.py`, `test_advanced_features.py`, `test_cdc_accounts.py`,
+  `test_features.py`, `test_web_workflow.py`), chỉ xoá các hàm test dựng `LanServerController`/
+  gọi `remote_core`/`lan_discovery` trực tiếp — giữ nguyên mọi test thuần `core.py` (không phụ
+  thuộc lan_server), vì logic đó `webapp/` vẫn dùng chung. 8 test mới của "Xóa theo lần nhập"
+  không đổi.
+- **Build**: `build.bat`/`.github/workflows/release.yml` chỉ còn build + phát hành
+  `CDC-GiamSatDichBenh-Server-Setup-vX.Y.Z.exe` (bỏ 3 bộ cài desktop cũ + file ZIP portable).
+  `requirements.txt` bỏ `PyQt6`/`PyQt6-Charts`. `run.bat` đổi sang `service_windows.py run`
+  (chạy console, tiện xem log khi phát triển).
+- **Tài liệu**: `CLAUDE.md`/`README.md` viết lại toàn bộ đoạn "chạy song song 2 kiến trúc", sơ đồ
+  kiến trúc, bảng file chính, mục Installer — không còn nhắc `app.py`/`lan_server.py` như đang
+  tồn tại. Xoá hẳn 2 hướng dẫn PDF/HTML đã lỗi thời hoàn toàn vì mô tả bộ cài không còn tồn tại:
+  `docs/huong-dan/2-may-chu.html/.pdf` (Máy chủ desktop), `docs/huong-dan/3-may-tram-quan-tri.html/.pdf`
+  (Máy trạm quản trị). Sửa `docs/huong-dan/5-mo-ra-internet.html` (không còn nhắc "Kết nối máy
+  chủ LAN"/"chế độ Máy chủ" của app cũ).
+- **Chức năng mới thay cho trải nghiệm "đóng cửa sổ = thu vào khay hệ thống" của app.py cũ**:
+  `service_tray.py` + `Chay_May_Chu.bat` — chạy webapp/ thủ công kèm icon khay hệ thống (chuột
+  phải: "Mở trình duyệt"/"Thoát"), dùng khi chưa muốn đăng ký dịch vụ Windows thật. Dựng bằng
+  `win32gui`/`win32api` thô (Shell_NotifyIcon) thay vì thêm thư viện mới (`pystray`+`Pillow`) —
+  `pywin32` vốn đã là phụ thuộc sẵn có cho `service_windows.py`. Đã kiểm thử tạo/xoá icon khay
+  thật trong sandbox (không kiểm thử được vòng lặp `PumpMessages()` chặn — cần người có màn hình
+  Windows thật bấm thử).
+
+**2 khoảng trống chức năng thật sự phát sinh** (không phải lỗi — hệ quả tất yếu của việc xoá
+`app.py`, cần CDC xác nhận có cần xây lại ở `webapp/` hay không):
+
+1. **"Chuyển máy chủ"** (`LanServerController.migrate_to_new_server`) — tính năng gửi toàn bộ
+   CSDL sang máy chủ mới rồi tự đóng máy cũ, không có tương đương ở `webapp/`. Đánh giá: giá trị
+   giảm nhiều so với trước — kiến trúc cũ cần trò này vì máy trạm gõ thẳng IP máy chủ; nay chỉ có
+   1 domain qua Cloudflare Tunnel, "chuyển máy chủ" đơn giản chỉ còn là: dừng dịch vụ cũ, cài
+   dịch vụ mới trên máy khác, copy nguyên file `.db` sang, đổi Public Hostname trong Cloudflare
+   Tunnel trỏ máy mới — không cần cơ chế "retired redirect" tự động nữa.
+2. **Cấu hình cột hiển thị ca bệnh** (`case_view_config.py` — chọn/ẩn cột, đổi tiêu đề, thêm cột
+   tính toán `age_years`/`days_between`/`concat`) — module + dữ liệu JSON vẫn còn nguyên, nhưng
+   `app.CaseColumnsSettingsDialog` (giao diện duy nhất từng gọi tới) đã bị xoá cùng `app.py`.
+   `webapp/routers/records.py` hiện chỉ có `CASE_DEFAULT_VISIBLE_COLUMNS` cố định (ẩn/hiện cột
+   phía client, không đọc `case_view_config.py`). Muốn dùng lại tính năng này cần xây 1 trang cấu
+   hình mới trong `webapp/`.
+
 ## Backlog — chưa cài đặt
 
 Thứ tự không nhất thiết phản ánh độ ưu tiên; đánh giá lại theo nhu cầu triển khai thật.
 
-- [ ] **HTTPS cho `lan_server.py`** — hiện dùng `http.server` thuần, mật khẩu/token truyền qua
-      HTTP nếu chưa có TLS. Bắt buộc phải có trước khi mở máy chủ chính ra Internet lâu dài
-      (không chỉ dựa vào reverse proxy tạm thời).
+- [ ] **HTTPS ngay tại `webapp/`** (không chỉ dựa vào Cloudflare Tunnel) — Uvicorn hiện phục vụ
+      HTTP thuần trong LAN, TLS chỉ có ở chặng Cloudflare Tunnel khi mở ra Internet; truy cập
+      trực tiếp trong LAN (chưa qua tunnel) vẫn truyền cookie/mật khẩu qua HTTP.
 - [ ] **Mã hoá `national_id`/`phone` lúc lưu trữ** (Nghị định 13/2023/NĐ-CP) — cần thiết kế
       riêng vì ảnh hưởng trực tiếp thuật toán so khớp trùng hiện dựa trên so sánh giá trị
       thuần (mã hoá sẽ cần so khớp trên giá trị đã băm/mã hoá xác định — deterministic).

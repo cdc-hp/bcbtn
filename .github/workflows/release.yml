@@ -185,24 +185,13 @@ jobs:
             exit 1
           }
 
-      - name: Create portable ZIP
-        if: github.event_name == 'pull_request' || steps.version.outputs.release_exists != 'true'
-        shell: pwsh
-        run: |
-          $version = "${{ steps.version.outputs.version }}"
-          Compress-Archive -Path "dist/GiamSatDichBenh/*" -DestinationPath "GiamSatDichBenh-Portable-v$version.zip" -Force
-
       - name: Generate SHA-256 checksums
         if: github.event_name == 'pull_request' || steps.version.outputs.release_exists != 'true'
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
           $files = @(
-            "setup_output/GiamSatDichBenh-Setup-v$version.exe",
-            "setup_output/GiamSatDichBenh-Server-Setup-v$version.exe",
-            "setup_output/GiamSatDichBenh-Admin-Setup-v$version.exe",
-            "setup_output/CDC-GiamSatDichBenh-Server-Setup-v$version.exe",
-            "GiamSatDichBenh-Portable-v$version.zip"
+            "setup_output/CDC-GiamSatDichBenh-Server-Setup-v$version.exe"
           )
           foreach ($file in $files) { if (-not (Test-Path $file)) { throw "Missing release file: $file" } }
           $lines = foreach ($file in $files) {
@@ -224,11 +213,7 @@ jobs:
           git tag -a $tag HEAD -m "Release $tag"
           git push origin $tag
           gh release create $tag `
-            "setup_output/GiamSatDichBenh-Setup-v$version.exe" `
-            "setup_output/GiamSatDichBenh-Server-Setup-v$version.exe" `
-            "setup_output/GiamSatDichBenh-Admin-Setup-v$version.exe" `
             "setup_output/CDC-GiamSatDichBenh-Server-Setup-v$version.exe" `
-            "GiamSatDichBenh-Portable-v$version.zip" `
             "SHA256SUMS.txt" `
             --title "Giám sát dịch bệnh $tag" `
             --generate-notes
@@ -239,9 +224,5 @@ jobs:
         with:
           name: GiamSatDichBenh-v${{ steps.version.outputs.version }}
           path: |
-            setup_output/GiamSatDichBenh-Setup-v${{ steps.version.outputs.version }}.exe
-            setup_output/GiamSatDichBenh-Server-Setup-v${{ steps.version.outputs.version }}.exe
-            setup_output/GiamSatDichBenh-Admin-Setup-v${{ steps.version.outputs.version }}.exe
             setup_output/CDC-GiamSatDichBenh-Server-Setup-v${{ steps.version.outputs.version }}.exe
-            GiamSatDichBenh-Portable-v${{ steps.version.outputs.version }}.zip
             SHA256SUMS.txt
