@@ -86,6 +86,33 @@
   @keyframes msgPop { from { transform: scale(.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 
   .footer-note { text-align: center; font-size: .76rem; color: var(--slate-500); margin-top: 20px; }
+
+  .success-overlay {
+    position: fixed; inset: 0; background: rgba(15,23,42,.55);
+    -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+    display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px;
+    animation: overlayFade .2s ease-out; cursor: pointer;
+  }
+  @keyframes overlayFade { from { opacity: 0; } to { opacity: 1; } }
+  .success-card {
+    background: #fff; border-radius: 18px; padding: 32px 28px; max-width: 340px; width: 100%;
+    text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,.25); cursor: default;
+    animation: cardPop .3s cubic-bezier(.34,1.56,.64,1);
+  }
+  @keyframes cardPop { from { transform: scale(.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .success-check-circle {
+    stroke: var(--green-700); stroke-width: 3; stroke-dasharray: 151; stroke-dashoffset: 151;
+    animation: successCircle .5s ease-out forwards;
+  }
+  .success-check-mark {
+    stroke: var(--green-700); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round;
+    stroke-dasharray: 32; stroke-dashoffset: 32; animation: successMark .35s .4s ease-out forwards;
+  }
+  @keyframes successCircle { to { stroke-dashoffset: 0; } }
+  @keyframes successMark { to { stroke-dashoffset: 0; } }
+  .success-title { margin-top: 14px; font-size: 1.15rem; font-weight: 700; color: var(--slate-900); }
+  .success-detail { margin-top: 6px; font-size: .88rem; color: var(--slate-500); line-height: 1.5; }
+  .success-close-hint { margin-top: 18px; font-size: .74rem; color: var(--slate-300); }
 </style>
 </head>
 <body>
@@ -142,6 +169,18 @@
     </div>
 
     <div class="footer-note">CDC Hải Phòng · Ứng dụng Giám sát dịch bệnh</div>
+  </div>
+</div>
+
+<div id="successOverlay" class="success-overlay" style="display:none" role="alert" aria-live="assertive">
+  <div class="success-card">
+    <svg viewBox="0 0 52 52" width="72" height="72" aria-hidden="true">
+      <circle class="success-check-circle" cx="26" cy="26" r="24" fill="none"/>
+      <path class="success-check-mark" fill="none" d="M14 27l7 7 16-16"/>
+    </svg>
+    <div class="success-title">Nộp báo cáo thành công!</div>
+    <div class="success-detail" id="successDetail"></div>
+    <div class="success-close-hint">Chạm để đóng</div>
   </div>
 </div>
 
@@ -402,7 +441,24 @@ function showSuccessMsg(msg, text) {
   msg.appendChild(icon);
   msg.appendChild(span);
   msg.scrollIntoView({ behavior: "smooth", block: "center" });
+  showSuccessOverlay(text);
 }
+
+// Lớp phủ toàn màn hình báo nộp thành công — hiện ~10s rồi tự đóng (hoặc chạm vào để đóng ngay),
+// để người nộp trên điện thoại thấy rõ ràng đã nộp xong dù không để ý dòng chữ nhỏ dưới form.
+var successOverlayTimer = null;
+function showSuccessOverlay(text) {
+  var overlay = document.getElementById("successOverlay");
+  document.getElementById("successDetail").textContent = text;
+  overlay.style.display = "flex";
+  if (successOverlayTimer) clearTimeout(successOverlayTimer);
+  successOverlayTimer = setTimeout(hideSuccessOverlay, 10000);
+}
+function hideSuccessOverlay() {
+  document.getElementById("successOverlay").style.display = "none";
+  if (successOverlayTimer) { clearTimeout(successOverlayTimer); successOverlayTimer = null; }
+}
+document.getElementById("successOverlay").addEventListener("click", hideSuccessOverlay);
 
 document.getElementById("f").addEventListener("submit", function (ev) {
   ev.preventDefault();
