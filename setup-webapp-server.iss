@@ -44,10 +44,15 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
 Source: "dist_cdc_service\CDCGiamSatDichBenh\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Công cụ cập nhật thủ công (chạy trực tiếp trong cửa sổ, không tách tiến trình ẩn như nút "Cập
+; nhật ứng dụng" trên trình duyệt) — dùng khi nút đó bị kẹt, xem CLAUDE.md mục "Tự cập nhật qua web".
+Source: "Cap_Nhat_May_Chu.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "Cap_Nhat_May_Chu.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Mở trang quản trị"; Filename: "{code:GetAdminUrl}"
 Name: "{group}\Thư mục dữ liệu"; Filename: "{code:GetDataDir}"
+Name: "{group}\Cập nhật máy chủ (thủ công)"; Filename: "{app}\Cap_Nhat_May_Chu.bat"; WorkingDir: "{app}"
 
 [UninstallRun]
 Filename: "{app}\{#MyAppExeName}"; Parameters: "stop"; Flags: runhidden; RunOnceId: "StopService"

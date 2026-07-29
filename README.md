@@ -1,4 +1,4 @@
-# Ứng dụng Giám sát dịch bệnh — phiên bản 0.18.3
+# Ứng dụng Giám sát dịch bệnh — phiên bản 0.18.4
 
 Quản lý ca bệnh, ổ dịch, lọc trùng và chia sẻ dữ liệu — CDC Hải Phòng. Web App tập trung: 1 máy
 chủ duy nhất chạy dịch vụ Windows (FastAPI/Uvicorn), quản trị hoàn toàn qua trình duyệt, không
@@ -22,6 +22,11 @@ dùng máy chủ dự phòng) — xem `CLAUDE.md` mục "Máy chủ dự phòng"
 
 Hướng dẫn chi tiết: [`docs/huong-dan/6-may-chu-web-tap-trung.html`](docs/huong-dan/6-may-chu-web-tap-trung.html).
 Kiến trúc/route/vai trò tài khoản: xem `CLAUDE.md` mục "Web App tập trung (`webapp/`)".
+
+**Cập nhật lên bản mới**: nút "Cập nhật ứng dụng" ở trang Cấu hình (qua trình duyệt). Nếu nút đó
+bị kẹt: mở thư mục cài đặt (icon "Thư mục dữ liệu" hoặc `C:\CDC-GiamSatDichBenh`), chuột phải
+`Cap_Nhat_May_Chu.bat` → **Run as administrator** — tự tải bản mới nhất, kiểm tra mã an toàn, cài
+đặt ngay trong cửa sổ đang mở (không kẹt âm thầm như nút trên trình duyệt).
 
 Muốn chạy thủ công (không đăng ký dịch vụ Windows, ví dụ máy demo/phát triển): bấm đúp
 `Chay_May_Chu.bat` — chạy nền kèm icon khay hệ thống, chuột phải để mở trình duyệt hoặc dừng

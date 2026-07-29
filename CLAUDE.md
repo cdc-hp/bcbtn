@@ -269,6 +269,28 @@ thông báo rõ, không khoá chết nút "Kiểm tra cập nhật". Ngoài ra c
 giao diện (`POST /cdc/cau-hinh/cap-nhat/dat-lai`) để super-admin tự xử lý ngay lập tức, không cần
 đợi cơ chế tự phát hiện.
 
+**Cạm bẫy đã gặp thật #2 — kẹt "installing" mà KHÔNG có nguyên nhân rõ ràng như trên (lần này bộ
+cài thật còn chưa hề kịp chạy — không sinh ra file log Inno Setup nào, `VERSION.txt` không đổi).**
+Nghi ngờ cao nhất: tiến trình PowerShell tách rời (`subprocess.Popen(..., DETACHED_PROCESS |
+CREATE_NEW_PROCESS_GROUP)`) do chính dịch vụ Windows (chạy trong Session 0, tài khoản hệ thống)
+tự bật lên đôi khi không thực sự chạy được — có thể do phần mềm diệt virus can thiệp tiến trình
+nền mới tải về, chưa xác định được chắc chắn 100%, chưa tái hiện lại được theo ý muốn. **Giải pháp
+thay thế không phụ thuộc cơ chế tách tiến trình đó:** `Cap_Nhat_May_Chu.bat` +
+`Cap_Nhat_May_Chu.ps1` (cài sẵn cùng thư mục ứng dụng, có icon riêng trong Start Menu) — tự tải bản
+mới nhất từ GitHub Releases, kiểm tra SHA-256, chạy bộ cài **ngay trong cửa sổ đang mở** (không
+tách tiến trình ẩn) nên nếu lỗi sẽ HIỆN NGAY trên màn hình thay vì kẹt âm thầm. Dùng khi nút "Cập
+nhật ứng dụng" trên trình duyệt bị kẹt. Yêu cầu chạy với quyền Administrator (chuột phải → "Run as
+administrator").
+
+**Cạm bẫy đã gặp thật #3 — viết `Cap_Nhat_May_Chu.ps1` lần đầu, kiểm tra SHA-256 luôn báo không
+khớp mà không lỗi rõ ràng.** Nguyên nhân: `(Invoke-WebRequest -Uri ...).Content` khi tải
+`SHA256SUMS.txt` từ GitHub Releases trả về **`byte[]` chứ không phải `string`** (tuỳ Content-Type
+máy chủ trả về) — `-split "\`r?\`n"` trên mảng byte đó không báo lỗi, chỉ âm thầm tách thành từng
+phần tử là 1 byte riêng lẻ, khiến bước so khớp dòng luôn tìm không ra (`$expectedLine` rỗng) mà
+không có exception nào để lộ ra nguyên nhân thật. Sửa bằng cách tải `SHA256SUMS.txt` ra file tạm
+rồi đọc lại bằng `Get-Content -Encoding UTF8` — luôn chắc chắn là text, không phụ thuộc
+Content-Type của response.
+
 ## Mô hình dữ liệu
 
 - **`cases`** — 48 trường danh sách ca bệnh + `birth_year`, thông tin file nguồn, `row_hash`,
