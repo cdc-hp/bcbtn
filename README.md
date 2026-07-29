@@ -1,4 +1,4 @@
-# Ứng dụng Giám sát dịch bệnh — phiên bản 0.18.2
+# Ứng dụng Giám sát dịch bệnh — phiên bản 0.18.3
 
 Quản lý ca bệnh, ổ dịch, lọc trùng và chia sẻ dữ liệu — CDC Hải Phòng. Web App tập trung: 1 máy
 chủ duy nhất chạy dịch vụ Windows (FastAPI/Uvicorn), quản trị hoàn toàn qua trình duyệt, không
@@ -14,6 +14,11 @@ như dịch vụ Windows (`CDCGiamSatDichBenh`), cần quyền Administrator, c�
 trên máy đóng vai trò máy chủ. Sau khi cài, mở `http://127.0.0.1:<cổng>/cdc/login` (mặc định
 cổng `8765`, hoặc qua tên miền công khai nếu đã cấu hình Cloudflare Tunnel) — quản trị viên khác
 chỉ cần trình duyệt, không cài gì thêm.
+
+**Bản cài mới luôn khởi động ở chế độ "dự phòng"** (không nhận thay đổi dữ liệu) — sau khi tạo
+tài khoản super-admin đầu tiên, trang sẽ tự đưa tới "Cấu hình", bấm **"Đặt máy này làm MÁY
+CHÍNH"** để bắt đầu dùng bình thường. Bước này bắt buộc dù chỉ dùng 1 máy chủ duy nhất (không
+dùng máy chủ dự phòng) — xem `CLAUDE.md` mục "Máy chủ dự phòng" để biết lý do.
 
 Hướng dẫn chi tiết: [`docs/huong-dan/6-may-chu-web-tap-trung.html`](docs/huong-dan/6-may-chu-web-tap-trung.html).
 Kiến trúc/route/vai trò tài khoản: xem `CLAUDE.md` mục "Web App tập trung (`webapp/`)".

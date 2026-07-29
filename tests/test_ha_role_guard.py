@@ -215,6 +215,70 @@ def test_role_status_reports_current_role(client: TestClient):
     assert resp.json()["server_role"] == "standby"
 
 
+def test_request_sync_endpoint_requires_correct_key(client: TestClient):
+    _set_role("standby", peer_key="khoa-dung")
+    resp = client.post("/noi-bo/ha/yeu-cau-dong-bo", headers={"X-CDC-Peer-Key": "khoa-sai"})
+    assert resp.status_code == 401
+
+
+def test_request_sync_endpoint_refuses_when_not_standby(client: TestClient):
+    _set_role("primary", peer_key="khoa-dung")
+    resp = client.post("/noi-bo/ha/yeu-cau-dong-bo", headers={"X-CDC-Peer-Key": "khoa-dung"})
+    assert resp.status_code == 409
+
+
+def test_request_sync_endpoint_triggers_pull_when_standby(client: TestClient, monkeypatch):
+    _set_role("standby", peer_key="khoa-dung", peer_url="http://192.168.1.99:8765")
+    monkeypatch.setattr(ha_sync, "run_standby_pull_once", lambda db_path=None: {"restored_from": "fake.db"})
+    resp = client.post("/noi-bo/ha/yeu-cau-dong-bo", headers={"X-CDC-Peer-Key": "khoa-dung"})
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True, "result": {"restored_from": "fake.db"}}
+
+
+def test_request_sync_endpoint_surfaces_pull_error(client: TestClient, monkeypatch):
+    _set_role("standby", peer_key="khoa-dung", peer_url="http://192.168.1.99:8765")
+    monkeypatch.setattr(ha_sync, "run_standby_pull_once", lambda db_path=None: {"error": "khong ket noi duoc"})
+    resp = client.post("/noi-bo/ha/yeu-cau-dong-bo", headers={"X-CDC-Peer-Key": "khoa-dung"})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is False
+
+
+# --- /cdc/vai-tro-may-chu/yeu-cau-may-kia-dong-bo (primary chủ động nhờ standby đồng bộ) -----
+
+def test_request_peer_sync_requires_super_admin(client: TestClient):
+    _login(client, role=core.CDC_ROLE_ADMIN)
+    csrf = _fresh_csrf(client, "/cdc/dashboard")
+    resp = client.post("/cdc/vai-tro-may-chu/yeu-cau-may-kia-dong-bo", data={"csrf_token": csrf})
+    assert resp.status_code == 403
+
+
+def test_request_peer_sync_requires_peer_configured(client: TestClient):
+    _login(client, role=core.CDC_ROLE_SUPER_ADMIN)
+    csrf = _fresh_csrf(client, "/cdc/cau-hinh")
+    resp = client.post("/cdc/vai-tro-may-chu/yeu-cau-may-kia-dong-bo", data={"csrf_token": csrf}, follow_redirects=False)
+    assert "err=" in resp.headers["location"]
+
+
+def test_request_peer_sync_success_redirects_with_message(client: TestClient, monkeypatch):
+    _login(client, role=core.CDC_ROLE_SUPER_ADMIN)
+    _set_role("primary", peer_url="http://192.168.1.99:8765", peer_key="khoa")
+    monkeypatch.setattr(ha_sync, "request_peer_sync_now", lambda url, key: {"ok": True, "result": {"restored_from": "fake.db"}})
+    csrf = _fresh_csrf(client, "/cdc/cau-hinh")
+    resp = client.post("/cdc/vai-tro-may-chu/yeu-cau-may-kia-dong-bo", data={"csrf_token": csrf}, follow_redirects=False)
+    assert "msg=" in resp.headers["location"]
+    actions = core.list_audit_log(db_path=core.DB_PATH)
+    assert any(a["action"] == "ha_request_peer_sync" for a in actions)
+
+
+def test_request_peer_sync_failure_redirects_with_error(client: TestClient, monkeypatch):
+    _login(client, role=core.CDC_ROLE_SUPER_ADMIN)
+    _set_role("primary", peer_url="http://192.168.1.99:8765", peer_key="khoa")
+    monkeypatch.setattr(ha_sync, "request_peer_sync_now", lambda url, key: {"ok": False, "error": "HTTP 403"})
+    csrf = _fresh_csrf(client, "/cdc/cau-hinh")
+    resp = client.post("/cdc/vai-tro-may-chu/yeu-cau-may-kia-dong-bo", data={"csrf_token": csrf}, follow_redirects=False)
+    assert "err=" in resp.headers["location"]
+
+
 def test_noi_bo_ha_endpoints_are_rate_limited(client: TestClient):
     """`/noi-bo/ha/*` công khai ra Internet (mỗi máy 1 tên miền Cloudflare Tunnel riêng, xem
     CLAUDE.md mục "Máy chủ dự phòng") nên cần giới hạn tần suất chống dò `peer_shared_key`."""

@@ -497,9 +497,13 @@ máy ở 2 nơi khác nhau, chúng chỉ nói chuyện được qua Internet —
    máy, dùng khoá dài/ngẫu nhiên** (khoá riêng cho gọi máy-tới-máy, không dùng chung với
    `gas_api_key`/`public_submit_key` — và vì endpoint này giờ công khai ra Internet nên khoá yếu
    có thể bị dò, dù đã có giới hạn tần suất `ha_peer_limiter` làm chậm việc dò).
-5. Ở máy thứ 2: bấm "Đặt máy này làm máy dự phòng" ngay (mặc định mọi bản cài mới đều là
-   `server_role=primary`) — máy dự phòng sẽ tự kéo snapshot CSDL định kỳ (mặc định 15 phút,
-   chỉnh ở `standby_sync_interval_minutes`) từ máy chính qua `GET /noi-bo/ha/snapshot`.
+5. Mọi bản cài **MỚI** (lần đầu, kể cả máy chính) đều tự khởi động ở `server_role=standby` (ghi
+   sẵn trong `deployment.json` bởi `setup-webapp-server.iss`, xem "Vì sao mặc định là dự phòng"
+   dưới đây) — sau khi tạo tài khoản super-admin đầu tiên, app tự đưa thẳng tới `/cdc/cau-hinh`.
+   Ở máy CHÍNH: bấm "Đặt máy này làm MÁY CHÍNH". Ở máy dự phòng: không cần làm gì thêm (đã đúng
+   vai trò sẵn) — chỉ cần cấu hình `peer_server_url`/`peer_shared_key` xong là máy đó tự kéo
+   snapshot CSDL định kỳ (mặc định 15 phút, chỉnh ở `standby_sync_interval_minutes`) từ máy chính
+   qua `GET /noi-bo/ha/snapshot`. Nâng cấp bản cài SẴN CÓ không đụng tới `server_role` hiện có.
 
 **Khi máy chính hỏng/tắt:** đăng nhập vào máy dự phòng → `/cdc/cau-hinh` → bấm "Đặt máy này làm
 MÁY CHÍNH". Trước khi đổi vai trò, app tự **kéo bù 1 lần cuối** từ máy kia (trong lúc còn là dự
@@ -521,6 +525,35 @@ trò cũ, không đổi gì — an toàn về phía "im lặng bỏ qua". Trư�
 thời và cùng hỏi nhau cùng lúc, có thể **cả 2 cùng tự hạ cấp** (tạm thời không còn máy nào là
 chính) — an toàn hơn dual-primary, chỉ cần super-admin vào 1 trong 2 máy bấm lại "Đặt máy này làm
 máy chính".
+
+**Vì sao mặc định là dự phòng (không phải chính):** trước đây bản cài mới mặc định
+`server_role=primary`, nghĩa là quên bấm hạ cấp máy dự phòng ngay sau khi cài (bước thao tác thủ
+công, dễ quên) sẽ để máy đó âm thầm ở trạng thái CÓ THỂ nhận ghi dữ liệu. Từ nay MỌI bản cài mới
+(kể cả máy chính/máy duy nhất) đều bắt buộc phải qua 1 bước xác nhận thủ công rõ ràng ("Đặt máy
+này làm MÁY CHÍNH" ở `/cdc/cau-hinh`, được tự động đưa tới ngay sau khi tạo tài khoản đầu tiên —
+xem `webapp/routers/login.py::setup_submit`) mới thật sự phục vụ ghi dữ liệu — an toàn hơn dựa
+vào việc nhớ bấm đúng nút ngay sau khi cài. Chỉ áp dụng cho CÀI MỚI (`setup-webapp-server.iss`,
+nhánh chưa có `deployment.json`) — nâng cấp bản cài sẵn có KHÔNG bị đụng tới `server_role` hiện
+tại, và giá trị mặc định trong code (`deployment_config.py`) vẫn là `"primary"` (chỉ ảnh hưởng
+trường hợp hiếm file cấu hình cũ bị hỏng/đọc lỗi).
+
+**Máy chính chủ động nhờ máy dự phòng đồng bộ ngay:** nút "Yêu cầu máy dự phòng đồng bộ ngay" ở
+`/cdc/cau-hinh` (chỉ hiện khi đang là máy chính VÀ đã cấu hình đủ `peer_server_url`/
+`peer_shared_key`) gọi `POST /cdc/vai-tro-may-chu/yeu-cau-may-kia-dong-bo`, máy chính gọi sang
+`POST /noi-bo/ha/yeu-cau-dong-bo` trên máy dự phòng để nhờ máy đó tự kéo NGAY (không đợi chu kỳ
+định kỳ) — dùng trước khi tắt máy chính để bảo trì. Chiều đồng bộ KHÔNG đổi: máy dự phòng vẫn luôn
+là bên chủ động kéo, máy chính chỉ "nhờ kéo sớm hơn".
+
+**Lỗi 403 khi đồng bộ (khác 401/409 do app tự trả về):** app chỉ trả 401 (sai khoá)/409 (máy kia
+không đúng vai trò)/429 (dồn dập) cho `/noi-bo/ha/*` — KHÔNG bao giờ tự trả 403. Nếu thấy lỗi HTTP
+403 lúc kéo snapshot/gọi máy kia, gần như chắc chắn là **Cloudflare tự chặn request TRƯỚC KHI tới
+được app** (Bot Fight Mode/WAF chặn theo User-Agent trông giống bot — lỗi thật gặp phải: mặc định
+`urllib` gửi `User-Agent: Python-urllib/3.x`, một trong những chữ ký bị chặn phổ biến nhất). Đã
+đặt User-Agent riêng (`CDC-GiamSatDichBenh-HA/1.0`, xem `ha_sync.py::_REQUEST_HEADERS_BASE`) để dễ
+nhận diện, nhưng nếu vẫn bị chặn: vào Cloudflare dashboard → đúng zone/tunnel của tên miền RIÊNG đó
+(`may1.`/`may2.cdc-hp.io.vn`) → Security → tắt "Bot Fight Mode" cho hostname đó, hoặc thêm 1
+Configuration Rule/WAF exception bỏ qua kiểm tra bot cho đúng hostname này — traffic hợp lệ ở đây
+CHỈ có 2 máy tự gọi nhau qua khoá bí mật, không phải người dùng thật nên không cần lớp bảo vệ bot.
 
 **Giới hạn đã biết (thiết kế có chủ đích, không phải lỗi):**
 - Đồng bộ là kéo định kỳ — dữ liệu ghi vào máy chính giữa 2 lần đồng bộ gần nhất trước khi máy đó

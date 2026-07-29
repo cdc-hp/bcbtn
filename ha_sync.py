@@ -37,6 +37,16 @@ DEFAULT_PULL_TIMEOUT = 180
 DEFAULT_DEMOTE_TIMEOUT = 15
 DEFAULT_ROLE_CHECK_TIMEOUT = 15
 PEER_KEY_HEADER = "X-CDC-Peer-Key"
+# User-Agent mặc định của urllib ("Python-urllib/3.x") bị nhiều WAF/"Bot Fight Mode" của
+# Cloudflare chặn thẳng bằng HTTP 403 trước khi request kịp tới app (lỗi thật gặp phải: đồng bộ
+# báo lỗi 403 dù key đúng, app còn chưa kịp xử lý request). Đặt User-Agent riêng để CDC dễ thêm
+# ngoại lệ WAF cho đúng traffic máy-tới-máy này (xem CLAUDE.md mục "Máy chủ dự phòng").
+_REQUEST_HEADERS_BASE = {"User-Agent": "CDC-GiamSatDichBenh-HA/1.0 (may-toi-may, xem CLAUDE.md)"}
+
+
+def _peer_headers(peer_key: str) -> dict[str, str]:
+    return {**_REQUEST_HEADERS_BASE, PEER_KEY_HEADER: peer_key}
+
 
 _run_lock = threading.Lock()
 _state_lock = threading.Lock()
@@ -68,7 +78,7 @@ def pull_snapshot_from_peer(peer_url: str, peer_key: str, timeout: int = DEFAULT
     if not peer_url:
         raise ValueError("Chưa cấu hình địa chỉ máy kia (peer_server_url).")
     url = peer_url.rstrip("/") + "/noi-bo/ha/snapshot"
-    request = Request(url, headers={PEER_KEY_HEADER: peer_key}, method="GET")
+    request = Request(url, headers=_peer_headers(peer_key), method="GET")
     try:
         with urlopen(request, timeout=timeout) as response:
             data = response.read()
@@ -106,12 +116,37 @@ def notify_peer_demote(peer_url: str, peer_key: str, timeout: int = DEFAULT_DEMO
     if not peer_url:
         return False
     url = peer_url.rstrip("/") + "/noi-bo/ha/demote"
-    request = Request(url, data=b"", headers={PEER_KEY_HEADER: peer_key}, method="POST")
+    request = Request(url, data=b"", headers=_peer_headers(peer_key), method="POST")
     try:
         with urlopen(request, timeout=timeout) as response:
             return 200 <= response.status < 300
     except (HTTPError, URLError):
         return False
+
+
+def request_peer_sync_now(peer_url: str, peer_key: str, timeout: int = DEFAULT_PULL_TIMEOUT) -> dict[str, Any]:
+    """Gọi SANG máy kia (đang là dự phòng) yêu cầu nó tự kéo snapshot NGAY — dùng bởi nút "Yêu
+    cầu máy dự phòng đồng bộ ngay" trên máy chính, để không phải đợi tới chu kỳ định kỳ của máy
+    dự phòng (vd trước khi tắt máy chính để bảo trì). Máy kia tự thực hiện việc kéo (chiều đồng bộ
+    không đổi — máy chính không bao giờ đẩy dữ liệu, chỉ NHỜ máy kia tự kéo).
+
+    `timeout` dùng `DEFAULT_PULL_TIMEOUT` (không phải `DEFAULT_ROLE_CHECK_TIMEOUT`) vì request này
+    CHỜ máy kia kéo xong toàn bộ snapshot trước khi trả lời — cùng độ dài với việc tự kéo trực
+    tiếp, không phải 1 lượt hỏi nhanh như `check_peer_role`."""
+    if not peer_url:
+        return {"ok": False, "error": "Chưa cấu hình địa chỉ máy kia (peer_server_url)."}
+    url = peer_url.rstrip("/") + "/noi-bo/ha/yeu-cau-dong-bo"
+    request = Request(url, data=b"", headers=_peer_headers(peer_key), method="POST")
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        return payload if isinstance(payload, dict) else {"ok": False, "error": "Phản hồi không hợp lệ."}
+    except HTTPError as exc:
+        return {"ok": False, "error": f"Máy kia trả lỗi HTTP {exc.code}."}
+    except URLError as exc:
+        return {"ok": False, "error": f"Không kết nối được máy kia: {exc.reason}"}
+    except (ValueError, TypeError):
+        return {"ok": False, "error": "Phản hồi từ máy kia không đọc được (không phải JSON hợp lệ)."}
 
 
 def run_standby_pull_once(db_path: str | None = None) -> dict[str, Any]:
@@ -151,7 +186,7 @@ def check_peer_role(peer_url: str, peer_key: str, timeout: int = DEFAULT_ROLE_CH
     if not peer_url:
         return None
     url = peer_url.rstrip("/") + "/noi-bo/ha/vai-tro"
-    request = Request(url, headers={PEER_KEY_HEADER: peer_key}, method="GET")
+    request = Request(url, headers=_peer_headers(peer_key), method="GET")
     try:
         with urlopen(request, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))

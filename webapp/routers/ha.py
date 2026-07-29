@@ -90,6 +90,28 @@ def demote(request: Request, settings: WebAppSettings = Depends(get_settings_dep
     return JSONResponse({"ok": True})
 
 
+@router.post("/noi-bo/ha/yeu-cau-dong-bo")
+def request_sync(request: Request, settings: WebAppSettings = Depends(get_settings_dep)):
+    """Máy chính gọi sang để nhờ máy này (nếu đúng đang là dự phòng) tự kéo snapshot NGAY — xem
+    nút "Yêu cầu máy dự phòng đồng bộ ngay" trong `/cdc/vai-tro-may-chu/yeu-cau-may-kia-dong-bo`."""
+    if not ha_peer_limiter.allow(client_ip(request)):
+        return _error(429, "Gửi quá nhiều lần trong thời gian ngắn, thử lại sau vài phút.")
+    if not settings.config.peer_shared_key:
+        return _error(503, "Máy chủ chưa cấu hình khoá máy-tới-máy (peer_shared_key).")
+    provided_key = request.headers.get("x-cdc-peer-key", "")
+    if not _constant_time_equals(provided_key, settings.config.peer_shared_key):
+        return _error(401, "Sai khoá máy-tới-máy.")
+    if settings.config.server_role != "standby":
+        return _error(409, "Máy này hiện không phải máy dự phòng — không có gì để kéo.")
+
+    result = ha_sync.run_standby_pull_once(db_path=settings.db_path)
+    if result.get("skipped"):
+        return JSONResponse({"ok": False, "error": result["reason"]})
+    if result.get("error"):
+        return JSONResponse({"ok": False, "error": result["error"]})
+    return JSONResponse({"ok": True, "result": result})
+
+
 @router.get("/noi-bo/ha/vai-tro")
 def role_status(request: Request, settings: WebAppSettings = Depends(get_settings_dep)):
     """Cho máy kia hỏi vai trò hiện tại — dùng bởi `ha_sync.resolve_startup_conflict` lúc khởi
@@ -176,6 +198,30 @@ def sync_now(
     if result.get("error"):
         return _redirect(err=f"Đồng bộ lỗi: {result['error']}")
     return _redirect(msg="Đã đồng bộ xong từ máy chính.")
+
+
+@router.post("/cdc/vai-tro-may-chu/yeu-cau-may-kia-dong-bo")
+def request_peer_sync(
+    request: Request, csrf_token: str = Form(""),
+    user: auth.CurrentUser = Depends(require_role(*CAN_MANAGE_ROLE)),
+    settings: WebAppSettings = Depends(get_settings_dep),
+):
+    """Máy CHÍNH chủ động nhờ máy dự phòng tự kéo snapshot ngay (thay vì đợi chu kỳ định kỳ của
+    máy đó) — vd trước khi tắt máy chính để bảo trì. Chiều đồng bộ vẫn không đổi: máy dự phòng tự
+    kéo, máy chính chỉ gọi sang NHỜ nó kéo sớm hơn."""
+    if not auth.verify_csrf(request, csrf_token):
+        raise ForbiddenError("Phiên làm việc đã hết hạn hoặc yêu cầu không hợp lệ (CSRF).")
+    config = settings.config
+    if not (config.peer_server_url and config.peer_shared_key):
+        return _redirect(err="Chưa cấu hình địa chỉ/khoá máy kia.")
+    result = ha_sync.request_peer_sync_now(config.peer_server_url, config.peer_shared_key)
+    core.log_audit(
+        "ha_request_peer_sync", actor=user.username,
+        detail=f"ok={result.get('ok')}; error={result.get('error', '')}", db_path=settings.db_path,
+    )
+    if result.get("ok"):
+        return _redirect(msg="Đã yêu cầu máy dự phòng đồng bộ — máy đó đã kéo xong.")
+    return _redirect(err=f"Yêu cầu máy dự phòng đồng bộ thất bại: {result.get('error', 'không rõ lỗi')}")
 
 
 @router.get("/cdc/vai-tro-may-chu/trang-thai", response_class=JSONResponse)

@@ -162,9 +162,17 @@ var
   Json: String;
 begin
   ForceDirectories(DataDir(''));
+  // server_role: "standby" ngay từ lần cài đầu tiên (KHÔNG phải "primary") — máy vừa cài mới
+  // KHÔNG được tự nhận ghi dữ liệu, kể cả khi đây là máy duy nhất/máy đầu tiên. Super-admin phải
+  // tự bấm "Đặt máy này làm MÁY CHÍNH" ở trang Cấu hình sau khi đăng nhập lần đầu — một bước thao
+  // tác thủ công rõ ràng, thay vì dựa vào việc nhớ bấm nút ngay sau khi cài (rủi ro thật: quên
+  // bấm hạ cấp máy dự phòng mới cài, để nó mặc định "primary" và có thể vô tình nhận ghi dữ liệu
+  // trước khi được thiết lập xong). CHỈ áp dụng cho bộ cài LẦN ĐẦU (nhánh "not ExistingConfigFound"
+  // ở CurStepChanged) — nâng cấp máy đã cài KHÔNG bị đụng tới giá trị server_role hiện có.
   Json := '{' + #13#10 +
     '  "server_host": "0.0.0.0",' + #13#10 +
-    '  "server_port": ' + ConfigPage.Values[0] + #13#10 +
+    '  "server_port": ' + ConfigPage.Values[0] + ',' + #13#10 +
+    '  "server_role": "standby"' + #13#10 +
     '}';
   SaveStringToFile(ConfigFilePath, Json, False);
 end;

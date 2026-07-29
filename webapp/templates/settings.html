@@ -229,7 +229,13 @@
         Chỉ đặt máy này làm dự phòng khi máy khác đã sẵn sàng làm máy chính — máy này sẽ ngừng
         nhận thay đổi dữ liệu ngay lập tức.
       </div>
-      <form method="post" action="/cdc/vai-tro-may-chu/xuong-cap"
+      {% if ha_status.configured %}
+        <form method="post" action="/cdc/vai-tro-may-chu/yeu-cau-may-kia-dong-bo" class="d-inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="btn btn-sm btn-outline-secondary">Yêu cầu máy dự phòng đồng bộ ngay</button>
+        </form>
+      {% endif %}
+      <form method="post" action="/cdc/vai-tro-may-chu/xuong-cap" class="d-inline"
             onsubmit="return confirm('Đặt máy này làm máy DỰ PHÒNG? Máy sẽ ngừng nhận thay đổi dữ liệu ngay lập tức.');">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button type="submit" class="btn btn-sm btn-outline-warning">Đặt máy này làm máy dự phòng</button>

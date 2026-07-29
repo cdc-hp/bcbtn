@@ -57,7 +57,11 @@ async def setup_submit(
         )
     except ValueError as exc:
         return _render(request, "setup.html", {**ctx, "error": str(exc)})
-    return RedirectResponse("/cdc/login", status_code=303)
+    # Máy vừa cài luôn khởi động ở server_role="standby" (xem setup-webapp-server.iss) — đưa
+    # thẳng tới Cấu hình sau khi đăng nhập lần đầu để super-admin thấy ngay và chủ động bấm "Đặt
+    # máy này làm MÁY CHÍNH" nếu đây là máy chính/máy duy nhất, thay vì phải tự đoán ra tại sao
+    # nộp báo cáo/mọi thao tác ghi đều bị chặn 409.
+    return RedirectResponse("/cdc/login?next=/cdc/cau-hinh", status_code=303)
 
 
 @router.get("/cdc/login", response_class=HTMLResponse)

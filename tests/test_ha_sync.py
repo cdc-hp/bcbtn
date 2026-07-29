@@ -132,6 +132,60 @@ def test_check_peer_role_returns_none_on_network_error(monkeypatch):
     assert ha_sync.check_peer_role("http://192.168.1.20:8765", "khoa") is None
 
 
+def test_request_peer_sync_now_returns_no_peer_error_when_unconfigured():
+    result = ha_sync.request_peer_sync_now("", "khoa")
+    assert result["ok"] is False
+    assert "peer_server_url" in result["error"]
+
+
+def test_request_peer_sync_now_parses_success_response(monkeypatch):
+    import json as _json
+
+    class _FakeResponse:
+        def read(self):
+            return _json.dumps({"ok": True, "result": {"restored_from": "fake.db"}}).encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(ha_sync, "urlopen", lambda request, timeout=180: _FakeResponse())
+    result = ha_sync.request_peer_sync_now("http://192.168.1.20:8765", "khoa")
+    assert result == {"ok": True, "result": {"restored_from": "fake.db"}}
+
+
+def test_request_peer_sync_now_reports_http_error(monkeypatch):
+    from urllib.error import HTTPError
+
+    def _boom(request, timeout=180):
+        raise HTTPError("http://x", 403, "Forbidden", hdrs=None, fp=None)
+
+    monkeypatch.setattr(ha_sync, "urlopen", _boom)
+    result = ha_sync.request_peer_sync_now("http://192.168.1.20:8765", "khoa")
+    assert result["ok"] is False
+    assert "403" in result["error"]
+
+
+def test_request_peer_sync_now_reports_network_error(monkeypatch):
+    from urllib.error import URLError
+
+    def _boom(request, timeout=180):
+        raise URLError("khong ket noi duoc")
+
+    monkeypatch.setattr(ha_sync, "urlopen", _boom)
+    result = ha_sync.request_peer_sync_now("http://192.168.1.20:8765", "khoa")
+    assert result["ok"] is False
+    assert "khong ket noi duoc" in result["error"] or "khong ket noi" in result["error"].lower()
+
+
+def test_peer_request_headers_include_custom_user_agent():
+    headers = ha_sync._peer_headers("khoa-bi-mat")
+    assert headers["User-Agent"].startswith("CDC-GiamSatDichBenh-HA")
+    assert headers[ha_sync.PEER_KEY_HEADER] == "khoa-bi-mat"
+
+
 def test_resolve_startup_conflict_skips_when_not_primary():
     config = deployment_config.load_config()
     config.server_role = "standby"

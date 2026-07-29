@@ -54,7 +54,10 @@ def test_setup_then_login_flow(client: TestClient):
         follow_redirects=False,
     )
     assert created.status_code == 303
-    assert created.headers["location"] == "/cdc/login"
+    # Đưa thẳng tới Cấu hình sau khi đăng nhập lần đầu — máy mới cài luôn khởi động ở
+    # server_role="standby" (xem CLAUDE.md mục "Máy chủ dự phòng"), cần super-admin chủ động bấm
+    # "Đặt máy này làm MÁY CHÍNH" nếu đây là máy chính/máy duy nhất.
+    assert created.headers["location"] == "/cdc/login?next=/cdc/cau-hinh"
 
     # Đã có tài khoản -> /cdc/setup không cho tạo thêm, tự chuyển về /cdc/login.
     resp = client.get("/cdc/setup", follow_redirects=False)
