@@ -162,6 +162,7 @@ máy chủ, dưới dạng **dịch vụ Windows** (`service_windows.py`, tên d
 | `/loc-trung` | mọi vai trò | hợp nhất: +data_operator; khôi phục/tiêu chí: super_admin/admin | `routers/dedup.py` |
 | `/xuat-du-lieu` | mọi vai trò (trang) | xuất file: super_admin/admin/data_operator (không viewer — dữ liệu có CCCD/SĐT) | `routers/xuat_du_lieu.py` |
 | `/tai-khoan` | chỉ super_admin | chỉ super_admin | `routers/accounts.py` |
+| `/tai-khoan-xa` | chỉ super_admin | chỉ super_admin | `routers/commune_accounts.py` |
 | `/nhat-ky` | super_admin/admin | — (đọc) | `routers/audit_log.py` |
 | `/sao-luu` | super_admin/admin | phục hồi + cấu hình chính sách: chỉ super_admin | `routers/backups.py` |
 | `/cau-hinh` | chỉ super_admin | chỉ super_admin | `routers/settings.py` |
@@ -172,6 +173,36 @@ Nguyên tắc phân quyền chung: **xem** hầu như mở cho mọi vai trò đ
 cao** (phục hồi sao lưu, cấu hình triển khai, quản lý tài khoản, sửa chính sách sao lưu) chỉ
 `super_admin`. `viewer` bị chặn xuất dữ liệu hàng loạt dù chỉ là "xem" — vì file xuất chứa
 CCCD/SĐT, rủi ro rò rỉ khác hẳn xem từng bản ghi trên màn hình.
+
+### Tài khoản xã — cổng chỉ xem riêng (`/xa/*`)
+
+Hoàn toàn tách biệt tài khoản CDC (`/cdc/*`, bảng `cdc_accounts`) — tài khoản xã (bảng
+`commune_accounts`, mỗi xã/phường 1 tài khoản) đăng nhập tại `/xa/dang-nhap`, **chỉ xem được**
+(không sửa/xoá/nộp) ca bệnh/ổ dịch thuộc đúng xã mình, dùng cookie phiên riêng
+(`xa_session`, `webapp/commune_auth.py`) — không lẫn với `cdc_session`. Quản lý tài khoản xã
+(tạo từng cái, nhập hàng loạt qua Excel, khoá/mở khoá, đặt lại mật khẩu) ở `/cdc/tai-khoan-xa`
+(`routers/commune_accounts.py`), chỉ `super_admin`.
+
+**Ranh giới bảo mật cốt lõi**: `webapp/routers/xa_view.py` LUÔN tự gán `admin_area = <xã đang
+đăng nhập>` ở phía server (đọc từ `commune_auth.CommuneCurrentUser.commune`, không phải từ query
+string) khi gọi `records_query.query_cases`/`core.query_records` — cố ý KHÔNG dùng lại
+`webapp/routers/records.py::_list_view` vì hàm đó nhận `admin_area` trực tiếp từ tham số trình
+duyệt gửi lên. Trang chi tiết tự kiểm tra lại `record["commune"]`/`record["admin_area"]` đúng xã
+trước khi hiển thị (chặn kiểu tấn công đoán ID/IDOR — đổi số ID trên URL để xem bản ghi xã khác).
+
+**Giới hạn đã biết**: lọc theo xã dùng so khớp **chính xác** (`commune = ?` / `admin_area = ?`),
+không chuẩn hoá mờ (fuzzy). `cases.commune` lấy từ Excel nhập vào không được kiểm tra khớp
+`OFFICIAL_COMMUNES`, còn `outbreaks.admin_area` suy ra tự động từ `location`
+(`core.extract_admin_area`) nên chính tả có thể lệch với tên xã ghi trên tài khoản — hậu quả CHỈ
+là xã đó thấy THIẾU vài bản ghi chính tả lệch (an toàn, không lộ dữ liệu chéo xã), không bao giờ
+làm lộ nhầm dữ liệu xã khác. Tài khoản xã không có trang đổi mật khẩu tự phục vụ (CDC đặt lại hộ).
+
+**Nhập hàng loạt tài khoản xã qua Excel** (`core.import_commune_accounts`, gọi từ `POST
+/cdc/tai-khoan-xa/nhap-excel`): file `.xlsx`, dòng đầu là tiêu đề, cột bắt buộc "Xã/Phường", "Tên
+đăng nhập", "Mật khẩu" (≥ 8 ký tự, CDC tự đặt sẵn — không tự sinh ngẫu nhiên), cột "Tên hiển thị"
+tuỳ chọn. Mỗi dòng gọi `create_commune_account` riêng trong `try/except ValueError` — 1 dòng lỗi
+(sai tên xã không thuộc `OFFICIAL_COMMUNES`, thiếu mật khẩu, trùng xã/tên đăng nhập...) chỉ bỏ
+qua dòng đó, không làm hỏng cả file (theo đúng cách xử lý lỗi từng dòng của `import_excel`).
 
 ### Lọc trùng + xuất dữ liệu qua Web (Giai đoạn 5)
 

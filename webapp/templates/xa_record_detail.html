@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} #{{ record.id }}{% endblock %}
+{% block body %}
+{% include "_xa_navbar.html" %}
+<div class="container-fluid cdc-page">
+  <div class="cdc-page-header cdc-detail-header">
+    <div>
+      <a href="/xa/{{ entity_path }}" class="cdc-back-link">&larr; Quay lại danh sách {{ title|lower }}</a>
+      <h1>{{ title }} #{{ record.id }}</h1>
+    </div>
+  </div>
+
+  <div class="card p-3">
+    <div class="cdc-section-heading">Chi tiết bản ghi</div>
+    <div class="cdc-detail-grid">
+      {% for label, key, value in fields %}
+      {% if key not in ("id", "source_file", "source_sheet", "source_row", "imported_at", "row_hash") %}
+      <div class="cdc-detail-item">
+        <span class="cdc-detail-label">{{ label }}</span>
+        <span class="cdc-detail-value">{{ value if value is not none and value != "" else "—" }}</span>
+      </div>
+      {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

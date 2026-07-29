@@ -21,6 +21,7 @@
       {% endif %}
       {% if user.has_role("super_admin") %}
       <a href="/cdc/tai-khoan" class="cdc-nav-link {% if active == 'tai-khoan' %}cdc-nav-link--active{% endif %}">{{ icon('account') }}<span>Tài khoản</span></a>
+      <a href="/cdc/tai-khoan-xa" class="cdc-nav-link {% if active == 'tai-khoan-xa' %}cdc-nav-link--active{% endif %}">{{ icon('account') }}<span>Tài khoản xã</span></a>
       <a href="/cdc/cau-hinh" class="cdc-nav-link {% if active == 'cau-hinh' %}cdc-nav-link--active{% endif %}">{{ icon('settings') }}<span>Cấu hình</span></a>
       {% endif %}
   </nav>

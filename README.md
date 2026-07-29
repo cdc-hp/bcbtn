@@ -1,4 +1,4 @@
-# Ứng dụng Giám sát dịch bệnh — phiên bản 0.18.4
+# Ứng dụng Giám sát dịch bệnh — phiên bản 0.18.5
 
 Quản lý ca bệnh, ổ dịch, lọc trùng và chia sẻ dữ liệu — CDC Hải Phòng. Web App tập trung: 1 máy
 chủ duy nhất chạy dịch vụ Windows (FastAPI/Uvicorn), quản trị hoàn toàn qua trình duyệt, không
@@ -64,6 +64,9 @@ GitHub Actions từ chối phát hành nếu phát hiện `.db`, SQLite, Excel, 
 - Kiểm tra chất lượng dữ liệu.
 - Quản lý tài khoản quản trị viên riêng (vai trò super_admin/admin/data_operator/viewer), khoá
   tài khoản sau nhiều lần đăng nhập sai, nhật ký kiểm toán.
+- Cổng đăng nhập riêng cho xã/phường (`/xa/dang-nhap`) — mỗi xã chỉ xem được ca bệnh/ổ dịch thuộc
+  đúng địa bàn mình, không sửa/xoá được. Tạo tài khoản xã từng cái hoặc nhập hàng loạt từ Excel ở
+  `/cdc/tai-khoan-xa`.
 - Đồng bộ hàng đợi từ máy chủ phụ (Google Apps Script) tự động theo chu kỳ, chạy nền không cần
   ai mở trình duyệt.
 - Sao lưu tự động theo chu kỳ; lưu giữ bản ngày/tuần/tháng, kiểm tra toàn vẹn và phục hồi có bản an toàn.

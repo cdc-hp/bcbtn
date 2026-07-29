@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Tài khoản xã{% endblock %}
+{% block body %}
+{% include "_navbar.html" %}
+<div class="container-fluid cdc-page">
+  <header class="cdc-page-header"><h1>Tài khoản xã</h1><p>Tài khoản đăng nhập riêng cho từng xã/phường tại <code>/xa/dang-nhap</code> — chỉ xem được ca bệnh/ổ dịch thuộc đúng xã mình.</p></header>
+
+  {% if msg %}<div class="alert alert-success py-2 small">{{ msg }}</div>{% endif %}
+  {% if err %}<div class="alert alert-danger py-2 small">{{ err }}</div>{% endif %}
+
+  <section class="cdc-card cdc-admin-card cdc-form-card-wide">
+    <div class="fw-semibold mb-2">Tạo 1 tài khoản</div>
+    <form method="post" action="/cdc/tai-khoan-xa/tao" class="row g-2 align-items-end">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="col-auto">
+        <label class="form-label small mb-0">Xã/Phường</label>
+        <input type="text" name="commune" required list="official-communes" class="form-control form-control-sm">
+        <datalist id="official-communes">
+          {% for c in official_communes %}<option value="{{ c }}">{% endfor %}
+        </datalist>
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-0">Tên đăng nhập</label>
+        <input type="text" name="username" required class="form-control form-control-sm">
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-0">Tên hiển thị</label>
+        <input type="text" name="display_name" class="form-control form-control-sm">
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-0">Mật khẩu (≥ 8 ký tự)</label>
+        <input type="password" name="password" required minlength="8" class="form-control form-control-sm">
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-sm btn-primary">Tạo tài khoản</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="cdc-card cdc-admin-card cdc-form-card-wide">
+    <div class="fw-semibold mb-2">Nhập hàng loạt từ Excel</div>
+    <div class="text-secondary small mb-2">
+      File <code>.xlsx</code>, dòng đầu tiên là tiêu đề cột, gồm đúng các cột (không phân biệt
+      hoa/thường): <strong>Xã/Phường</strong>, <strong>Tên đăng nhập</strong>,
+      <strong>Mật khẩu</strong> (bắt buộc, ≥ 8 ký tự), <strong>Tên hiển thị</strong> (tuỳ chọn).
+      Tên xã/phường phải khớp đúng chính tả trong danh sách chính thức — dòng nào sai tên xã hoặc
+      trùng tài khoản sẽ bị bỏ qua và báo lỗi, không ảnh hưởng các dòng khác.
+    </div>
+    <form method="post" action="/cdc/tai-khoan-xa/nhap-excel" enctype="multipart/form-data" class="row g-2 align-items-end">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="col-auto">
+        <input type="file" name="file" accept=".xlsx" required class="form-control form-control-sm">
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-sm btn-outline-primary">Nhập từ Excel</button>
+      </div>
+    </form>
+  </section>
+
+  <div class="table-responsive cdc-table-card">
+    <table class="table table-sm table-hover align-middle">
+      <thead>
+        <tr>
+          <th>Xã/Phường</th><th>Tên đăng nhập</th><th>Tên hiển thị</th><th>Trạng thái</th>
+          <th>Đăng nhập gần nhất</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in accounts %}
+        <tr>
+          <td>{{ a.commune }}</td>
+          <td>{{ a.username }}</td>
+          <td>{{ a.display_name }}</td>
+          <td>
+            {% if a.active %}<span class="badge text-bg-success">Hoạt động</span>
+            {% else %}<span class="badge text-bg-secondary">Đã khoá</span>{% endif %}
+          </td>
+          <td class="text-nowrap small">{{ a.last_login_at or "Chưa đăng nhập" }}</td>
+          <td class="text-nowrap">
+            <form method="post" action="/cdc/tai-khoan-xa/{{ a.id }}/kich-hoat" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              {% if a.active %}
+              <input type="hidden" name="active" value="0">
+              <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Khoá tài khoản xã {{ a.commune }}?');">Khoá</button>
+              {% else %}
+              <input type="hidden" name="active" value="1">
+              <button type="submit" class="btn btn-sm btn-outline-success">Mở khoá</button>
+              {% endif %}
+            </form>
+            <form method="post" action="/cdc/tai-khoan-xa/{{ a.id }}/dat-lai-mat-khau" class="d-inline" onsubmit="return promptResetPassword(event, this);">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="new_password" value="">
+              <button type="submit" class="btn btn-sm btn-outline-secondary">Đặt lại mật khẩu</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<script>
+function promptResetPassword(event, form) {
+  var pw = prompt("Nhập mật khẩu mới cho tài khoản xã (ít nhất 8 ký tự):");
+  if (!pw || pw.length < 8) { return false; }
+  form.elements["new_password"].value = pw;
+  return true;
+}
+</script>
+{% endblock %}

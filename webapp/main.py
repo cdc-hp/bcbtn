@@ -17,8 +17,8 @@ import ha_sync
 from webapp import STATIC_DIR, TEMPLATES_DIR, scheduler
 from webapp.dependencies import ForbiddenError, RedirectException
 from webapp.routers import (
-    accounts, audit_log, backups, dashboard, dedup, ha, import_history, login, queue, records,
-    settings, submission_api, xuat_du_lieu,
+    accounts, audit_log, backups, commune_accounts, dashboard, dedup, ha, import_history, login,
+    queue, records, settings, submission_api, xa_auth, xa_view, xuat_du_lieu,
 )
 
 # Origin duy nhất của trang GitHub Pages nộp báo cáo (docs/index.html) — CHỈ origin này được
@@ -66,6 +66,9 @@ app.include_router(backups.router)
 app.include_router(settings.router)
 app.include_router(submission_api.router)
 app.include_router(ha.router)
+app.include_router(commune_accounts.router)
+app.include_router(xa_auth.router)
+app.include_router(xa_view.router)
 
 _error_templates = Jinja2Templates(directory=TEMPLATES_DIR)
 

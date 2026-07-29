@@ -16,7 +16,7 @@ import threading
 import time
 import unicodedata
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -1841,6 +1841,83 @@ def create_commune_account(
         account_id = int(cur.lastrowid)
     log_audit("create_commune_account", actor=actor, commune=commune, detail=f"username={username}", db_path=db_path)
     return {"id": account_id, "commune": commune, "username": username}
+
+
+@dataclass
+class CommuneAccountImportSummary:
+    rows_read: int = 0
+    created: int = 0
+    errors: list[str] = field(default_factory=list)
+
+    def as_text(self) -> str:
+        text = f"Đọc {self.rows_read} dòng, tạo {self.created} tài khoản."
+        if self.errors:
+            text += f" {len(self.errors)} dòng lỗi (xem chi tiết bên dưới)."
+        return text
+
+
+def import_commune_accounts(
+    file_obj: Any, db_path: Path | str = DB_PATH, actor: str = "",
+) -> CommuneAccountImportSummary:
+    """Tạo hàng loạt tài khoản xã từ 1 file Excel. Cột bắt buộc ở dòng đầu tiên (không phân biệt
+    hoa/thường): "Xã/Phường", "Tên đăng nhập", "Mật khẩu"; cột "Tên hiển thị" tuỳ chọn. Mỗi dòng
+    được tạo qua `create_commune_account` (đã tự kiểm tra độ dài mật khẩu, trùng xã/tên đăng
+    nhập) — lỗi ở 1 dòng chỉ bỏ qua dòng đó, không làm hỏng các dòng còn lại (theo đúng cách xử lý
+    lỗi từng dòng của `import_excel`). `file_obj` là đường dẫn hoặc đối tượng file-like (vd
+    `io.BytesIO` từ file người dùng tải lên) — truyền thẳng cho `openpyxl.load_workbook`."""
+    init_db(db_path)
+    wb = load_workbook(file_obj, read_only=True, data_only=True)
+    try:
+        ws = wb.active
+        header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), ())
+        header = [strip_text(c).lower() for c in header_row]
+
+        def _col(*names: str) -> int | None:
+            for name in names:
+                if name in header:
+                    return header.index(name)
+            return None
+
+        col_commune = _col("xã/phường", "xã", "phường", "commune")
+        col_username = _col("tên đăng nhập", "username")
+        col_password = _col("mật khẩu", "password")
+        col_display = _col("tên hiển thị", "display_name")
+        if col_commune is None or col_username is None or col_password is None:
+            raise ValueError(
+                "Thiếu cột bắt buộc — file Excel cần có cột \"Xã/Phường\", \"Tên đăng nhập\", "
+                "\"Mật khẩu\" ở dòng đầu tiên."
+            )
+
+        summary = CommuneAccountImportSummary()
+        consecutive_empty = 0
+        for row_no, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            def _cell(idx: int | None) -> Any:
+                return row[idx] if idx is not None and idx < len(row) else None
+
+            commune = strip_text(_cell(col_commune))
+            username = strip_text(_cell(col_username))
+            password = strip_text(_cell(col_password))
+            display_name = strip_text(_cell(col_display)) if col_display is not None else ""
+            if not commune and not username and not password:
+                consecutive_empty += 1
+                if consecutive_empty >= 50:
+                    break
+                continue
+            consecutive_empty = 0
+            summary.rows_read += 1
+            if commune not in OFFICIAL_COMMUNES:
+                summary.errors.append(f"Dòng {row_no}: \"{commune}\" không thuộc danh sách xã/phường chính thức.")
+                continue
+            try:
+                create_commune_account(
+                    commune, username, password, display_name=display_name, db_path=db_path, actor=actor,
+                )
+                summary.created += 1
+            except ValueError as exc:
+                summary.errors.append(f"Dòng {row_no}: {exc}")
+    finally:
+        wb.close()
+    return summary
 
 
 def list_commune_accounts(db_path: Path | str = DB_PATH) -> list[dict[str, Any]]:

@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block body %}
+{% include "_xa_navbar.html" %}
+<div class="container-fluid cdc-page">
+  <div class="cdc-records-header">
+    <h1>{{ title }} <span>({{ rows|length }} bản ghi hiển thị / {{ "{:,}".format(total) }} tổng — chỉ trong xã/phường của bạn)</span></h1>
+  </div>
+
+  <form method="get" action="/xa/{{ entity_path }}" class="cdc-filter-card">
+    <div class="cdc-filter-grid">
+      <div>
+        <label for="records-search" class="form-label">Tìm kiếm</label>
+        <input id="records-search" type="search" name="search" value="{{ search }}" class="form-control" placeholder="{% if entity_type == 'case' %}Tên, mã số, CCCD...{% else %}Tên bệnh, địa điểm...{% endif %}">
+      </div>
+      <div class="cdc-filter-actions">
+        <button type="submit" class="btn btn-primary">Lọc</button>
+        <a href="/xa/{{ entity_path }}" class="btn btn-outline-secondary">Chọn lại</a>
+      </div>
+    </div>
+  </form>
+
+  <div class="table-responsive">
+    <table class="table table-sm table-hover">
+      <thead><tr>{% for key, label in columns %}<th scope="col">{{ label }}</th>{% endfor %}<th scope="col"><span class="visually-hidden">Hành động</span></th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          {% for key, label in columns %}<td>{% if key in ("current_status", "status", "record_status") and row.get(key) %}<span class="cdc-status-pill">{{ row.get(key) }}</span>{% else %}{{ row.get(key, "") }}{% endif %}</td>{% endfor %}
+          <td class="cdc-row-actions"><a href="/xa/{{ entity_path }}/{{ row.id }}" class="cdc-action-link">Xem <span aria-hidden="true">→</span></a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="{{ column_count + 1 }}" class="text-center text-secondary py-4">Không có bản ghi nào.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if total_pages > 1 %}
+  <nav aria-label="Phân trang {{ title }}">
+    <ul class="pagination pagination-sm">
+      {% set start_page = [1, page - 2]|max %}{% set end_page = [total_pages, page + 2]|min %}
+      {% set qs = ("&search=" + search) if search else "" %}
+      {% if start_page > 1 %}<li class="page-item"><a class="page-link" href="?page=1{{ qs }}">1</a></li>{% if start_page > 2 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}{% endif %}
+      {% for p in range(start_page, end_page + 1) %}
+      <li class="page-item {% if p == page %}active{% endif %}"><a class="page-link" href="?page={{ p }}{{ qs }}">{{ p }}</a></li>
+      {% endfor %}
+      {% if end_page < total_pages %}{% if end_page < total_pages - 1 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}<li class="page-item"><a class="page-link" href="?page={{ total_pages }}{{ qs }}">{{ total_pages }}</a></li>{% endif %}
+    </ul>
+  </nav>
+  {% endif %}
+</div>
+{% endblock %}

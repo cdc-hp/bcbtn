@@ -12,6 +12,10 @@ from deployment_config import DeploymentConfig, ensure_web_token_secret, load_co
 SESSION_COOKIE_NAME = "cdc_session"
 CSRF_COOKIE_NAME = "csrf_token"
 SESSION_TTL_SECONDS = 8 * 3600
+# Phiên đăng nhập tài khoản xã — cookie TÊN KHÁC "cdc_session" (2 loại tài khoản, 2 ranh giới
+# quyền hoàn toàn khác nhau, không được lẫn phiên). Xem webapp/commune_auth.py.
+COMMUNE_SESSION_COOKIE_NAME = "xa_session"
+COMMUNE_SESSION_TTL_SECONDS = 8 * 3600
 
 
 @dataclass

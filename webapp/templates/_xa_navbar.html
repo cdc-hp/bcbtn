@@ -1,0 +1,13 @@
+<header class="d-flex justify-content-between align-items-center px-3 py-2 border-bottom flex-wrap gap-2">
+  <div>
+    <strong>{{ user.display_name }}</strong> <span class="text-secondary small">({{ user.commune }})</span>
+  </div>
+  <nav class="d-flex gap-2 align-items-center">
+    <a href="/xa/ca-benh" class="btn btn-sm btn-outline-secondary">Ca bệnh</a>
+    <a href="/xa/o-dich" class="btn btn-sm btn-outline-secondary">Ổ dịch</a>
+    <form method="post" action="/xa/dang-xuat" class="d-inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="btn btn-sm btn-outline-danger">Đăng xuất</button>
+    </form>
+  </nav>
+</header>

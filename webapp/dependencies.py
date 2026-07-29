@@ -7,7 +7,7 @@ from __future__ import annotations
 from fastapi import Depends, Form, Request
 
 import core
-from webapp import auth
+from webapp import auth, commune_auth
 from webapp.config import WebAppSettings, get_settings
 
 
@@ -67,6 +67,24 @@ def require_role(*roles: str):
         return user
 
     return _check
+
+
+def get_current_commune_user(
+    request: Request, settings: WebAppSettings = Depends(get_settings_dep),
+) -> commune_auth.CommuneCurrentUser | None:
+    return commune_auth.get_current_commune_user(request, settings)
+
+
+def require_commune_login(
+    request: Request,
+    user: commune_auth.CommuneCurrentUser | None = Depends(get_current_commune_user),
+) -> commune_auth.CommuneCurrentUser:
+    """Phiên đăng nhập xã — KHÔNG dùng chung `require_login`/`require_setup_done` (đó là luồng
+    tài khoản CDC, ranh giới quyền khác hẳn). Chuyển hướng về /xa/dang-nhap nếu chưa đăng nhập
+    hoặc tài khoản đã bị khoá."""
+    if not user:
+        raise RedirectException("/xa/dang-nhap?next=" + request.url.path)
+    return user
 
 
 async def verify_csrf_form(request: Request, csrf_token: str = Form(default="")) -> None:
