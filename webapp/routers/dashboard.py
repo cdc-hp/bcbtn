@@ -33,11 +33,14 @@ def dashboard(
     queue_error = len(core.list_import_queue(status="loi", limit=2000, db_path=settings.db_path))
     this_week_items = core.list_import_queue(week=current_week, limit=2000, db_path=settings.db_path)
     communes_submitted = sorted({item["commune"] for item in this_week_items})
-    commune_accounts = [item for item in core.list_commune_accounts(db_path=settings.db_path) if item.get("active")]
-    expected_communes = sorted({item["commune"] for item in commune_accounts})
+    # Danh sách "xã/phường/đặc khu" đầy đủ (114 đơn vị, xem core.OFFICIAL_COMMUNES) dùng làm mẫu số
+    # để LUÔN tính ra được danh sách CHƯA nộp — không còn phụ thuộc CDC đã tạo tài khoản xã
+    # (/cdc/tai-khoan-xa) cho từng đơn vị hay chưa (trước đây nếu chưa có tài khoản nào thì không
+    # biết "tổng số" là bao nhiêu, phải hiện tạm danh sách ĐÃ nộp thay vì CHƯA nộp).
+    expected_communes = sorted(core.OFFICIAL_COMMUNES)
     communes_missing = [commune for commune in expected_communes if commune not in communes_submitted]
-    commune_total = len(expected_communes) if expected_communes else len(communes_submitted)
-    submit_percent = round(len(set(communes_submitted) & set(expected_communes or communes_submitted)) * 100 / commune_total) if commune_total else 0
+    commune_total = len(expected_communes)
+    submit_percent = round(len(set(communes_submitted) & set(expected_communes)) * 100 / commune_total) if commune_total else 0
 
     if disease:
         case_groups = core.find_duplicate_groups(
@@ -67,7 +70,7 @@ def dashboard(
         "user": user, "csrf_token": token, "active": "dashboard",
         "stats": stats, "current_week": current_week,
         "queue_pending": queue_pending, "queue_error": queue_error,
-        "communes_submitted": communes_submitted, "communes_missing": communes_missing,
+        "communes_missing": communes_missing,
         "commune_total": commune_total, "submit_percent": submit_percent, "latest_backup": latest_backup,
         "duplicate_groups": duplicate_case_groups + duplicate_outbreak_groups,
         "version": core.VERSION, "sync_status": scheduler.get_status(),

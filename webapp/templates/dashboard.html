@@ -49,22 +49,14 @@
     <div class="cdc-dashboard-stack">
       <section class="cdc-card cdc-report-progress">
         <div class="cdc-card-heading-row">
-          <h2>Xã đã nộp báo cáo tuần {{ current_week.split('-W')[-1] }}</h2>
-          <strong>{{ communes_submitted|length }}{% if commune_total %}/{{ commune_total }}{% endif %}</strong>
+          <h2>Xã chưa nộp báo cáo tuần {{ current_week.split('-W')[-1] }}</h2>
+          <strong>{{ communes_missing|length }}/{{ commune_total }}</strong>
         </div>
-        {% if commune_total %}
         <div class="cdc-progress" aria-label="{{ submit_percent }}% xã đã nộp"><span style="width:{{ submit_percent }}%"></span></div>
-        {% endif %}
         {% if communes_missing %}
-        <p>{{ communes_missing|length }} xã chưa nộp:</p>
         <div class="cdc-pill-list">{% for commune in communes_missing %}<span class="cdc-pill cdc-pill--danger">{{ commune }}</span>{% endfor %}</div>
-        {% elif commune_total %}
-        <p>Tất cả xã trong danh sách tài khoản đang hoạt động đã nộp báo cáo.</p>
-        {% elif communes_submitted %}
-        <p>Các xã đã nộp (chưa có danh mục tài khoản xã để xác định xã chưa nộp):</p>
-        <div class="cdc-pill-list">{% for commune in communes_submitted %}<span class="cdc-pill">{{ commune }}</span>{% endfor %}</div>
         {% else %}
-        <p>Chưa có xã nào nộp báo cáo tuần này.</p>
+        <p>Tất cả {{ commune_total }} xã/phường/đặc khu đã nộp báo cáo tuần này.</p>
         {% endif %}
       </section>
 

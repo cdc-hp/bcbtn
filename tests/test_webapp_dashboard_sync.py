@@ -114,3 +114,36 @@ def test_sync_now_requires_csrf(client: TestClient):
     _login(client)
     resp = client.post("/cdc/dashboard/dong-bo-may-chu-phu", data={"csrf_token": "sai"})
     assert resp.status_code == 403
+
+
+# --- Danh sách xã CHƯA nộp báo cáo tuần này -------------------------------------------------
+# Trước đây nếu CDC chưa tạo tài khoản xã (/cdc/tai-khoan-xa) cho đơn vị nào, mục này lặng lẽ
+# hiện danh sách ĐÃ nộp thay vì CHƯA nộp (không biết "tổng số" là bao nhiêu). Giờ luôn dùng
+# core.OFFICIAL_COMMUNES (114 đơn vị) làm mẫu số nên luôn tính ra được danh sách chưa nộp, không
+# phụ thuộc tài khoản xã nào cả.
+
+def test_dashboard_shows_missing_communes_without_any_commune_account(client: TestClient):
+    """Không cần tạo bất kỳ tài khoản xã nào — danh sách chưa nộp vẫn phải hiện đầy đủ."""
+    _login(client)
+    communes = sorted(core.OFFICIAL_COMMUNES)
+    submitted, missing = communes[0], communes[1]
+    core.queue_submit(submitted, core.current_iso_week(), "bao_cao.xlsx", b"noi dung", db_path=core.DB_PATH)
+
+    resp = client.get("/cdc/dashboard")
+    assert resp.status_code == 200
+    assert "Xã chưa nộp báo cáo tuần" in resp.text
+    assert f'cdc-pill cdc-pill--danger">{submitted}<' not in resp.text
+    assert f'cdc-pill cdc-pill--danger">{missing}<' in resp.text
+
+
+def test_dashboard_shows_all_submitted_message_when_nothing_missing(client: TestClient, monkeypatch):
+    _login(client)
+    monkeypatch.setattr(core, "OFFICIAL_COMMUNES", frozenset({"Xã Test Một", "Xã Test Hai"}))
+    week = core.current_iso_week()
+    core.queue_submit("Xã Test Một", week, "a.xlsx", b"x", db_path=core.DB_PATH)
+    core.queue_submit("Xã Test Hai", week, "b.xlsx", b"y", db_path=core.DB_PATH)
+
+    resp = client.get("/cdc/dashboard")
+    assert resp.status_code == 200
+    assert "đã nộp báo cáo tuần này" in resp.text
+    assert "0/2" in resp.text  # 0 xã còn thiếu / 2 tổng số
