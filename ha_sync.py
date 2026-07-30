@@ -29,6 +29,7 @@ from urllib.request import Request, urlopen
 import backup_manager
 import core
 import deployment_config
+import service_windows
 
 # Cả 3 mốc thời gian đều rộng rãi hơn mức cần cho LAN nội bộ vì giờ đi qua Internet thật (2 máy ở
 # 2 nơi khác nhau) — độ trễ/băng thông tải lên (đặc biệt lúc kéo snapshot CSDL, có thể vài chục MB)
@@ -68,6 +69,30 @@ def get_status() -> dict[str, Any]:
     status["configured"] = bool(config.peer_server_url and config.peer_shared_key)
     status["interval_minutes"] = config.standby_sync_interval_minutes
     return status
+
+
+def reconcile_public_tunnel_service(
+    server_role: str | None = None, db_path: str | None = None,
+) -> dict[str, Any] | None:
+    """Bật/tắt dịch vụ Windows "Cloudflared" (tunnel công khai dùng chung `cdc-hp.io.vn`) khớp
+    đúng vai trò hiện tại — gọi ở MỌI điểm đổi `server_role` (thăng/hạ cấp, bị máy kia báo hạ cấp,
+    và mỗi lần khởi động dịch vụ để tự sửa lệch trạng thái). CHỈ thực sự làm gì khi CDC đã bật cờ
+    `manage_public_tunnel_service` ở `/cdc/cau-hinh` (mặc định TẮT) — kiểm tra cờ này TRƯỚC TIÊN,
+    trả `None` ngay nếu tắt, không đụng gì tới `service_windows`/pywin32. Bắt buộc phải mặc định
+    an toàn tuyệt đối vì `webapp/main.py::lifespan` gọi hàm này ở MỌI lần khởi động app, kể cả khi
+    dựng `TestClient` trong hàng chục file test — máy chạy test có thể có thật dịch vụ Cloudflared
+    đang phục vụ traffic thật, không được lỡ tay khởi động/dừng nó ngoài ý muốn."""
+    config = deployment_config.load_config()
+    if not config.manage_public_tunnel_service:
+        return None
+    role = server_role if server_role is not None else config.server_role
+    result = service_windows.set_public_tunnel_running(role == "primary")
+    core.log_audit(
+        "ha_public_tunnel_reconciled", actor="he_thong",
+        detail=f"role={role}; ok={result.get('ok')}; message={result.get('message', '')}",
+        db_path=db_path or core.DB_PATH,
+    )
+    return result
 
 
 def pull_snapshot_from_peer(peer_url: str, peer_key: str, timeout: int = DEFAULT_PULL_TIMEOUT) -> Path:

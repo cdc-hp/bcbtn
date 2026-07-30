@@ -75,6 +75,119 @@ def test_resolve_cli_mode():
     assert service_windows._resolve_cli_mode(["service_windows.py", "run"]) == "run"
 
 
+# --- Cloudflared (tunnel công khai dùng chung) ------------------------------------------------
+# Không cài đặt/gỡ/bật/tắt dịch vụ Windows thật trong test (giống triết lý toàn file này) — kể cả
+# khi máy chạy test có thật dịch vụ "Cloudflared" (đúng là trường hợp máy dev/production dùng để
+# chạy session này) — luôn monkeypatch trực tiếp win32serviceutil/win32service.
+
+def test_query_public_tunnel_status_returns_valid_shape():
+    # CHỈ ĐỌC nên an toàn gọi thật trên mọi máy — kể cả máy dev/production có thật dịch vụ
+    # "Cloudflared" đang chạy (đúng trường hợp máy chạy session này). Không giả định trạng thái cụ
+    # thể (CI thường chưa cài, máy thật thì có) — chỉ xác nhận cấu trúc trả về hợp lệ.
+    status = service_windows.query_public_tunnel_status()
+    assert "installed" in status and "running" in status and status["state"]
+
+
+def test_set_public_tunnel_running_without_pywin32(monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def _fake_import(name, *args, **kwargs):
+        if name in ("win32service", "win32serviceutil"):
+            raise ImportError(f"gia lap chua cai {name}")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _fake_import)
+    result = service_windows.set_public_tunnel_running(True)
+    assert result["ok"] is False
+    assert "pywin32" in result["message"]
+
+
+def test_set_public_tunnel_running_when_service_not_installed(monkeypatch):
+    try:
+        import win32serviceutil
+    except ImportError:
+        pytest.skip("pywin32 chưa cài đặt trên máy này")
+
+    def _boom(name):
+        raise RuntimeError("gia lap: dich vu chua duoc cai dat")
+
+    monkeypatch.setattr(win32serviceutil, "QueryServiceStatus", _boom)
+    result = service_windows.set_public_tunnel_running(True)
+    assert result["ok"] is False
+    assert service_windows.PUBLIC_TUNNEL_SERVICE_NAME in result["message"]
+
+
+def test_set_public_tunnel_running_noop_when_already_correct_state(monkeypatch):
+    try:
+        import win32service
+        import win32serviceutil
+    except ImportError:
+        pytest.skip("pywin32 chưa cài đặt trên máy này")
+
+    monkeypatch.setattr(win32serviceutil, "QueryServiceStatus", lambda name: (0, win32service.SERVICE_RUNNING))
+    called = []
+    monkeypatch.setattr(win32serviceutil, "StartService", lambda name: called.append("start"))
+    monkeypatch.setattr(win32serviceutil, "StopService", lambda name: called.append("stop"))
+
+    result = service_windows.set_public_tunnel_running(True)
+    assert result["ok"] is True
+    assert called == []  # đã đúng trạng thái (đang chạy + should_run=True) — không gọi gì thêm
+
+
+def test_set_public_tunnel_running_starts_when_stopped(monkeypatch):
+    try:
+        import win32service
+        import win32serviceutil
+    except ImportError:
+        pytest.skip("pywin32 chưa cài đặt trên máy này")
+
+    monkeypatch.setattr(win32serviceutil, "QueryServiceStatus", lambda name: (0, win32service.SERVICE_STOPPED))
+    called = []
+    monkeypatch.setattr(win32serviceutil, "StartService", lambda name: called.append(name))
+    monkeypatch.setattr(win32serviceutil, "StopService", lambda name: pytest.fail("khong duoc goi StopService"))
+
+    result = service_windows.set_public_tunnel_running(True)
+    assert result["ok"] is True
+    assert called == [service_windows.PUBLIC_TUNNEL_SERVICE_NAME]
+
+
+def test_set_public_tunnel_running_stops_when_running(monkeypatch):
+    try:
+        import win32service
+        import win32serviceutil
+    except ImportError:
+        pytest.skip("pywin32 chưa cài đặt trên máy này")
+
+    monkeypatch.setattr(win32serviceutil, "QueryServiceStatus", lambda name: (0, win32service.SERVICE_RUNNING))
+    called = []
+    monkeypatch.setattr(win32serviceutil, "StopService", lambda name: called.append(name))
+    monkeypatch.setattr(win32serviceutil, "StartService", lambda name: pytest.fail("khong duoc goi StartService"))
+
+    result = service_windows.set_public_tunnel_running(False)
+    assert result["ok"] is True
+    assert called == [service_windows.PUBLIC_TUNNEL_SERVICE_NAME]
+
+
+def test_set_public_tunnel_running_reports_error_without_raising(monkeypatch):
+    try:
+        import win32service
+        import win32serviceutil
+    except ImportError:
+        pytest.skip("pywin32 chưa cài đặt trên máy này")
+
+    monkeypatch.setattr(win32serviceutil, "QueryServiceStatus", lambda name: (0, win32service.SERVICE_STOPPED))
+
+    def _boom(name):
+        raise RuntimeError("gia lap: thieu quyen Administrator")
+
+    monkeypatch.setattr(win32serviceutil, "StartService", _boom)
+    result = service_windows.set_public_tunnel_running(True)
+    assert result["ok"] is False
+    assert result["message"]
+
+
 def test_importing_module_has_no_side_effects():
     """Import module không được tự ý đặt GIAM_SAT_DICH_BENH_DATA_DIR — chỉ nhánh `service` của
     `__main__` mới làm việc đó, để `import service_windows` từ test khác không bị ảnh hưởng."""

@@ -59,6 +59,7 @@ def view(
         "user": user, "csrf_token": token, "active": "cau-hinh",
         "config": config, "backup_destination": backup_destination,
         "service_status": service_status, "ha_status": ha_sync.get_status(),
+        "public_tunnel_status": service_windows.query_public_tunnel_status(),
         "update_status": web_update.get_public_status(),
         "auto_update_supported": web_update.auto_install_supported(service_status),
         "update_releases_url": update_manager.GITHUB_RELEASES_PAGE,
@@ -77,6 +78,7 @@ async def save(
     secondary_sync_interval_minutes: int = Form(20), backup_destination: str = Form(""),
     peer_server_url: str = Form(""), peer_shared_key: str = Form(""),
     standby_sync_interval_minutes: int = Form(15),
+    manage_public_tunnel_service: bool = Form(False),
     user: auth.CurrentUser = Depends(require_role(*CAN_CONFIGURE_ROLES)),
     settings: WebAppSettings = Depends(get_settings_dep),
 ):
@@ -96,7 +98,9 @@ async def save(
     config.peer_server_url = peer_server_url.strip()
     config.peer_shared_key = peer_shared_key or config.peer_shared_key
     config.standby_sync_interval_minutes = standby_sync_interval_minutes
+    config.manage_public_tunnel_service = manage_public_tunnel_service
     deployment_config.save_config(config)
+    ha_sync.reconcile_public_tunnel_service(db_path=settings.db_path)
 
     policy = backup_manager.load_policy()
     policy.destination = backup_destination.strip()

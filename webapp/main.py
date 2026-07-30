@@ -37,6 +37,11 @@ async def lifespan(app: FastAPI):
     # vắng mặt — tự hạ cấp để tránh "song chính" (xem ha_sync.resolve_startup_conflict và
     # CLAUDE.md mục "Máy chủ dự phòng"). Không phải health-check định kỳ nên không gây flapping.
     ha_sync.resolve_startup_conflict()
+    # Tự sửa lệch trạng thái dịch vụ Cloudflared (tunnel công khai) khớp đúng vai trò hiện tại
+    # mỗi lần khởi động — vd admin lỡ bật tay Cloudflared trên máy dự phòng rồi quên tắt. No-op
+    # tuyệt đối trừ khi CDC đã bật `manage_public_tunnel_service` ở /cdc/cau-hinh (mặc định TẮT),
+    # xem ha_sync.reconcile_public_tunnel_service.
+    ha_sync.reconcile_public_tunnel_service()
     scheduler.start()
     yield
     scheduler.shutdown()

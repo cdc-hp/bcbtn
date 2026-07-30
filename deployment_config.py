@@ -68,6 +68,13 @@ class DeploymentConfig:
     # được khoá yếu).
     peer_shared_key: str = ""
     standby_sync_interval_minutes: int = 15
+    # Tự bật/tắt dịch vụ Windows "Cloudflared" (tunnel công khai DÙNG CHUNG cho cdc-hp.io.vn,
+    # KHÁC "CloudflaredHA") theo đúng vai trò hiện tại — mặc định TẮT vì đây là hành động điều
+    # khiển dịch vụ Windows thật, chỉ nên bật khi CDC đã cài đúng dịch vụ tên "Cloudflared" theo
+    # hướng dẫn CLAUDE.md mục "Máy chủ dự phòng". Sự cố thật đã gặp: Cloudflare Tunnel Replica cân
+    # bằng tải giữa MỌI máy đang kết nối (không ưu tiên máy chính), nên máy dự phòng vẫn có thể
+    # lỡ nhận request đọc công khai (dữ liệu cũ) nếu cloudflared của nó còn nối tunnel dùng chung.
+    manage_public_tunnel_service: bool = False
 
 
 def load_config() -> DeploymentConfig:
@@ -97,6 +104,7 @@ def load_config() -> DeploymentConfig:
         peer_server_url=str(raw.get("peer_server_url", "") or "").strip().rstrip("/"),
         peer_shared_key=str(raw.get("peer_shared_key", "") or ""),
         standby_sync_interval_minutes=max(5, min(180, int(raw.get("standby_sync_interval_minutes", 15) or 15))),
+        manage_public_tunnel_service=bool(raw.get("manage_public_tunnel_service", False)),
     )
 
 

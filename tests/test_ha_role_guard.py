@@ -151,6 +151,48 @@ def test_demote_self_sets_standby(client: TestClient):
     assert deployment_config.load_config().server_role == "standby"
 
 
+def test_promote_reconciles_public_tunnel_service(client: TestClient, monkeypatch):
+    """Thăng cấp phải nối lại dịch vụ Cloudflared (tunnel công khai) trên máy vừa được thăng —
+    xem ha_sync.reconcile_public_tunnel_service. Chỉ kiểm tra ĐIỂM GỌI đúng vai trò, không cần
+    bật `manage_public_tunnel_service` thật (hàm đó tự no-op nếu tắt, xem test_ha_sync.py)."""
+    _login(client, role=core.CDC_ROLE_SUPER_ADMIN)
+    _set_role("standby")
+    calls: list[str | None] = []
+    monkeypatch.setattr(
+        ha_sync, "reconcile_public_tunnel_service",
+        lambda role=None, db_path=None: calls.append(role),
+    )
+    csrf = _fresh_csrf(client, "/cdc/cau-hinh")
+    client.post("/cdc/vai-tro-may-chu/thang-cap", data={"csrf_token": csrf}, follow_redirects=False)
+    assert calls == ["primary"]
+
+
+def test_demote_self_reconciles_public_tunnel_service(client: TestClient, monkeypatch):
+    _login(client, role=core.CDC_ROLE_SUPER_ADMIN)
+    calls: list[str | None] = []
+    monkeypatch.setattr(
+        ha_sync, "reconcile_public_tunnel_service",
+        lambda role=None, db_path=None: calls.append(role),
+    )
+    csrf = _fresh_csrf(client, "/cdc/cau-hinh")
+    client.post("/cdc/vai-tro-may-chu/xuong-cap", data={"csrf_token": csrf}, follow_redirects=False)
+    assert calls == ["standby"]
+
+
+def test_peer_demote_reconciles_public_tunnel_service(client: TestClient, monkeypatch):
+    """Đây chính là điểm sửa đúng sự cố thật đã gặp: máy nhận lệnh hạ cấp TỪ MÁY KIA (không phải
+    tự tay bấm ở đây) cũng phải tự ngắt Cloudflared ngay, không cần ai vào tay tắt."""
+    _set_role("primary", peer_key="khoa-dung")
+    calls: list[str | None] = []
+    monkeypatch.setattr(
+        ha_sync, "reconcile_public_tunnel_service",
+        lambda role=None, db_path=None: calls.append(role),
+    )
+    resp = client.post("/noi-bo/ha/demote", headers={"X-CDC-Peer-Key": "khoa-dung"})
+    assert resp.status_code == 200
+    assert calls == ["standby"]
+
+
 def test_role_routes_require_super_admin(client: TestClient):
     _login(client, role=core.CDC_ROLE_ADMIN)
     csrf = _fresh_csrf(client, "/cdc/dashboard")

@@ -188,6 +188,34 @@
           <label class="form-label small mb-0">Chu kỳ đồng bộ khi là dự phòng (phút)</label>
           <input type="number" name="standby_sync_interval_minutes" min="5" max="180" value="{{ config.standby_sync_interval_minutes }}" class="form-control form-control-sm">
         </div>
+        <div class="col-12">
+          <div class="form-check">
+            <input type="checkbox" name="manage_public_tunnel_service" value="true" id="manage_public_tunnel_service"
+                   class="form-check-input" {% if config.manage_public_tunnel_service %}checked{% endif %}>
+            <label class="form-check-label small" for="manage_public_tunnel_service">
+              Tự bật/tắt dịch vụ Cloudflared (tunnel công khai) theo vai trò máy chủ
+            </label>
+          </div>
+          <div class="form-text small">
+            Sự cố thật đã gặp: Cloudflare Tunnel Replica cân bằng tải giữa MỌI máy đang kết nối
+            (không ưu tiên máy chính) — máy dự phòng có thể lỡ nhận request công khai chứa dữ liệu
+            cũ. Bật mục này để máy TỰ NGẮT dịch vụ Windows tên đúng
+            <code>Cloudflared</code> khỏi tunnel dùng chung khi ở vai trò dự phòng, tự nối lại khi
+            được thăng làm chính. <strong>Chỉ bật nếu máy này đã cài đúng dịch vụ tên
+            "Cloudflared"</strong> theo hướng dẫn CLAUDE.md mục "Máy chủ dự phòng" — KHÔNG đụng
+            tới "CloudflaredHA" (tunnel riêng máy-tới-máy).
+            Trạng thái hiện tại:
+            {% if public_tunnel_status.installed %}
+              {% if public_tunnel_status.running %}
+                <span class="badge bg-success">Cloudflared: {{ public_tunnel_status.state }}</span>
+              {% else %}
+                <span class="badge bg-secondary">Cloudflared: {{ public_tunnel_status.state }}</span>
+              {% endif %}
+            {% else %}
+              <span class="badge bg-light text-dark border">Chưa cài dịch vụ "Cloudflared" trên máy này</span>
+            {% endif %}
+          </div>
+        </div>
       </div>
     </section>
 

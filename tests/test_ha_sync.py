@@ -12,6 +12,7 @@ import backup_manager
 import core
 import deployment_config
 import ha_sync
+import service_windows
 
 
 @pytest.fixture(autouse=True)
@@ -230,3 +231,69 @@ def test_resolve_startup_conflict_self_demotes_when_peer_also_primary(monkeypatc
 
     actions = core.list_audit_log(db_path=core.DB_PATH)
     assert any(a["action"] == "ha_startup_self_demoted" for a in actions)
+
+
+# --- reconcile_public_tunnel_service ---------------------------------------------------------
+# An toàn tuyệt đối là bắt buộc: webapp/main.py::lifespan gọi hàm này ở MỌI lần khởi động app,
+# kể cả khi dựng TestClient trong hàng chục file test khác — máy chạy test có thể có THẬT dịch vụ
+# Windows "Cloudflared" đang phục vụ traffic thật (xem tests/test_service_windows.py), nên các
+# test dưới đây PHẢI xác nhận service_windows.set_public_tunnel_running KHÔNG được gọi khi cờ tắt.
+
+def test_reconcile_public_tunnel_service_noop_when_flag_disabled(monkeypatch):
+    """Cờ manage_public_tunnel_service mặc định TẮT — hàm phải trả None và KHÔNG được đụng tới
+    service_windows (không import, không gọi) dù server_role là gì."""
+    config = deployment_config.load_config()
+    config.server_role = "standby"
+    deployment_config.save_config(config)
+    assert config.manage_public_tunnel_service is False
+
+    def _must_not_be_called(should_run):
+        raise AssertionError("set_public_tunnel_running KHÔNG được gọi khi manage_public_tunnel_service tắt")
+
+    monkeypatch.setattr(service_windows, "set_public_tunnel_running", _must_not_be_called)
+    result = ha_sync.reconcile_public_tunnel_service(db_path=core.DB_PATH)
+    assert result is None
+
+
+def test_reconcile_public_tunnel_service_starts_when_primary_and_enabled(monkeypatch):
+    config = deployment_config.load_config()
+    config.manage_public_tunnel_service = True
+    deployment_config.save_config(config)
+    calls: list[bool] = []
+    monkeypatch.setattr(
+        service_windows, "set_public_tunnel_running",
+        lambda should_run: calls.append(should_run) or {"ok": True, "message": "da bat"},
+    )
+    result = ha_sync.reconcile_public_tunnel_service("primary", db_path=core.DB_PATH)
+    assert calls == [True]
+    assert result == {"ok": True, "message": "da bat"}
+    actions = core.list_audit_log(db_path=core.DB_PATH)
+    assert any(a["action"] == "ha_public_tunnel_reconciled" for a in actions)
+
+
+def test_reconcile_public_tunnel_service_stops_when_standby_and_enabled(monkeypatch):
+    config = deployment_config.load_config()
+    config.manage_public_tunnel_service = True
+    deployment_config.save_config(config)
+    calls: list[bool] = []
+    monkeypatch.setattr(
+        service_windows, "set_public_tunnel_running",
+        lambda should_run: calls.append(should_run) or {"ok": True, "message": "da tat"},
+    )
+    result = ha_sync.reconcile_public_tunnel_service("standby", db_path=core.DB_PATH)
+    assert calls == [False]
+    assert result == {"ok": True, "message": "da tat"}
+
+
+def test_reconcile_public_tunnel_service_falls_back_to_config_role_when_not_given(monkeypatch):
+    config = deployment_config.load_config()
+    config.manage_public_tunnel_service = True
+    config.server_role = "primary"
+    deployment_config.save_config(config)
+    calls: list[bool] = []
+    monkeypatch.setattr(
+        service_windows, "set_public_tunnel_running",
+        lambda should_run: calls.append(should_run) or {"ok": True, "message": ""},
+    )
+    ha_sync.reconcile_public_tunnel_service(db_path=core.DB_PATH)
+    assert calls == [True]

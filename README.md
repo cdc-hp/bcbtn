@@ -1,4 +1,4 @@
-# Ứng dụng Giám sát dịch bệnh — phiên bản 0.18.5
+# Ứng dụng Giám sát dịch bệnh — phiên bản 0.18.6
 
 Quản lý ca bệnh, ổ dịch, lọc trùng và chia sẻ dữ liệu — CDC Hải Phòng. Web App tập trung: 1 máy
 chủ duy nhất chạy dịch vụ Windows (FastAPI/Uvicorn), quản trị hoàn toàn qua trình duyệt, không
@@ -73,7 +73,9 @@ GitHub Actions từ chối phát hành nếu phát hiện `.db`, SQLite, Excel, 
 - Có thể chọn thư mục NAS, OneDrive hoặc Google Drive for Desktop làm đích sao lưu.
 - Máy chủ dự phòng (failover thủ công): cài thêm 1-2 máy dự phòng cùng public qua Cloudflare
   Tunnel Replica, tự kéo bản sao CSDL định kỳ; super-admin bấm tay chuyển máy chính khi cần —
-  xem CLAUDE.md mục "Máy chủ dự phòng".
+  xem CLAUDE.md mục "Máy chủ dự phòng". Tuỳ chọn bật ở `/cdc/cau-hinh`: máy tự ngắt/nối
+  dịch vụ Cloudflared theo vai trò, tránh Cloudflare lỡ định tuyến request công khai vào máy dự
+  phòng (dữ liệu cũ).
 
 ## Lưu ý mạng
 

@@ -87,6 +87,7 @@ def demote(request: Request, settings: WebAppSettings = Depends(get_settings_dep
     config.server_role = "standby"
     deployment_config.save_config(config)
     core.log_audit("ha_demoted_by_peer", actor="he_thong", db_path=settings.db_path)
+    ha_sync.reconcile_public_tunnel_service("standby", db_path=settings.db_path)
     return JSONResponse({"ok": True})
 
 
@@ -146,6 +147,7 @@ def promote(
 
     config.server_role = "primary"
     deployment_config.save_config(config)
+    ha_sync.reconcile_public_tunnel_service("primary", db_path=settings.db_path)
 
     peer_notified = False
     if config.peer_server_url and config.peer_shared_key:
@@ -181,6 +183,7 @@ def demote_self(
     config.server_role = "standby"
     deployment_config.save_config(config)
     core.log_audit("demote_to_standby", actor=user.username, db_path=settings.db_path)
+    ha_sync.reconcile_public_tunnel_service("standby", db_path=settings.db_path)
     return _redirect(msg="Đã đặt máy này làm máy dự phòng — ngừng nhận thay đổi dữ liệu.")
 
 

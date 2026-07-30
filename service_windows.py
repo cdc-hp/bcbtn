@@ -71,16 +71,17 @@ def run_server(service: Any = None) -> None:
     server.run()
 
 
-def query_status() -> dict[str, Any]:
-    """Tra trạng thái dịch vụ đã cài trên Windows — không cần quyền Administrator (chỉ đọc).
-    Dùng cho `/cdc/cau-hinh` hiển thị "dịch vụ đang chạy/đã dừng/chưa cài đặt"."""
+def _service_status(service_name: str) -> dict[str, Any]:
+    """Tra trạng thái 1 dịch vụ Windows BẤT KỲ theo tên — không cần quyền Administrator (chỉ
+    đọc). Dùng chung cho dịch vụ chính (`SERVICE_NAME`) lẫn dịch vụ Cloudflared (tunnel công khai,
+    xem `query_public_tunnel_status`)."""
     try:
         import win32service
         import win32serviceutil
     except ImportError:
         return {"installed": False, "running": False, "state": "Chưa cài pywin32 (chỉ có trên Windows)."}
     try:
-        status_code = win32serviceutil.QueryServiceStatus(SERVICE_NAME)[1]
+        status_code = win32serviceutil.QueryServiceStatus(service_name)[1]
     except Exception:
         return {"installed": False, "running": False, "state": "Chưa cài đặt dịch vụ Windows."}
     labels = {
@@ -93,6 +94,56 @@ def query_status() -> dict[str, Any]:
         "installed": True, "running": status_code == win32service.SERVICE_RUNNING,
         "state": labels.get(status_code, str(status_code)),
     }
+
+
+def query_status() -> dict[str, Any]:
+    """Tra trạng thái dịch vụ đã cài trên Windows — không cần quyền Administrator (chỉ đọc).
+    Dùng cho `/cdc/cau-hinh` hiển thị "dịch vụ đang chạy/đã dừng/chưa cài đặt"."""
+    return _service_status(SERVICE_NAME)
+
+
+# Tên dịch vụ Windows dùng chung cho tunnel công khai (cdc-hp.io.vn, Cloudflare Tunnel Replica) —
+# KHÁC "CloudflaredHA" (tunnel riêng máy-tới-máy /noi-bo/ha/*, luôn phải chạy bất kể vai trò, xem
+# CLAUDE.md mục "Máy chủ dự phòng"). Đặt cứng vì hướng dẫn cài đặt luôn dùng đúng tên này
+# (`cloudflared.exe service install` mặc định đăng ký dịch vụ tên "Cloudflared").
+PUBLIC_TUNNEL_SERVICE_NAME = "Cloudflared"
+
+
+def query_public_tunnel_status() -> dict[str, Any]:
+    """Tra trạng thái dịch vụ Cloudflared (tunnel công khai dùng chung) — chỉ đọc, an toàn gọi
+    luôn bất kể `manage_public_tunnel_service` có bật hay không. Dùng cho `/cdc/cau-hinh` để CDC
+    nhìn thấy ngay máy này có đang thật sự nối tunnel công khai hay không."""
+    return _service_status(PUBLIC_TUNNEL_SERVICE_NAME)
+
+
+def set_public_tunnel_running(should_run: bool) -> dict[str, Any]:
+    """Bật/tắt dịch vụ Cloudflared (tunnel công khai dùng chung `cdc-hp.io.vn`) — dùng để máy dự
+    phòng tự ngắt khỏi Cloudflare Tunnel Replica (Replica cân bằng tải giữa MỌI máy đang kết nối,
+    không ưu tiên máy chính — sự cố thật đã gặp: máy dự phòng lỡ nhận request đọc công khai chứa
+    dữ liệu cũ), tự nối lại khi được thăng làm máy chính. KHÔNG đụng tới dịch vụ "CloudflaredHA".
+    Không bao giờ ném lỗi ra ngoài — đây là hành động phụ khi đổi vai trò, lỗi ở đây không được
+    làm hỏng luồng thăng/hạ cấp chính; trả `{"ok": False, "message": ...}` nếu thiếu pywin32,
+    chưa cài dịch vụ này, hoặc thiếu quyền Administrator."""
+    try:
+        import win32service
+        import win32serviceutil
+    except ImportError:
+        return {"ok": False, "message": "Chưa cài pywin32 — không thể điều khiển dịch vụ Cloudflared."}
+    try:
+        status_code = win32serviceutil.QueryServiceStatus(PUBLIC_TUNNEL_SERVICE_NAME)[1]
+    except Exception:
+        return {"ok": False, "message": f"Chưa cài đặt dịch vụ '{PUBLIC_TUNNEL_SERVICE_NAME}' trên máy này."}
+    is_running = status_code in (win32service.SERVICE_RUNNING, win32service.SERVICE_START_PENDING)
+    if should_run == is_running:
+        return {"ok": True, "message": "Đã đúng trạng thái, không cần đổi."}
+    try:
+        if should_run:
+            win32serviceutil.StartService(PUBLIC_TUNNEL_SERVICE_NAME)
+            return {"ok": True, "message": "Đã bật dịch vụ Cloudflared (nối lại tunnel công khai)."}
+        win32serviceutil.StopService(PUBLIC_TUNNEL_SERVICE_NAME)
+        return {"ok": True, "message": "Đã tắt dịch vụ Cloudflared (ngắt khỏi tunnel công khai)."}
+    except Exception as exc:
+        return {"ok": False, "message": f"Không thể đổi trạng thái dịch vụ Cloudflared: {exc}"}
 
 
 def restart_service() -> dict[str, Any]:

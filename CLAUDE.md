@@ -608,6 +608,40 @@ nhận diện, nhưng nếu vẫn bị chặn: vào Cloudflare dashboard → đ�
 Configuration Rule/WAF exception bỏ qua kiểm tra bot cho đúng hostname này — traffic hợp lệ ở đây
 CHỈ có 2 máy tự gọi nhau qua khoá bí mật, không phải người dùng thật nên không cần lớp bảo vệ bot.
 
+**Sự cố thật đã gặp — Bad Gateway "ở mạng khác" dù máy chính hoàn toàn khỏe:** khi CDC tự tay đăng
+nhập/kết nối thêm 1 máy nữa vào CÙNG tunnel dùng chung (`cdc-hp.io.vn`, bước "Add a replica" ở
+mục "Cài đặt lần đầu" trên), Cloudflare Tunnel Replica **cân bằng tải giữa MỌI máy đang kết nối —
+KHÔNG có khái niệm "ưu tiên máy chính"**. Máy dự phòng vẫn có thể bị Cloudflare route trúng request
+công khai (kể cả trang đăng nhập, xem dữ liệu) dù đang `server_role=standby`. Middleware
+`_block_writes_when_standby` chỉ chặn được request GHI (trả 409 rõ ràng, xem "Giới hạn đã biết"
+dưới đây) — request ĐỌC (GET) vẫn lọt qua, khiến quản trị viên có thể vô tình xem trúng dữ liệu CŨ
+trên máy dự phòng (chỉ kéo bản sao mỗi ~15 phút/lần) mà không biết mình đang xem máy nào.
+
+**Cách sửa — tự ngắt/nối Cloudflared theo vai trò:** bật cờ `manage_public_tunnel_service` ở
+`/cdc/cau-hinh` (mặc định TẮT) để máy TỰ bật/tắt dịch vụ Windows tên đúng `Cloudflared` (tunnel
+DÙNG CHUNG, KHÁC `CloudflaredHA` — tunnel riêng máy-tới-máy, luôn phải chạy bất kể vai trò) khớp
+đúng `server_role` — dừng khi là dự phòng (ngắt khỏi Tunnel Replica, Cloudflare không còn máy nào
+khác để lỡ route vào), bật lại khi được thăng làm chính. Cờ này chỉ nên bật khi đã cài đúng dịch
+vụ tên "Cloudflared" theo hướng dẫn ở trên — bật sai máy/sai tên có thể vô tình đụng nhầm dịch vụ
+khác. Xem `service_windows.py::set_public_tunnel_running`/`query_public_tunnel_status` và
+`ha_sync.py::reconcile_public_tunnel_service` (gọi ở MỌI điểm đổi vai trò: thăng/hạ cấp thủ công,
+bị máy kia báo hạ cấp, và mỗi lần khởi động dịch vụ để tự sửa lệch trạng thái).
+
+**Đánh đổi cần biết khi bật cờ này:** nếu CẢ HAI máy cùng khởi động lại đồng thời và cùng tự hạ
+cấp xuống `standby` (kịch bản "tự vệ lúc khởi động" ở trên), `cdc-hp.io.vn` sẽ **tạm ngừng hẳn**
+(không còn connector nào nối tunnel dùng chung) cho tới khi super-admin bấm thăng cấp lại — thay
+vì trước đây trang vẫn "lên" nhưng có thể phục vụ nhầm dữ liệu cũ từ máy dự phòng. Đây là đánh đổi
+đúng hướng (ưu tiên đúng dữ liệu hơn uptime, khớp triết lý "failover thủ công, tránh split-brain"
+đã chọn từ đầu) nhưng CDC cần hiểu rõ trước khi bật.
+
+**An toàn cho test/CI (lý do cờ mặc định TẮT):** `webapp/main.py::lifespan` gọi
+`reconcile_public_tunnel_service` ở MỌI lần khởi động app, kể cả khi dựng `TestClient` trong hàng
+chục file test — máy dev/production chạy test có thể có THẬT dịch vụ Cloudflared đang phục vụ
+traffic thật. Hàm kiểm tra cờ `manage_public_tunnel_service` TRƯỚC TIÊN, trả `None` ngay nếu tắt
+mà không đụng gì tới `service_windows`/pywin32 — vì mọi test hiện có đều
+`monkeypatch.setattr(deployment_config, "CONFIG_PATH", tmp_path / ...)` (cờ luôn về mặc định
+`False`), không cần sửa test nào khác để giữ an toàn.
+
 **Giới hạn đã biết (thiết kế có chủ đích, không phải lỗi):**
 - Đồng bộ là kéo định kỳ — dữ liệu ghi vào máy chính giữa 2 lần đồng bộ gần nhất trước khi máy đó
   hỏng có thể chưa kịp có trên máy dự phòng tại thời điểm thăng cấp.
