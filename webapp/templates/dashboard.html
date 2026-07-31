@@ -11,6 +11,7 @@
     </div>
     <div class="cdc-dashboard-header__actions">
       <form method="get" action="/cdc/dashboard">
+        <input type="hidden" name="report_week" value="{{ report_week }}">
         <label class="visually-hidden" for="dashboard-disease">Lọc theo bệnh</label>
         <select id="dashboard-disease" name="disease" class="form-select" onchange="this.form.submit()">
           <option value="">Tất cả bệnh</option>
@@ -49,14 +50,20 @@
     <div class="cdc-dashboard-stack">
       <section class="cdc-card cdc-report-progress">
         <div class="cdc-card-heading-row">
-          <h2>Xã chưa nộp báo cáo tuần {{ current_week.split('-W')[-1] }}</h2>
+          <h2>Xã chưa nộp báo cáo tuần {{ report_week.split('-W')[-1] }}</h2>
           <strong>{{ communes_missing|length }}/{{ commune_total }}</strong>
         </div>
+        <form method="get" action="/cdc/dashboard" class="cdc-report-week-form">
+          <input type="hidden" name="disease" value="{{ disease }}">
+          <label class="visually-hidden" for="dashboard-report-week">Chọn tuần xem xã chưa nộp</label>
+          <input type="week" id="dashboard-report-week" name="report_week" value="{{ report_week }}"
+                 max="{{ current_week }}" onchange="this.form.submit()" class="form-control form-control-sm">
+        </form>
         <div class="cdc-progress" aria-label="{{ submit_percent }}% xã đã nộp"><span style="width:{{ submit_percent }}%"></span></div>
         {% if communes_missing %}
         <div class="cdc-pill-list">{% for commune in communes_missing %}<span class="cdc-pill cdc-pill--danger">{{ commune }}</span>{% endfor %}</div>
         {% else %}
-        <p>Tất cả {{ commune_total }} xã/phường/đặc khu đã nộp báo cáo tuần này.</p>
+        <p>Tất cả {{ commune_total }} xã/phường/đặc khu đã nộp báo cáo tuần {{ report_week.split('-W')[-1] }}.</p>
         {% endif %}
       </section>
 

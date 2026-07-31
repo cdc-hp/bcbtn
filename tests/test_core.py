@@ -133,3 +133,33 @@ def test_detect_case_with_bad_dimension_and_header_variants():
         assert detected[0] == 'case'
         summary = core.import_excel(case_file, db)
         assert summary.inserted == 1
+
+
+# --- shift_iso_week / is_valid_iso_week ------------------------------------------------------
+# Dùng cho dashboard chọn tuần khác để xem xã nào chưa nộp (mặc định tuần TRƯỚC, xem
+# webapp/routers/dashboard.py).
+
+def test_shift_iso_week_moves_back_one_week():
+    assert core.shift_iso_week("2026-W31", -1) == "2026-W30"
+
+
+def test_shift_iso_week_moves_forward_one_week():
+    assert core.shift_iso_week("2026-W30", 1) == "2026-W31"
+
+
+def test_shift_iso_week_crosses_year_boundary():
+    # Tuần 1/2026 lùi 1 tuần phải ra đúng tuần cuối cùng của năm 2025 theo ISO-8601 (2025 chỉ có
+    # 52 tuần ISO — 31/12/2025 đã thuộc tuần 1/2026).
+    assert core.shift_iso_week("2026-W01", -1) == "2025-W52"
+
+
+def test_shift_iso_week_returns_input_unchanged_when_invalid():
+    assert core.shift_iso_week("khong-hop-le", -1) == "khong-hop-le"
+    assert core.shift_iso_week("", -1) == ""
+
+
+def test_is_valid_iso_week():
+    assert core.is_valid_iso_week("2026-W31") is True
+    assert core.is_valid_iso_week("2026-31") is False
+    assert core.is_valid_iso_week("") is False
+    assert core.is_valid_iso_week("khong-hop-le") is False

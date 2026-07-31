@@ -489,6 +489,28 @@ def current_iso_week() -> str:
     return f"{year}-W{week:02d}"
 
 
+_ISO_WEEK_RE = re.compile(r"^(\d{4})-W(\d{2})$")
+
+
+def is_valid_iso_week(week: str) -> bool:
+    return bool(_ISO_WEEK_RE.match(week or ""))
+
+
+def shift_iso_week(week: str, delta: int) -> str:
+    """Dịch 1 chuỗi tuần ISO ("YYYY-Www") đi `delta` tuần (âm = lùi về trước, dương = tiến lên) —
+    tự xử lý đúng qua ranh giới năm/tuần 53 nhờ `date.fromisocalendar`. Trả lại nguyên `week` nếu
+    không đúng định dạng (không đoán bừa). Dùng cho dashboard chọn tuần khác để xem xã nào chưa
+    nộp (mặc định tuần TRƯỚC, vì tuần hiện tại chưa kết thúc nên chưa thể coi là "thiếu")."""
+    match = _ISO_WEEK_RE.match(week or "")
+    if not match:
+        return week
+    year, week_num = int(match.group(1)), int(match.group(2))
+    monday = date.fromisocalendar(year, week_num, 1)
+    shifted = monday + timedelta(weeks=delta)
+    shifted_year, shifted_week, _ = shifted.isocalendar()
+    return f"{shifted_year}-W{shifted_week:02d}"
+
+
 def strip_text(value: Any) -> str:
     if value is None:
         return ""

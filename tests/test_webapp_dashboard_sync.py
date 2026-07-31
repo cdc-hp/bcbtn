@@ -122,14 +122,26 @@ def test_sync_now_requires_csrf(client: TestClient):
 # core.OFFICIAL_COMMUNES (114 đơn vị) làm mẫu số nên luôn tính ra được danh sách chưa nộp, không
 # phụ thuộc tài khoản xã nào cả.
 
-def test_dashboard_shows_missing_communes_without_any_commune_account(client: TestClient):
-    """Không cần tạo bất kỳ tài khoản xã nào — danh sách chưa nộp vẫn phải hiện đầy đủ."""
+def test_dashboard_defaults_to_previous_week(client: TestClient):
+    """Mặc định (không truyền report_week) phải là tuần TRƯỚC tuần hiện tại — tuần hiện tại chưa
+    kết thúc nên chưa thể coi xã nào "thiếu" báo cáo."""
     _login(client)
+    expected = core.shift_iso_week(core.current_iso_week(), -1)
+    resp = client.get("/cdc/dashboard")
+    assert resp.status_code == 200
+    assert f'value="{expected}"' in resp.text
+
+
+def test_dashboard_shows_missing_communes_without_any_commune_account(client: TestClient):
+    """Không cần tạo bất kỳ tài khoản xã nào — danh sách chưa nộp vẫn phải hiện đầy đủ. Chọn rõ
+    report_week=tuần hiện tại để không phụ thuộc mặc định "tuần trước"."""
+    _login(client)
+    week = core.current_iso_week()
     communes = sorted(core.OFFICIAL_COMMUNES)
     submitted, missing = communes[0], communes[1]
-    core.queue_submit(submitted, core.current_iso_week(), "bao_cao.xlsx", b"noi dung", db_path=core.DB_PATH)
+    core.queue_submit(submitted, week, "bao_cao.xlsx", b"noi dung", db_path=core.DB_PATH)
 
-    resp = client.get("/cdc/dashboard")
+    resp = client.get("/cdc/dashboard", params={"report_week": week})
     assert resp.status_code == 200
     assert "Xã chưa nộp báo cáo tuần" in resp.text
     assert f'cdc-pill cdc-pill--danger">{submitted}<' not in resp.text
@@ -143,7 +155,15 @@ def test_dashboard_shows_all_submitted_message_when_nothing_missing(client: Test
     core.queue_submit("Xã Test Một", week, "a.xlsx", b"x", db_path=core.DB_PATH)
     core.queue_submit("Xã Test Hai", week, "b.xlsx", b"y", db_path=core.DB_PATH)
 
-    resp = client.get("/cdc/dashboard")
+    resp = client.get("/cdc/dashboard", params={"report_week": week})
     assert resp.status_code == 200
-    assert "đã nộp báo cáo tuần này" in resp.text
+    assert f"đã nộp báo cáo tuần {week.split('-W')[-1]}" in resp.text
     assert "0/2" in resp.text  # 0 xã còn thiếu / 2 tổng số
+
+
+def test_dashboard_rejects_invalid_report_week_falls_back_to_default(client: TestClient):
+    _login(client)
+    expected = core.shift_iso_week(core.current_iso_week(), -1)
+    resp = client.get("/cdc/dashboard", params={"report_week": "khong-hop-le"})
+    assert resp.status_code == 200
+    assert f'value="{expected}"' in resp.text
