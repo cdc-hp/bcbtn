@@ -30,9 +30,15 @@
   <div class="table-responsive cdc-table-card">
     <table class="table table-hover align-middle">
       <thead><tr>
-        {% if can_import %}<th scope="col"><span class="visually-hidden">Chọn</span></th>{% endif %}
-        <th scope="col">Xã</th><th scope="col">Tuần</th><th scope="col">File</th><th scope="col">Nguồn</th>
-        <th scope="col">Trạng thái</th><th scope="col">Người nộp</th><th scope="col">Nhận lúc</th><th scope="col"><span class="visually-hidden">Hành động</span></th>
+        {% if can_import %}<th scope="col"><input type="checkbox" data-batch-select-all aria-label="Chọn tất cả các mục chờ nhập/lỗi"></th>{% endif %}
+        {% for column, label in {"commune": "Xã", "week": "Tuần", "file_name": "File", "source": "Nguồn", "status": "Trạng thái", "submitted_by": "Người nộp", "received_at": "Nhận lúc"}.items() %}
+        <th scope="col">
+          <a href="{{ sort_links[column].url }}" class="cdc-sort-link{% if sort_links[column].active %} cdc-sort-link--active{% endif %}">
+            {{ label }}{% if sort_links[column].active %}<span aria-hidden="true">{% if sort_links[column].dir == 'desc' %} ▼{% else %} ▲{% endif %}</span>{% endif %}
+          </a>
+        </th>
+        {% endfor %}
+        <th scope="col"><span class="visually-hidden">Hành động</span></th>
       </tr></thead>
       <tbody>
         {% for row in rows %}

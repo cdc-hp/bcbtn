@@ -4,7 +4,7 @@ file đã có sẵn ở `core.import_queue_item` (UPDATE nguyên tử) — route
 
 from __future__ import annotations
 
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -25,6 +25,28 @@ SOURCE_LABELS = {"server_chinh": "Trực tiếp", "server_phu": "Qua máy chủ 
 CAN_IMPORT_ROLES = (core.CDC_ROLE_SUPER_ADMIN, core.CDC_ROLE_ADMIN, core.CDC_ROLE_DATA_OPERATOR)
 CAN_DELETE_ROLES = (core.CDC_ROLE_SUPER_ADMIN, core.CDC_ROLE_ADMIN)
 
+# Tiêu đề bảng nào bấm sắp xếp được — khớp đúng whitelist core.QUEUE_SORT_COLUMNS.
+SORTABLE_COLUMNS = {
+    "commune": "Xã", "week": "Tuần", "file_name": "File", "source": "Nguồn",
+    "status": "Trạng thái", "submitted_by": "Người nộp", "received_at": "Nhận lúc",
+}
+
+
+def _sort_links(base_params: dict, current_sort: str, current_dir: str) -> dict[str, dict[str, str]]:
+    """Tính sẵn URL + chiều mũi tên cho từng cột sắp xếp được — bấm lần đầu sắp xếp tăng dần,
+    bấm lại đúng cột đó đảo chiều, bấm cột khác luôn bắt đầu lại từ tăng dần."""
+    links: dict[str, dict[str, str]] = {}
+    for column in SORTABLE_COLUMNS:
+        next_dir = "desc" if current_sort == column and current_dir == "asc" else "asc"
+        params = {**base_params, "sort": column, "dir": next_dir}
+        params = {k: v for k, v in params.items() if v}
+        links[column] = {
+            "url": "/cdc/hang-doi?" + urlencode(params),
+            "active": current_sort == column,
+            "dir": current_dir if current_sort == column else "",
+        }
+    return links
+
 
 def _redirect_to_list(request: Request, msg: str = "", err: str = "") -> RedirectResponse:
     qs = request.url.query
@@ -41,11 +63,17 @@ def _redirect_to_list(request: Request, msg: str = "", err: str = "") -> Redirec
 def queue_list(
     request: Request,
     commune: str = "", week: str = "", status: str = "", source: str = "",
+    sort: str = "", dir: str = "asc",
     msg: str = "", err: str = "",
     user: auth.CurrentUser = Depends(require_password_current),
     settings: WebAppSettings = Depends(get_settings_dep),
 ):
-    items = core.list_import_queue(status=status, commune=commune, week=week, source=source, db_path=settings.db_path)
+    sort = sort if sort in SORTABLE_COLUMNS else ""
+    dir = "desc" if dir == "desc" else "asc"
+    items = core.list_import_queue(
+        status=status, commune=commune, week=week, source=source,
+        sort=sort, direction=dir, db_path=settings.db_path,
+    )
     rows = []
     for item in items:
         row = dict(item)
@@ -53,10 +81,12 @@ def queue_list(
         row["source_label"] = SOURCE_LABELS.get(item["source"], item["source"])
         rows.append(row)
     token = auth.get_csrf_token(request)
+    base_params = {"commune": commune, "week": week, "status": status, "source": source}
     response = templates.TemplateResponse(request, "queue.html", {
         "user": user, "csrf_token": token, "rows": rows, "active": "hang-doi",
-        "filters": {"commune": commune, "week": week, "status": status, "source": source},
+        "filters": {"commune": commune, "week": week, "status": status, "source": source, "sort": sort, "dir": dir},
         "status_options": STATUS_LABELS, "source_options": SOURCE_LABELS,
+        "sort_links": _sort_links(base_params, sort, dir),
         "can_import": user.has_role(*CAN_IMPORT_ROLES), "can_delete": user.has_role(*CAN_DELETE_ROLES),
         "queue_pending": len(core.list_import_queue(status="cho_nhap", limit=2000, db_path=settings.db_path)),
         "queue_error": len(core.list_import_queue(status="loi", limit=2000, db_path=settings.db_path)),

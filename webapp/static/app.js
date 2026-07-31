@@ -118,13 +118,21 @@
 
   const batchItems = [...document.querySelectorAll('[data-batch-item]')];
   const batchCount = document.querySelector('[data-batch-count]');
-  if (batchItems.length && batchCount) {
+  const selectAll = document.querySelector('[data-batch-select-all]');
+  if (batchItems.length) {
     const updateBatchCount = () => {
       const count = batchItems.filter(input => input.checked).length;
-      batchCount.textContent = `(${count})`;
-      batchCount.hidden = count === 0;
+      if (batchCount) {
+        batchCount.textContent = `(${count})`;
+        batchCount.hidden = count === 0;
+      }
+      if (selectAll) selectAll.checked = count === batchItems.length;
     };
     batchItems.forEach(input => input.addEventListener('change', updateBatchCount));
+    selectAll?.addEventListener('change', () => {
+      batchItems.forEach(input => { input.checked = selectAll.checked; });
+      updateBatchCount();
+    });
     updateBatchCount();
   }
 

@@ -152,6 +152,45 @@ def test_queue_page_lists_and_filters(client: TestClient):
     assert "a.xlsx" in filtered.text and "b.xlsx" not in filtered.text
 
 
+def test_queue_page_has_select_all_checkbox_for_importer(client: TestClient):
+    _login_as(client, core.CDC_ROLE_ADMIN)
+    page = client.get("/cdc/hang-doi")
+    assert "data-batch-select-all" in page.text
+
+
+def test_queue_list_sorts_by_column_ascending(client: TestClient):
+    core.queue_submit("Xã B", "2026-W20", "b.xlsx", base64.b64decode(make_excel_b64("B1")), db_path=core.DB_PATH)
+    core.queue_submit("Xã A", "2026-W20", "a.xlsx", base64.b64decode(make_excel_b64("A1")), db_path=core.DB_PATH)
+    rows = core.list_import_queue(sort="commune", direction="asc", db_path=core.DB_PATH)
+    assert [r["commune"] for r in rows] == ["Xã A", "Xã B"]
+
+
+def test_queue_list_sorts_by_column_descending(client: TestClient):
+    core.queue_submit("Xã B", "2026-W20", "b.xlsx", base64.b64decode(make_excel_b64("B1")), db_path=core.DB_PATH)
+    core.queue_submit("Xã A", "2026-W20", "a.xlsx", base64.b64decode(make_excel_b64("A1")), db_path=core.DB_PATH)
+    rows = core.list_import_queue(sort="commune", direction="desc", db_path=core.DB_PATH)
+    assert [r["commune"] for r in rows] == ["Xã B", "Xã A"]
+
+
+def test_queue_list_ignores_unknown_sort_column(client: TestClient):
+    """Chống SQL injection qua tham số sort — tên cột không nằm trong whitelist phải bị bỏ qua,
+    dùng lại thứ tự mặc định thay vì ném lỗi."""
+    core.queue_submit("Xã A", "2026-W20", "a.xlsx", base64.b64decode(make_excel_b64("A1")), db_path=core.DB_PATH)
+    rows = core.list_import_queue(sort="id; DROP TABLE import_queue;--", db_path=core.DB_PATH)
+    assert len(rows) == 1
+
+
+def test_queue_page_sort_link_reflects_current_column(client: TestClient):
+    _login_as(client, core.CDC_ROLE_ADMIN)
+    core.queue_submit("Xã B", "2026-W20", "b.xlsx", base64.b64decode(make_excel_b64("B1")), db_path=core.DB_PATH)
+    core.queue_submit("Xã A", "2026-W20", "a.xlsx", base64.b64decode(make_excel_b64("A1")), db_path=core.DB_PATH)
+
+    page = client.get("/cdc/hang-doi", params={"sort": "commune", "dir": "asc"})
+    assert page.text.index("a.xlsx") < page.text.index("b.xlsx")
+    assert "cdc-sort-link--active" in page.text
+    assert "dir=desc" in page.text  # bấm lại cùng cột phải đảo chiều
+
+
 def test_admin_can_import_queue_item(client: TestClient):
     _login_as(client, core.CDC_ROLE_ADMIN)
     submitted = core.queue_submit("Xã Gia Viên", "2026-W29", "ds.xlsx", base64.b64decode(make_excel_b64("C1")), db_path=core.DB_PATH)

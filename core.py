@@ -1686,8 +1686,16 @@ def queue_submit(
     }
 
 
+
+# Cột được phép sắp xếp trên /cdc/hang-doi (nút "sort" ở tiêu đề bảng) — whitelist tên cột thật
+# trong bảng `import_queue`, KHÔNG bao giờ ghép trực tiếp giá trị `sort` từ query string vào SQL
+# (chống SQL injection qua tham số sắp xếp).
+QUEUE_SORT_COLUMNS = ("commune", "week", "file_name", "source", "status", "submitted_by", "received_at")
+
+
 def list_import_queue(
     status: str = "", commune: str = "", week: str = "", source: str = "",
+    sort: str = "", direction: str = "asc",
     limit: int = 200, offset: int = 0, db_path: Path | str = DB_PATH,
 ) -> list[dict[str, Any]]:
     init_db(db_path)
@@ -1704,9 +1712,13 @@ def list_import_queue(
     where_sql = " WHERE " + " AND ".join(where) if where else ""
     limit = max(1, min(2000, int(limit)))
     offset = max(0, int(offset))
+    if sort in QUEUE_SORT_COLUMNS:
+        order_sql = f"{sort} {'DESC' if direction == 'desc' else 'ASC'}, id DESC"
+    else:
+        order_sql = "commune, received_at DESC"
     with _connect(db_path) as conn:
         rows = conn.execute(
-            f"SELECT * FROM import_queue{where_sql} ORDER BY commune, received_at DESC LIMIT ? OFFSET ?",
+            f"SELECT * FROM import_queue{where_sql} ORDER BY {order_sql} LIMIT ? OFFSET ?",
             [*params, limit, offset],
         ).fetchall()
         return [dict(r) for r in rows]
