@@ -15,6 +15,7 @@ from webapp import TEMPLATES_DIR, auth
 from webapp.config import WebAppSettings
 from webapp.dependencies import ForbiddenError, get_settings_dep, require_password_current, require_role
 from webapp.services.http import client_ip
+from webapp.services.pagination import paginate
 
 router = APIRouter()
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
@@ -63,7 +64,7 @@ def _redirect_to_list(request: Request, msg: str = "", err: str = "") -> Redirec
 def queue_list(
     request: Request,
     commune: str = "", week: str = "", status: str = "", source: str = "",
-    sort: str = "", dir: str = "asc",
+    sort: str = "", dir: str = "asc", page: int = 1,
     msg: str = "", err: str = "",
     user: auth.CurrentUser = Depends(require_password_current),
     settings: WebAppSettings = Depends(get_settings_dep),
@@ -80,13 +81,21 @@ def queue_list(
         row["status_label"] = STATUS_LABELS.get(item["status"], item["status"])
         row["source_label"] = SOURCE_LABELS.get(item["source"], item["source"])
         rows.append(row)
+    page_rows, page_info = paginate(rows, page)
     token = auth.get_csrf_token(request)
     base_params = {"commune": commune, "week": week, "status": status, "source": source}
+    # pagination_base GIỮ NGUYÊN sort/dir đang chọn (khớp mẫu records.py) — đổi trang không làm
+    # mất cách sắp xếp hiện tại; ngược lại _sort_links KHÔNG mang `page` — bấm đổi sort tự về
+    # trang 1 (đúng hành vi records_list.html đang dùng).
+    pagination_params = {k: v for k, v in {**base_params, "sort": sort, "dir": dir}.items() if v}
+    pagination_base = "/cdc/hang-doi?" + (urlencode(pagination_params) + "&" if pagination_params else "") + "page="
     response = templates.TemplateResponse(request, "queue.html", {
-        "user": user, "csrf_token": token, "rows": rows, "active": "hang-doi",
+        "user": user, "csrf_token": token, "rows": page_rows, "active": "hang-doi",
         "filters": {"commune": commune, "week": week, "status": status, "source": source, "sort": sort, "dir": dir},
         "status_options": STATUS_LABELS, "source_options": SOURCE_LABELS,
         "sort_links": _sort_links(base_params, sort, dir),
+        "page": page_info["page"], "total_pages": page_info["total_pages"], "total": page_info["total"],
+        "pagination_base": pagination_base,
         "can_import": user.has_role(*CAN_IMPORT_ROLES), "can_delete": user.has_role(*CAN_DELETE_ROLES),
         "queue_pending": len(core.list_import_queue(status="cho_nhap", limit=2000, db_path=settings.db_path)),
         "queue_error": len(core.list_import_queue(status="loi", limit=2000, db_path=settings.db_path)),

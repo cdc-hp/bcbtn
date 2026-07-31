@@ -16,6 +16,7 @@ import core
 from webapp import TEMPLATES_DIR, auth
 from webapp.config import WebAppSettings
 from webapp.dependencies import ForbiddenError, get_settings_dep, require_role
+from webapp.services.pagination import paginate
 
 router = APIRouter()
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
@@ -34,15 +35,19 @@ def _redirect(msg: str = "", err: str = "") -> RedirectResponse:
 
 @router.get("/cdc/tai-khoan-xa", response_class=HTMLResponse)
 def list_commune_accounts(
-    request: Request, msg: str = "", err: str = "",
+    request: Request, msg: str = "", err: str = "", page: int = 1,
     user: auth.CurrentUser = Depends(require_role(*CAN_MANAGE_ROLES)),
     settings: WebAppSettings = Depends(get_settings_dep),
 ):
     accounts = core.list_commune_accounts(db_path=settings.db_path)
+    page_accounts, page_info = paginate(accounts, page)
     token = auth.get_csrf_token(request)
     response = templates.TemplateResponse(request, "commune_accounts.html", {
         "user": user, "csrf_token": token, "active": "tai-khoan-xa",
-        "accounts": accounts, "official_communes": sorted(core.OFFICIAL_COMMUNES),
+        "accounts": page_accounts, "total": page_info["total"],
+        "page": page_info["page"], "total_pages": page_info["total_pages"],
+        "pagination_base": "/cdc/tai-khoan-xa?page=",
+        "official_communes": sorted(core.OFFICIAL_COMMUNES),
         "msg": msg, "err": err,
     })
     auth.set_csrf_cookie(response, request, token)

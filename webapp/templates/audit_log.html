@@ -3,7 +3,7 @@
 {% block body %}
 {% include "_navbar.html" %}
 <div class="container-fluid cdc-page">
-  <header class="cdc-page-header"><h1>Nhật ký thao tác</h1><p>{{ "{:,}".format(rows|length) }} dòng gần nhất, có thể lọc theo hành động, người dùng, địa bàn và thời gian.</p></header>
+  <header class="cdc-page-header"><h1>Nhật ký thao tác</h1><p>{{ "{:,}".format(total) }} dòng gần nhất, có thể lọc theo hành động, người dùng, địa bàn và thời gian.</p></header>
 
   <form method="get" action="/cdc/nhat-ky" class="cdc-toolbar cdc-admin-toolbar">
     <div class="col-auto">
@@ -55,5 +55,18 @@
       </tbody>
     </table>
   </div>
+
+  {% if total_pages > 1 %}
+  <nav aria-label="Phân trang nhật ký">
+    <ul class="pagination pagination-sm">
+      {% set start_page = [1, page - 2]|max %}{% set end_page = [total_pages, page + 2]|min %}
+      {% if start_page > 1 %}<li class="page-item"><a class="page-link" href="{{ pagination_base }}1">1</a></li>{% if start_page > 2 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}{% endif %}
+      {% for p in range(start_page, end_page + 1) %}
+      <li class="page-item {% if p == page %}active{% endif %}"><a class="page-link" href="{{ pagination_base }}{{ p }}">{{ p }}</a></li>
+      {% endfor %}
+      {% if end_page < total_pages %}{% if end_page < total_pages - 1 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}<li class="page-item"><a class="page-link" href="{{ pagination_base }}{{ total_pages }}">{{ total_pages }}</a></li>{% endif %}
+    </ul>
+  </nav>
+  {% endif %}
 </div>
 {% endblock %}

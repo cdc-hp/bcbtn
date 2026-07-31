@@ -18,6 +18,7 @@ import core
 from webapp import TEMPLATES_DIR, auth
 from webapp.config import WebAppSettings
 from webapp.dependencies import ForbiddenError, get_settings_dep, require_role
+from webapp.services.pagination import paginate
 
 router = APIRouter()
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
@@ -45,17 +46,20 @@ def _resolve_backup_path(name: str) -> Path:
 
 @router.get("/cdc/sao-luu", response_class=HTMLResponse)
 def list_page(
-    request: Request, msg: str = "", err: str = "",
+    request: Request, msg: str = "", err: str = "", page: int = 1,
     user: auth.CurrentUser = Depends(require_role(*CAN_VIEW_ROLES)),
     settings: WebAppSettings = Depends(get_settings_dep),
 ):
     policy = backup_manager.load_policy()
     health = backup_manager.backup_health(policy)
     backups = backup_manager.list_backups(policy)
+    page_backups, page_info = paginate(backups, page)
     token = auth.get_csrf_token(request)
     response = templates.TemplateResponse(request, "backups.html", {
         "user": user, "csrf_token": token, "active": "sao-luu",
-        "policy": policy, "health": health, "backups": backups,
+        "policy": policy, "health": health, "backups": page_backups, "total": page_info["total"],
+        "page": page_info["page"], "total_pages": page_info["total_pages"],
+        "pagination_base": "/cdc/sao-luu?page=",
         "can_restore": user.has_role(*CAN_RESTORE_ROLES), "msg": msg, "err": err,
     })
     auth.set_csrf_cookie(response, request, token)

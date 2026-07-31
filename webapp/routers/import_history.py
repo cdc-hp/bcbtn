@@ -14,6 +14,7 @@ import core
 from webapp import TEMPLATES_DIR, auth
 from webapp.config import WebAppSettings
 from webapp.dependencies import ForbiddenError, get_settings_dep, require_role
+from webapp.services.pagination import paginate
 
 router = APIRouter()
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
@@ -25,17 +26,21 @@ ENTITY_LABELS = {"case": "Ca bệnh", "outbreak": "Ổ dịch"}
 
 @router.get("/cdc/lich-su-nhap", response_class=HTMLResponse)
 def list_batches(
-    request: Request, msg: str = "", err: str = "",
+    request: Request, msg: str = "", err: str = "", page: int = 1,
     user: auth.CurrentUser = Depends(require_role(*CAN_VIEW_ROLES)),
     settings: WebAppSettings = Depends(get_settings_dep),
 ):
-    rows = core.list_import_batches(db_path=settings.db_path, limit=200)
+    rows = core.list_import_batches(db_path=settings.db_path, limit=2000)
     for row in rows:
         row["entity_label"] = ENTITY_LABELS.get(row["entity_type"], row["entity_type"])
+    page_rows, page_info = paginate(rows, page)
     token = auth.get_csrf_token(request)
     response = templates.TemplateResponse(request, "import_history.html", {
         "user": user, "csrf_token": token, "active": "lich-su-nhap",
-        "rows": rows, "can_delete": user.has_role(*CAN_DELETE_ROLES), "msg": msg, "err": err,
+        "rows": page_rows, "total": page_info["total"],
+        "page": page_info["page"], "total_pages": page_info["total_pages"],
+        "pagination_base": "/cdc/lich-su-nhap?page=",
+        "can_delete": user.has_role(*CAN_DELETE_ROLES), "msg": msg, "err": err,
     })
     auth.set_csrf_cookie(response, request, token)
     return response

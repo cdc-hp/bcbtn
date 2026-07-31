@@ -169,4 +169,45 @@
     timer = window.setInterval(pollUpdate, 2000);
     window.setTimeout(pollUpdate, 500);
   }
+
+  // Kéo dãn độ rộng cột — áp dụng chung cho MỌI bảng trong .table-responsive, không cần gắn
+  // class riêng ở từng template. Tay cầm là 1 dải hẹp sát mép phải mỗi <th> (trừ ô cuối) để
+  // không đè lên link sắp xếp (.cdc-sort-link) đã lấp đầy <th> ở các trang có sort.
+  const RESIZE_STORAGE_PREFIX = 'cdc_col_width::';
+  document.querySelectorAll('.table-responsive table').forEach(table => {
+    const headerCells = [...table.querySelectorAll('thead th')];
+    headerCells.forEach((th, index) => {
+      if (index === headerCells.length - 1) return; // ô cuối (hành động) không cần kéo dãn
+      const columnKey = th.dataset.columnKey || th.textContent.trim() || `col-${index}`;
+      const storageKey = RESIZE_STORAGE_PREFIX + window.location.pathname + '::' + columnKey;
+      const savedWidth = window.localStorage.getItem(storageKey);
+      if (savedWidth) th.style.width = savedWidth;
+
+      const handle = document.createElement('span');
+      handle.className = 'cdc-col-resize';
+      handle.setAttribute('aria-hidden', 'true');
+      th.appendChild(handle);
+
+      let startX = 0, startWidth = 0;
+      const onMouseMove = event => {
+        const delta = event.clientX - startX;
+        th.style.width = `${Math.max(60, startWidth + delta)}px`;
+      };
+      const onMouseUp = () => {
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+        handle.classList.remove('cdc-col-resize--active');
+        try { window.localStorage.setItem(storageKey, th.style.width); } catch (_) {}
+      };
+      handle.addEventListener('mousedown', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        startX = event.clientX;
+        startWidth = th.getBoundingClientRect().width;
+        handle.classList.add('cdc-col-resize--active');
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+      });
+    });
+  });
 })();

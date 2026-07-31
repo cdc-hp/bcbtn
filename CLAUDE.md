@@ -174,6 +174,24 @@ cao** (phục hồi sao lưu, cấu hình triển khai, quản lý tài khoản,
 `super_admin`. `viewer` bị chặn xuất dữ liệu hàng loạt dù chỉ là "xem" — vì file xuất chứa
 CCCD/SĐT, rủi ro rò rỉ khác hẳn xem từng bản ghi trên màn hình.
 
+### Giao diện bảng dữ liệu — kéo dãn cột, full chiều ngang, phân trang
+
+- **Kéo dãn cột**: `webapp/static/app.js` tự gắn tay cầm kéo (`.cdc-col-resize`) vào mọi `<th>`
+  trong MỌI bảng nằm trong `.table-responsive` — không cần gắn class riêng ở từng template.
+  Không đè lên `.cdc-sort-link` (link sắp xếp lấp đầy `<th>` ở các trang có sort) vì tay cầm chỉ
+  là 1 dải hẹp 6px sát mép phải. Độ rộng lưu vào `localStorage` (khoá theo đường dẫn trang + tên
+  cột) nên tự nhớ lại lần sau — chỉ là tiện ích hiển thị cục bộ trình duyệt, không lưu server.
+- **Full chiều ngang**: `webapp/static/style.css` — vùng nội dung (`max-width`) đã nới từ 1240px
+  lên 2400px để dùng hết chiều rộng cửa sổ/màn hình thay vì bị khoá cứng; vẫn giữ nguyên cơ chế
+  cuộn nội bộ (`height:100vh`/`overflow-y:auto`) đã có từ trước.
+- **Phân trang**: `webapp/services/pagination.py::paginate(rows, page, page_size=50)` — cắt trang
+  bằng Python SAU KHI router đã fetch đủ danh sách (không cần OFFSET ở SQL). Dùng cho 6 trang
+  trước đây load hết 1 lần: `/hang-doi`, `/tai-khoan`, `/tai-khoan-xa`, `/nhat-ky`, `/lich-su-nhap`,
+  `/sao-luu` — mỗi router tự dựng `pagination_base` giữ nguyên mọi filter đang lọc (xem mẫu
+  `records.py::_list_view`, trang Ca bệnh/Ổ dịch đã phân trang chuẩn từ trước, dùng SQL
+  `page`/`page_size` thật chứ không qua `paginate()`). `/hang-doi` có cả sort — sort không mang
+  `page` (đổi cách sắp xếp tự về trang 1), `pagination_base` giữ nguyên `sort`/`dir` đang chọn.
+
 ### Tài khoản xã — cổng chỉ xem riêng (`/xa/*`)
 
 Hoàn toàn tách biệt tài khoản CDC (`/cdc/*`, bảng `cdc_accounts`) — tài khoản xã (bảng

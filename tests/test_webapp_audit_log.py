@@ -78,3 +78,17 @@ def test_filter_by_actor_no_match(client: TestClient):
     _login(client)
     resp = client.get("/cdc/nhat-ky", params={"actor": "khong_ton_tai"})
     assert "Không có dòng nhật ký" in resp.text
+
+
+def test_audit_log_paginates_and_preserves_filter(client: TestClient):
+    _login(client)
+    for i in range(55):
+        core.log_audit("thao_tac_thu", actor="sa_admin", detail=f"dong_{i:03d}", db_path=core.DB_PATH)
+
+    page1 = client.get("/cdc/nhat-ky", params={"action": "thao_tac_thu"})
+    assert page1.status_code == 200
+    assert "page-item" in page1.text
+    assert "action=thao_tac_thu" in page1.text
+
+    page2 = client.get("/cdc/nhat-ky", params={"action": "thao_tac_thu", "page": 2})
+    assert page2.status_code == 200

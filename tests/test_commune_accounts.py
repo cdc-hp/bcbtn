@@ -215,3 +215,16 @@ def test_import_commune_accounts_function_directly(tmp_path: Path):
     assert summary.rows_read == 1
     assert summary.created == 1
     assert not summary.errors
+
+
+def test_commune_accounts_page_paginates_at_50(client: TestClient):
+    _login_super_admin(client)
+    for i in range(55):
+        core.create_commune_account(f"Xã Test {i:03d}", f"xa_test_{i:03d}", "matkhau123", db_path=core.DB_PATH)
+
+    page1 = client.get("/cdc/tai-khoan-xa")
+    assert page1.status_code == 200
+    assert "page-item" in page1.text
+
+    page2 = client.get("/cdc/tai-khoan-xa", params={"page": 2})
+    assert page2.status_code == 200

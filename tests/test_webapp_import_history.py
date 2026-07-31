@@ -144,3 +144,18 @@ def test_delete_requires_admin_role(client: TestClient, tmp_path: Path):
     csrf = _fresh_csrf(client, "/cdc/lich-su-nhap")
     resp = client.post(f"/cdc/lich-su-nhap/{batch['id']}/xoa", data={"csrf_token": csrf})
     assert resp.status_code == 403
+
+
+def test_import_history_paginates_at_50(client: TestClient, tmp_path: Path):
+    _login(client)
+    for i in range(55):
+        core.import_excel(
+            _seed_case_file(tmp_path, f"batch_{i:03d}.xlsx", [{"full_name": f"Nguyen Van {i:03d}"}]), core.DB_PATH,
+        )
+
+    page1 = client.get("/cdc/lich-su-nhap")
+    assert page1.status_code == 200
+    assert "page-item" in page1.text
+
+    page2 = client.get("/cdc/lich-su-nhap", params={"page": 2})
+    assert page2.status_code == 200

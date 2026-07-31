@@ -136,3 +136,21 @@ def test_save_policy(client: TestClient):
     assert resp.status_code == 303
     saved = backup_manager.load_policy()
     assert saved.interval_hours == 12 and saved.keep_daily == 5
+
+
+def test_backups_page_paginates_at_50(client: TestClient):
+    _login(client, role=core.CDC_ROLE_ADMIN)
+    # Nâng keep_manual (mặc định 20) lên đủ cao — create_backup() tự prune_backups() theo chính
+    # sách sau MỖI lần tạo, nếu không nâng thì 55 lần tạo cũng chỉ còn tối đa 20 bản.
+    policy = backup_manager.load_policy()
+    policy.keep_manual = 100
+    backup_manager.save_policy(policy)
+    for _ in range(55):
+        core.create_backup(core.DB_PATH)
+
+    page1 = client.get("/cdc/sao-luu")
+    assert page1.status_code == 200
+    assert "page-item" in page1.text
+
+    page2 = client.get("/cdc/sao-luu", params={"page": 2})
+    assert page2.status_code == 200

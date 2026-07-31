@@ -191,6 +191,50 @@ def test_queue_page_sort_link_reflects_current_column(client: TestClient):
     assert "dir=desc" in page.text  # bấm lại cùng cột phải đảo chiều
 
 
+# --- Phân trang (không phá sort) -------------------------------------------------------------
+
+def _seed_many(count: int) -> None:
+    for i in range(count):
+        core.queue_submit(
+            f"Xã {i:03d}", "2026-W20", f"f{i:03d}.xlsx",
+            base64.b64decode(make_excel_b64(f"C{i:03d}")), db_path=core.DB_PATH,
+        )
+
+
+def test_queue_page_paginates_at_50_rows(client: TestClient):
+    _login_as(client, core.CDC_ROLE_ADMIN)
+    _seed_many(60)
+
+    page1 = client.get("/cdc/hang-doi", params={"sort": "commune", "dir": "asc"})
+    assert "f000.xlsx" in page1.text
+    assert "f049.xlsx" in page1.text
+    assert "f050.xlsx" not in page1.text
+    assert "60 mục" in page1.text
+
+    page2 = client.get("/cdc/hang-doi", params={"sort": "commune", "dir": "asc", "page": 2})
+    assert "f050.xlsx" in page2.text
+    assert "f059.xlsx" in page2.text
+    assert "f000.xlsx" not in page2.text
+
+
+def test_queue_pagination_links_preserve_sort(client: TestClient):
+    _login_as(client, core.CDC_ROLE_ADMIN)
+    _seed_many(60)
+    resp = client.get("/cdc/hang-doi", params={"sort": "commune", "dir": "desc"})
+    assert "sort=commune" in resp.text and "dir=desc" in resp.text
+    assert "page=2" in resp.text
+
+
+def test_queue_sort_link_does_not_carry_current_page(client: TestClient):
+    """Bấm đổi sort phải luôn về trang 1 — link sort không được mang tham số page hiện tại."""
+    _login_as(client, core.CDC_ROLE_ADMIN)
+    _seed_many(60)
+    resp = client.get("/cdc/hang-doi", params={"sort": "commune", "dir": "asc", "page": 2})
+    start = resp.text.index('href="/cdc/hang-doi?sort=week')
+    end = resp.text.index('"', start + 6)
+    assert "page=" not in resp.text[start:end]
+
+
 def test_admin_can_import_queue_item(client: TestClient):
     _login_as(client, core.CDC_ROLE_ADMIN)
     submitted = core.queue_submit("Xã Gia Viên", "2026-W29", "ds.xlsx", base64.b64decode(make_excel_b64("C1")), db_path=core.DB_PATH)

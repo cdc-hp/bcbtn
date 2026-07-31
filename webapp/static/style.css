@@ -40,7 +40,7 @@ a:hover { color: var(--cdc-primary); }
 .cdc-logout,.cdc-menu-button { border: 0; background: transparent; color: var(--cdc-muted); border-radius: 10px; padding: 7px; display: grid; place-items: center; }
 .cdc-logout:hover,.cdc-menu-button:hover { color: var(--cdc-danger); background: var(--cdc-danger-soft); }
 .cdc-mobile-header,.cdc-sidebar-backdrop { display: none; }
-body:has(.cdc-sidebar) > .container,body:has(.cdc-sidebar) > .container-fluid { width: auto; max-width: 1500px; margin-left: 240px; padding: 34px 36px!important; }
+body:has(.cdc-sidebar) > .container,body:has(.cdc-sidebar) > .container-fluid { width: auto; max-width: 2400px; margin-left: 240px; padding: 34px 36px!important; }
 h1.h5 { margin-bottom: 22px!important; font-size: clamp(25px,2vw,30px); font-weight: 750; letter-spacing: -.5px; }
 .card { border: 0; border-radius: var(--cdc-radius); background: var(--cdc-surface); box-shadow: var(--cdc-shadow); }
 .card.p-3 { padding: 20px!important; }
@@ -64,7 +64,9 @@ h1.h5 { margin-bottom: 22px!important; font-size: clamp(25px,2vw,30px); font-wei
 .table-responsive { margin-bottom: 18px; border-radius: var(--cdc-radius); background: #fff; box-shadow: var(--cdc-shadow); overflow-x: auto; }
 .card .table-responsive { box-shadow: none; border-radius: 12px; }
 .table { margin: 0; color: var(--cdc-text); font-size: 13px; }.table > :not(caption) > * > * { padding: 12px 13px; border-bottom-color: var(--cdc-border); vertical-align: middle; }
-.table thead th { color: #326c58; background: var(--cdc-primary-soft); font-weight: 750; white-space: nowrap; }.table thead th:first-child { border-radius: 13px 0 0 0; }.table thead th:last-child { border-radius: 0 13px 0 0; }.table tbody tr:hover > * { background: #f8fbf9; }
+.table thead th { position: relative; color: #326c58; background: var(--cdc-primary-soft); font-weight: 750; white-space: nowrap; }.table thead th:first-child { border-radius: 13px 0 0 0; }.table thead th:last-child { border-radius: 0 13px 0 0; }.table tbody tr:hover > * { background: #f8fbf9; }
+.cdc-col-resize { position: absolute; top: 0; right: -3px; bottom: 0; width: 6px; cursor: col-resize; z-index: 2; touch-action: none; }
+.cdc-col-resize:hover,.cdc-col-resize--active { background: var(--cdc-primary-border); }
 form.row.g-2.mb-3,form.row.g-2.mb-2 { margin-bottom: 20px!important; padding: 18px; border-radius: var(--cdc-radius); background: #fff; box-shadow: var(--cdc-shadow); }
 .cdc-records-header { margin-bottom: 20px; display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
 .cdc-records-header h1.h5 { margin-bottom: 2px!important; }
@@ -140,14 +142,14 @@ form.row.g-2.mb-3,form.row.g-2.mb-2 { margin-bottom: 20px!important; padding: 18
 }
 @media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior: auto!important; transition: none!important; } }
 
-/* Organic prototype parity layer. The source HTML uses a fixed 240px rail and a
-   separately scrolling 1240px workspace; these selectors intentionally win over
-   the legacy Bootstrap compatibility rules above. */
+/* Organic prototype parity layer. Nguồn gốc dùng rail cố định 240px + vùng làm việc tự cuộn
+   riêng — vẫn giữ cơ chế cuộn nội bộ này, nhưng bề ngang giờ dùng hết chiều rộng cửa sổ/màn hình
+   thay vì khoá cứng 1240px (yêu cầu thật từ CDC — nhiều bảng dữ liệu cần không gian ngang hơn). */
 @media (min-width: 992px) {
   body:has(.cdc-sidebar) { height: 100vh; overflow: hidden; }
   body:has(.cdc-sidebar) > .container,
   body:has(.cdc-sidebar) > .container-fluid {
-    width: auto; max-width: 1240px; height: 100vh; margin: 0 auto 0 240px;
+    width: auto; max-width: 2400px; height: 100vh; margin: 0 auto 0 240px;
     padding: 40px!important; overflow-y: auto; overflow-x: hidden;
   }
 }

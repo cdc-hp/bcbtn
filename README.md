@@ -1,4 +1,4 @@
-# Ứng dụng Giám sát dịch bệnh — phiên bản 0.18.10
+# Ứng dụng Giám sát dịch bệnh — phiên bản 0.19.0
 
 Quản lý ca bệnh, ổ dịch, lọc trùng và chia sẻ dữ liệu — CDC Hải Phòng. Web App tập trung: 1 máy
 chủ duy nhất chạy dịch vụ Windows (FastAPI/Uvicorn), quản trị hoàn toàn qua trình duyệt, không
@@ -60,6 +60,9 @@ GitHub Actions từ chối phát hành nếu phát hiện `.db`, SQLite, Excel, 
   - Chọn giá trị tốt nhất từng trường để tạo bản ghi hợp nhất.
   - Bản còn lại được đưa vào Thùng rác và có thể khôi phục; CSDL được sao lưu trước thao tác.
 - Tìm kiếm, lọc, phân trang, xem chi tiết và xuất Excel/CSV.
+- Mọi bảng dữ liệu đều kéo dãn được độ rộng cột (tự nhớ lại), giao diện giãn hết chiều ngang
+  cửa sổ/màn hình, và danh sách dài (hàng đợi, tài khoản, nhật ký, lịch sử nhập, sao lưu) đều
+  chia trang 50 dòng/trang.
 - Thêm, sửa, xóa ổ dịch.
 - Kiểm tra chất lượng dữ liệu.
 - Quản lý tài khoản quản trị viên riêng (vai trò super_admin/admin/data_operator/viewer), khoá

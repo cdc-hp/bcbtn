@@ -18,6 +18,7 @@ import core
 from webapp import TEMPLATES_DIR, auth
 from webapp.config import WebAppSettings
 from webapp.dependencies import ForbiddenError, get_settings_dep, require_role
+from webapp.services.pagination import paginate
 
 router = APIRouter()
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
@@ -44,7 +45,7 @@ def _redirect(msg: str = "", err: str = "") -> RedirectResponse:
 
 @router.get("/cdc/tai-khoan", response_class=HTMLResponse)
 def list_accounts(
-    request: Request, msg: str = "", err: str = "",
+    request: Request, msg: str = "", err: str = "", page: int = 1,
     user: auth.CurrentUser = Depends(require_role(*CAN_MANAGE_ROLES)),
     settings: WebAppSettings = Depends(get_settings_dep),
 ):
@@ -52,10 +53,14 @@ def list_accounts(
     for account in accounts:
         account["role_label"] = ROLE_LABELS.get(account["role"], account["role"])
         account["locked"] = bool(account["locked_until"] and account["locked_until"] > _now())
+    page_accounts, page_info = paginate(accounts, page)
     token = auth.get_csrf_token(request)
     response = templates.TemplateResponse(request, "accounts.html", {
         "user": user, "csrf_token": token, "active": "tai-khoan",
-        "accounts": accounts, "roles": core.CDC_ROLES, "role_labels": ROLE_LABELS, "msg": msg, "err": err,
+        "accounts": page_accounts, "total": page_info["total"],
+        "page": page_info["page"], "total_pages": page_info["total_pages"],
+        "pagination_base": "/cdc/tai-khoan?page=",
+        "roles": core.CDC_ROLES, "role_labels": ROLE_LABELS, "msg": msg, "err": err,
     })
     auth.set_csrf_cookie(response, request, token)
     return response

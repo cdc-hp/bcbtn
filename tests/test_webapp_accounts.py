@@ -140,3 +140,18 @@ def test_actions_require_csrf(client: TestClient):
         "csrf_token": "sai", "username": "x", "role": core.CDC_ROLE_VIEWER, "password": "matkhau123",
     })
     assert resp.status_code == 403
+
+
+def test_accounts_page_paginates_at_50(client: TestClient):
+    _login(client)
+    for i in range(55):
+        core.create_cdc_account(f"tk_{i:03d}", "matkhau123", role=core.CDC_ROLE_VIEWER, db_path=core.DB_PATH)
+
+    page1 = client.get("/cdc/tai-khoan")
+    assert page1.status_code == 200
+    accounts = core.list_cdc_accounts(db_path=core.DB_PATH)
+    assert len(accounts) == 56  # 55 + sa_admin
+    assert "page-item" in page1.text
+
+    page2 = client.get("/cdc/tai-khoan", params={"page": 2})
+    assert page2.status_code == 200
