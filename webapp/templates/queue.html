@@ -32,10 +32,8 @@
       <thead><tr>
         {% if can_import %}<th scope="col"><input type="checkbox" data-batch-select-all aria-label="Chọn tất cả các mục chờ nhập/lỗi"></th>{% endif %}
         {% for column, label in {"commune": "Xã", "week": "Tuần", "file_name": "File", "source": "Nguồn", "status": "Trạng thái", "submitted_by": "Người nộp", "received_at": "Nhận lúc"}.items() %}
-        <th scope="col">
-          <a href="{{ sort_links[column].url }}" class="cdc-sort-link{% if sort_links[column].active %} cdc-sort-link--active{% endif %}">
-            {{ label }}{% if sort_links[column].active %}<span aria-hidden="true">{% if sort_links[column].dir == 'desc' %} ▼{% else %} ▲{% endif %}</span>{% endif %}
-          </a>
+        <th scope="col"{% if sort_links[column].active %} aria-sort="{{ 'ascending' if sort_links[column].dir == 'asc' else 'descending' }}"{% endif %}>
+          <a class="cdc-sort-link{% if sort_links[column].active %} cdc-sort-link--active{% endif %}" href="{{ sort_links[column].url }}">{{ label }}{{ icon('chevron-down') }}</a>
         </th>
         {% endfor %}
         <th scope="col"><span class="visually-hidden">Hành động</span></th>

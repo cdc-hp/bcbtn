@@ -220,9 +220,6 @@ form.row.g-2.mb-3,form.row.g-2.mb-2 { margin-bottom: 20px!important; padding: 18
 .cdc-batch-row { margin: 0 0 12px; }
 .cdc-table-card { margin-bottom: 18px; border-radius: 19px; box-shadow: var(--cdc-shadow); }
 .cdc-table-card .table thead th,.cdc-page > .table-responsive .table thead th { padding-top: 13px; padding-bottom: 13px; color: #49635a; background: #f2f7f4; font-size: 11px; letter-spacing: .025em; text-transform: uppercase; }
-.cdc-sort-link { color: inherit; text-decoration: none; }
-.cdc-sort-link:hover { text-decoration: underline; }
-.cdc-sort-link--active { color: var(--cdc-primary, #1d6f4f); }
 .cdc-row-error { max-width: 260px; margin-top: 5px; display: block; color: var(--cdc-danger); font-size: 10px; line-height: 1.35; white-space: normal; }
 .cdc-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
 .cdc-row-actions form { margin: 0; }
