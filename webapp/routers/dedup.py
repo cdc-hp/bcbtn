@@ -200,6 +200,30 @@ async def merge_group(
     )
 
 
+@router.post("/cdc/loc-trung/khong-trung", response_class=HTMLResponse)
+async def dismiss_group(
+    request: Request,
+    user: auth.CurrentUser = Depends(require_role(*CAN_MERGE_ROLES)),
+    settings: WebAppSettings = Depends(get_settings_dep),
+):
+    form = await request.form()
+    if not auth.verify_csrf(request, str(form.get("csrf_token", ""))):
+        raise ForbiddenError("Phiên làm việc đã hết hạn hoặc yêu cầu không hợp lệ (CSRF). Tải lại trang và thử lại.")
+    entity_type = str(form.get("entity", ""))
+    if entity_type not in ("case", "outbreak"):
+        raise ForbiddenError("Loại bản ghi không hợp lệ.")
+    try:
+        ids = [int(v) for v in form.getlist("ids")]
+    except ValueError:
+        return _redirect_to_scan(entity_type, err="Dữ liệu gửi lên không hợp lệ.")
+    if len(ids) < 2:
+        return _redirect_to_scan(entity_type, err="Nhóm này không còn đủ bản ghi để xác nhận.")
+    core.dismiss_duplicate_pairs(entity_type, ids, db_path=settings.db_path, actor=user.username)
+    return _redirect_to_scan(
+        entity_type, msg="Đã xác nhận các bản ghi này KHÔNG trùng — lần quét sau sẽ không gợi ý lại.",
+    )
+
+
 @router.get("/cdc/loc-trung/lich-su", response_class=HTMLResponse)
 def history(
     request: Request, msg: str = "", err: str = "",

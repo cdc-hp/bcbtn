@@ -403,6 +403,16 @@ def init_db(db_path: Path | str = DB_PATH) -> None:
                     restored_id INTEGER
                 );
     
+                CREATE TABLE IF NOT EXISTS duplicate_dismissals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    entity_type TEXT NOT NULL,
+                    record_id_a INTEGER NOT NULL,
+                    record_id_b INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    actor TEXT,
+                    UNIQUE(entity_type, record_id_a, record_id_b)
+                );
+
                 CREATE TABLE IF NOT EXISTS import_queue (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     commune TEXT NOT NULL,
@@ -1196,6 +1206,72 @@ def _outbreak_pair_score(a: dict[str, Any], b: dict[str, Any], weights: dict[str
     return min(score, 99), reasons
 
 
+def _pair_key(a: int, b: int) -> tuple[int, int]:
+    return (a, b) if a < b else (b, a)
+
+
+def _load_dismissed_pairs(entity_type: str, db_path: Path | str) -> set[tuple[int, int]]:
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT record_id_a, record_id_b FROM duplicate_dismissals WHERE entity_type=?", (entity_type,)
+        ).fetchall()
+    return {(int(r["record_id_a"]), int(r["record_id_b"])) for r in rows}
+
+
+def _connected_components(node_ids: list[int], edges: list[tuple[int, int]]) -> list[list[int]]:
+    """Gom `node_ids` thành các thành phần liên thông theo `edges` — dùng để tách một nhóm nghi
+    trùng thành các nhóm nhỏ hơn sau khi loại bỏ những cặp đã được xác nhận KHÔNG trùng (mỗi cặp
+    còn nối với nhau nghĩa là vẫn chưa được xác nhận, cần CDC xem lại)."""
+    parent = {node: node for node in node_ids}
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    for a, b in edges:
+        union(a, b)
+    groups: dict[int, list[int]] = {}
+    for node in node_ids:
+        groups.setdefault(find(node), []).append(node)
+    return [group for group in groups.values() if len(group) > 1]
+
+
+def dismiss_duplicate_pairs(
+    entity_type: str, record_ids: Sequence[int], db_path: Path | str = DB_PATH, actor: str = "",
+) -> int:
+    """Xác nhận toàn bộ các cặp trong một nhóm đang duyệt là KHÔNG trùng — lưu riêng từng cặp
+    (không phải cả nhóm như một khối) để lần quét sau bỏ qua ĐÚNG các cặp đã xác nhận, nhưng vẫn
+    phát hiện được nếu sau này có bản ghi MỚI khớp thêm với một trong các id này (xem
+    `_connected_components` — nhóm cũ chỉ biến mất hẳn khi TOÀN BỘ cặp trong nó đã được xác
+    nhận; nếu có id mới nối vào, nhóm xuất hiện lại nhưng các cặp đã xác nhận trước đó vẫn được
+    coi là không trùng)."""
+    ids = sorted({int(i) for i in record_ids})
+    if len(ids) < 2:
+        return 0
+    now = datetime.now().isoformat(sep=" ", timespec="seconds")
+    pairs = [(a, b) for index, a in enumerate(ids) for b in ids[index + 1:]]
+    with _connect(db_path) as conn:
+        for a, b in pairs:
+            conn.execute(
+                """INSERT OR IGNORE INTO duplicate_dismissals
+                   (entity_type, record_id_a, record_id_b, created_at, actor) VALUES (?, ?, ?, ?, ?)""",
+                (entity_type, a, b, now, actor),
+            )
+    log_audit(
+        "dismiss_duplicate_pair", actor=actor,
+        detail=f"entity_type={entity_type}; ids={','.join(str(i) for i in ids)}; pairs={len(pairs)}",
+        db_path=db_path,
+    )
+    return len(pairs)
+
+
 def find_duplicate_groups(
     entity_type: str,
     *,
@@ -1288,16 +1364,32 @@ def _find_case_duplicate_groups(
         if all(key):
             buckets.setdefault(key, []).append(index)
 
-    duplicate_indexes = [indexes[:250] for indexes in buckets.values() if len(indexes) > 1]
-    if not duplicate_indexes:
+    # Mỗi bucket ban đầu là 1 nhóm trùng "toàn bộ khớp" (đồ thị đầy đủ giữa các bản ghi) — loại
+    # bỏ những cặp CDC đã xác nhận KHÔNG trùng rồi tìm lại thành phần liên thông: nhóm chỉ biến
+    # mất hẳn khi TOÀN BỘ cặp trong nó đã được xác nhận, còn nếu có bản ghi mới khớp thêm thì
+    # nhóm (thu nhỏ) xuất hiện lại (xem `_connected_components`/`dismiss_duplicate_pairs`).
+    dismissed = _load_dismissed_pairs("case", db_path)
+    by_id = {int(row["id"]): row for row in rows}
+    id_groups: list[list[int]] = []
+    for indexes in buckets.values():
+        indexes = indexes[:250]
+        if len(indexes) < 2:
+            continue
+        ids = [int(rows[i]["id"]) for i in indexes]
+        edges = [
+            (a, b) for pos, a in enumerate(ids) for b in ids[pos + 1:]
+            if _pair_key(a, b) not in dismissed
+        ]
+        id_groups.extend(_connected_components(ids, edges))
+    if not id_groups:
         return []
 
     field_labels = [CASE_LABELS.get(field_name, field_name) for field_name in selected_fields]
     matched_text = "Trùng toàn bộ trường: " + ", ".join(field_labels)
     is_definite = bool({"case_code", "national_id"} & set(selected_fields))
     result: list[dict[str, Any]] = []
-    for group_no, indexes in enumerate(sorted(duplicate_indexes, key=lambda g: min(rows[i]["id"] for i in g)), start=1):
-        records = [rows[i] for i in sorted(indexes, key=lambda i: rows[i]["id"])]
+    for group_no, ids in enumerate(sorted(id_groups, key=min), start=1):
+        records = [by_id[i] for i in sorted(ids)]
         case_codes = [str(r.get("case_code") or "") for r in records]
         summary = " / ".join(str(r.get("full_name") or r.get("case_code") or r["id"]) for r in records[:3])
         result.append({
@@ -1362,6 +1454,16 @@ def _find_outbreak_duplicate_groups(
         score, reasons = _outbreak_pair_score(rows[left], rows[right], weights)
         if score >= min_score:
             edges.append((left, right, score, reasons))
+    if not edges:
+        return []
+
+    # Bỏ những cặp CDC đã xác nhận KHÔNG trùng (xem dismiss_duplicate_pairs) — lọc theo id THẬT
+    # (không phải index) vì id ổn định qua các lần quét, index thì không.
+    dismissed = _load_dismissed_pairs("outbreak", db_path)
+    edges = [
+        edge for edge in edges
+        if _pair_key(int(rows[edge[0]]["id"]), int(rows[edge[1]]["id"])) not in dismissed
+    ]
     if not edges:
         return []
 

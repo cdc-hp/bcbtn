@@ -161,6 +161,56 @@ def test_merge_group_rejects_bad_csrf(client: TestClient, tmp_path: Path):
     assert resp.status_code == 403
 
 
+# ---------- Xác nhận không trùng ----------
+
+def test_dismiss_group_hides_it_from_next_scan(client: TestClient, tmp_path: Path):
+    _login(client)
+    _seed_dup_cases(tmp_path)
+    ids = _dup_case_ids()
+    csrf = _fresh_csrf(client, "/cdc/loc-trung/xem?entity=case&ids=" + ",".join(map(str, ids)))
+    resp = client.post("/cdc/loc-trung/khong-trung", data={
+        "csrf_token": csrf, "entity": "case", "ids": [str(i) for i in ids],
+    }, follow_redirects=False)
+    assert resp.status_code == 303
+    assert "msg=" in resp.headers["location"]
+
+    scan_resp = client.get("/cdc/loc-trung", params={"entity": "case"})
+    assert "CA-DUP" not in scan_resp.text
+
+    # bản ghi vẫn còn nguyên, chỉ là không còn bị gợi ý trùng nữa
+    remaining, _ = core.query_records("case", db_path=core.DB_PATH)
+    assert sorted(r["id"] for r in remaining if r["case_code"] == "CA-DUP") == ids
+
+
+def test_dismiss_group_requires_role(client: TestClient, tmp_path: Path):
+    _login(client, role=core.CDC_ROLE_VIEWER)
+    _seed_dup_cases(tmp_path)
+    ids = _dup_case_ids()
+    csrf = _fresh_csrf(client, "/cdc/loc-trung/xem?entity=case&ids=" + ",".join(map(str, ids)))
+    resp = client.post("/cdc/loc-trung/khong-trung", data={
+        "csrf_token": csrf, "entity": "case", "ids": [str(i) for i in ids],
+    })
+    assert resp.status_code == 403
+
+
+def test_dismiss_group_rejects_bad_csrf(client: TestClient, tmp_path: Path):
+    _login(client)
+    _seed_dup_cases(tmp_path)
+    ids = _dup_case_ids()
+    resp = client.post("/cdc/loc-trung/khong-trung", data={
+        "csrf_token": "sai", "entity": "case", "ids": [str(i) for i in ids],
+    })
+    assert resp.status_code == 403
+
+
+def test_dismiss_group_review_page_has_button(client: TestClient, tmp_path: Path):
+    _login(client)
+    _seed_dup_cases(tmp_path)
+    ids = _dup_case_ids()
+    resp = client.get("/cdc/loc-trung/xem", params={"entity": "case", "ids": ",".join(map(str, ids))})
+    assert "Xác nhận KHÔNG trùng" in resp.text
+
+
 # ---------- Thùng rác / lịch sử ----------
 
 def test_history_and_restore(client: TestClient, tmp_path: Path):

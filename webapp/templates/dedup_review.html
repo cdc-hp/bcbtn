@@ -61,6 +61,13 @@
       Hợp nhất và đưa bản còn lại vào Thùng rác
     </button>
   </form>
+
+  <form method="post" action="/cdc/loc-trung/khong-trung" class="mt-2" onsubmit="return confirm('Xác nhận các bản ghi này KHÔNG phải trùng nhau? Lần quét sau sẽ không gợi ý lại nhóm này nữa.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="entity" value="{{ entity_type }}">
+    {% for id in ids %}<input type="hidden" name="ids" value="{{ id }}">{% endfor %}
+    <button type="submit" class="btn btn-outline-secondary btn-sm">Xác nhận KHÔNG trùng — đừng gợi ý lại</button>
+  </form>
   {% endif %}
 </div>
 {% endblock %}
