@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from urllib.parse import quote, urlencode
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -21,6 +21,9 @@ router = APIRouter()
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 CAN_EDIT_OUTBREAK_ROLES = (core.CDC_ROLE_SUPER_ADMIN, core.CDC_ROLE_ADMIN, core.CDC_ROLE_DATA_OPERATOR)
 CAN_DELETE_OUTBREAK_ROLES = (core.CDC_ROLE_SUPER_ADMIN, core.CDC_ROLE_ADMIN)
+# Ca bệnh có CCCD/SĐT — chỉ super_admin/admin được xóa hẳn, giống quyền xóa ổ dịch (không cho
+# data_operator dù được nhập/sửa dữ liệu, khớp nguyên tắc "thao tác rủi ro cao" trong CLAUDE.md).
+CAN_DELETE_CASE_ROLES = (core.CDC_ROLE_SUPER_ADMIN, core.CDC_ROLE_ADMIN)
 
 CASE_LIST_COLUMNS = [(key, label) for label, key in core.CASE_FIELDS]
 CASE_DEFAULT_VISIBLE_COLUMNS = {
@@ -115,6 +118,7 @@ def _list_view(entity_type: str):
             "disease_label": "Chẩn đoán" if entity_type == "case" else "Tên bệnh",
             "can_export": user.has_role(*CAN_EXPORT_ROLES),
             "can_edit_outbreak": user.has_role(*CAN_EDIT_OUTBREAK_ROLES),
+            "can_delete_case": entity_type == "case" and user.has_role(*CAN_DELETE_CASE_ROLES),
         })
         auth.set_csrf_cookie(response, request, token)
         return response
@@ -251,6 +255,40 @@ async def delete_outbreak(
         db_path=settings.db_path,
     )
     return RedirectResponse(f"/cdc/o-dich?msg={quote('Đã xóa ổ dịch.')}", status_code=303)
+
+
+@router.post("/cdc/ca-benh/{record_id}/xoa", response_class=HTMLResponse)
+async def delete_case(
+    record_id: int, request: Request,
+    user: auth.CurrentUser = Depends(require_role(*CAN_DELETE_CASE_ROLES)),
+    settings: WebAppSettings = Depends(get_settings_dep),
+):
+    form = await request.form()
+    if not auth.verify_csrf(request, str(form.get("csrf_token", ""))):
+        raise ForbiddenError("Phiên làm việc đã hết hạn hoặc yêu cầu không hợp lệ (CSRF).")
+    if not core.get_record("case", record_id, db_path=settings.db_path):
+        raise ForbiddenError("Không tìm thấy bản ghi.")
+    core.delete_record("case", record_id, db_path=settings.db_path)
+    core.log_audit(
+        "delete_case_web", actor=user.username, detail=f"case_id={record_id}",
+        db_path=settings.db_path,
+    )
+    return RedirectResponse(f"/cdc/ca-benh?msg={quote('Đã xóa ca bệnh.')}", status_code=303)
+
+
+@router.post("/cdc/ca-benh/xoa-nhieu", response_class=HTMLResponse)
+async def delete_cases_batch(
+    request: Request, record_ids: list[int] = Form(default=[]), csrf_token: str = Form(""),
+    user: auth.CurrentUser = Depends(require_role(*CAN_DELETE_CASE_ROLES)),
+    settings: WebAppSettings = Depends(get_settings_dep),
+):
+    if not auth.verify_csrf(request, csrf_token):
+        raise ForbiddenError("Phiên làm việc đã hết hạn hoặc yêu cầu không hợp lệ (CSRF).")
+    if not record_ids:
+        return RedirectResponse(f"/cdc/ca-benh?err={quote('Chưa chọn ca bệnh nào để xóa.')}", status_code=303)
+    deleted = core.delete_records("case", record_ids, db_path=settings.db_path, actor=user.username)
+    msg = f"Đã xóa {deleted} ca bệnh."
+    return RedirectResponse(f"/cdc/ca-benh?msg={quote(msg)}", status_code=303)
 
 
 router.add_api_route("/cdc/ca-benh", _list_view("case"), methods=["GET"], response_class=HTMLResponse)

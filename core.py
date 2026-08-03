@@ -1105,6 +1105,35 @@ def delete_record(entity_type: str, record_id: int, db_path: Path | str = DB_PAT
         conn.execute("DELETE FROM data_quality_issues WHERE entity_type=? AND entity_id=?", (entity_type, record_id))
 
 
+def delete_records(
+    entity_type: str, record_ids: Sequence[int], db_path: Path | str = DB_PATH, actor: str = "",
+) -> int:
+    """Xóa nhiều bản ghi cùng lúc — chỉ MỘT lần sao lưu cho cả lượt xóa (khác `delete_record` gọi
+    riêng lẻ, tránh sao lưu lặp lại toàn bộ CSDL cho từng bản ghi khi người dùng chọn nhiều dòng
+    trên danh sách). Bỏ qua im lặng id không tồn tại — trả về đúng số dòng THẬT SỰ đã xóa."""
+    table, _ = _safe_table(entity_type)
+    ids = [int(i) for i in record_ids]
+    if not ids:
+        return 0
+    create_backup(db_path)
+    placeholders = ",".join("?" * len(ids))
+    with _connect(db_path) as conn:
+        existing = [
+            int(r["id"]) for r in conn.execute(f"SELECT id FROM {table} WHERE id IN ({placeholders})", ids).fetchall()
+        ]
+        if existing:
+            existing_placeholders = ",".join("?" * len(existing))
+            conn.execute(f"DELETE FROM {table} WHERE id IN ({existing_placeholders})", existing)
+            conn.execute(
+                f"DELETE FROM data_quality_issues WHERE entity_type=? AND entity_id IN ({existing_placeholders})",
+                [entity_type, *existing],
+            )
+    log_audit(
+        f"delete_{entity_type}s_batch_web", actor=actor,
+        detail=f"ids={','.join(str(i) for i in existing)}; count={len(existing)}", db_path=db_path,
+    )
+    return len(existing)
+
 
 def _match_text(value: Any) -> str:
     text = normalize_key(value)

@@ -179,6 +179,112 @@ def test_viewer_can_view_but_not_import(client: TestClient, tmp_path: Path):
     assert "CA-1" in resp.text
 
 
+def test_case_delete_one_is_wired_and_audited(client: TestClient, tmp_path: Path):
+    _login(client)
+    _seed_cases(tmp_path, [{"case_code": "CA-1", "full_name": "Nguyễn Văn A", "commune": "Xã A"}])
+    record_id = core.query_records("case", db_path=core.DB_PATH)[0][0]["id"]
+
+    csrf = _fresh_csrf(client, "/cdc/ca-benh")
+    resp = client.post(f"/cdc/ca-benh/{record_id}/xoa", data={"csrf_token": csrf})
+    assert resp.status_code == 200
+    assert core.get_record("case", record_id, db_path=core.DB_PATH) is None
+    actions = {row["action"] for row in core.list_audit_log(db_path=core.DB_PATH)}
+    assert "delete_case_web" in actions
+
+
+def test_case_delete_one_requires_csrf(client: TestClient, tmp_path: Path):
+    _login(client)
+    _seed_cases(tmp_path, [{"case_code": "CA-1", "full_name": "Nguyễn Văn A", "commune": "Xã A"}])
+    record_id = core.query_records("case", db_path=core.DB_PATH)[0][0]["id"]
+    resp = client.post(f"/cdc/ca-benh/{record_id}/xoa", data={"csrf_token": "sai"})
+    assert resp.status_code == 403
+
+
+def test_case_delete_one_requires_admin_role(client: TestClient, tmp_path: Path):
+    _login(client, role=core.CDC_ROLE_DATA_OPERATOR)
+    _seed_cases(tmp_path, [{"case_code": "CA-1", "full_name": "Nguyễn Văn A", "commune": "Xã A"}])
+    record_id = core.query_records("case", db_path=core.DB_PATH)[0][0]["id"]
+    csrf = _fresh_csrf(client, "/cdc/ca-benh")
+    resp = client.post(f"/cdc/ca-benh/{record_id}/xoa", data={"csrf_token": csrf})
+    assert resp.status_code == 403
+
+
+def test_case_list_shows_batch_delete_ui_for_admin(client: TestClient, tmp_path: Path):
+    _login(client)
+    _seed_cases(tmp_path, [{"case_code": "CA-1", "full_name": "Nguyễn Văn A", "commune": "Xã A"}])
+    admin_page = client.get("/cdc/ca-benh")
+    assert "Xóa các ca bệnh đã chọn" in admin_page.text
+    assert "batch-delete-case-form" in admin_page.text
+
+
+def test_case_list_hides_batch_delete_ui_for_data_operator(client: TestClient, tmp_path: Path):
+    _login(client, role=core.CDC_ROLE_DATA_OPERATOR)
+    _seed_cases(tmp_path, [{"case_code": "CA-1", "full_name": "Nguyễn Văn A", "commune": "Xã A"}])
+    operator_page = client.get("/cdc/ca-benh")
+    assert "Xóa các ca bệnh đã chọn" not in operator_page.text
+
+
+def test_case_delete_batch_removes_selected_only(client: TestClient, tmp_path: Path):
+    _login(client)
+    _seed_cases(tmp_path, [
+        {"case_code": "CA-1", "full_name": "Nguyễn Văn A", "commune": "Xã A"},
+        {"case_code": "CA-2", "full_name": "Trần Thị B", "commune": "Xã B"},
+        {"case_code": "CA-3", "full_name": "Lê Văn C", "commune": "Xã C"},
+    ])
+    rows = core.query_records("case", db_path=core.DB_PATH)[0]
+    ids = {row["case_code"]: row["id"] for row in rows}
+
+    csrf = _fresh_csrf(client, "/cdc/ca-benh")
+    resp = client.post(
+        "/cdc/ca-benh/xoa-nhieu",
+        data={"record_ids": [str(ids["CA-1"]), str(ids["CA-2"])], "csrf_token": csrf},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303 and "msg=" in resp.headers["location"]
+
+    remaining, _ = core.query_records("case", db_path=core.DB_PATH)
+    remaining_codes = {row["case_code"] for row in remaining}
+    assert remaining_codes == {"CA-3"}
+
+
+def test_case_delete_batch_requires_selection(client: TestClient):
+    _login(client)
+    csrf = _fresh_csrf(client, "/cdc/ca-benh")
+    resp = client.post("/cdc/ca-benh/xoa-nhieu", data={"csrf_token": csrf}, follow_redirects=False)
+    assert resp.status_code == 303 and "err=" in resp.headers["location"]
+
+
+def test_case_delete_batch_requires_csrf(client: TestClient, tmp_path: Path):
+    _login(client)
+    _seed_cases(tmp_path, [{"case_code": "CA-1", "full_name": "Nguyễn Văn A", "commune": "Xã A"}])
+    record_id = core.query_records("case", db_path=core.DB_PATH)[0][0]["id"]
+    resp = client.post("/cdc/ca-benh/xoa-nhieu", data={"record_ids": [str(record_id)], "csrf_token": "sai"})
+    assert resp.status_code == 403
+
+
+def test_case_delete_batch_requires_admin_role(client: TestClient, tmp_path: Path):
+    _login(client, role=core.CDC_ROLE_DATA_OPERATOR)
+    _seed_cases(tmp_path, [{"case_code": "CA-1", "full_name": "Nguyễn Văn A", "commune": "Xã A"}])
+    record_id = core.query_records("case", db_path=core.DB_PATH)[0][0]["id"]
+    csrf = _fresh_csrf(client, "/cdc/ca-benh")
+    resp = client.post("/cdc/ca-benh/xoa-nhieu", data={"record_ids": [str(record_id)], "csrf_token": csrf})
+    assert resp.status_code == 403
+
+
+def test_case_delete_batch_ignores_nonexistent_ids(client: TestClient, tmp_path: Path):
+    _login(client)
+    _seed_cases(tmp_path, [{"case_code": "CA-1", "full_name": "Nguyễn Văn A", "commune": "Xã A"}])
+    record_id = core.query_records("case", db_path=core.DB_PATH)[0][0]["id"]
+    csrf = _fresh_csrf(client, "/cdc/ca-benh")
+    resp = client.post(
+        "/cdc/ca-benh/xoa-nhieu",
+        data={"record_ids": [str(record_id), "99999"], "csrf_token": csrf},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303 and "msg=" in resp.headers["location"]
+    assert core.get_record("case", record_id, db_path=core.DB_PATH) is None
+
+
 # ---------- /cdc/o-dich ----------
 
 def test_outbreak_list_and_detail(client: TestClient):

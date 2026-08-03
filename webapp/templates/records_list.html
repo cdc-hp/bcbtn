@@ -121,20 +121,38 @@
     {% endif %}
   </form>
 
+  {% if can_delete_case %}
+  <form method="post" action="/cdc/ca-benh/xoa-nhieu" id="batch-delete-case-form" onsubmit="return confirm('Xóa các ca bệnh đã chọn? Một bản sao lưu sẽ được tạo trước khi xóa, không thể hoàn tác qua giao diện.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  </form>
+  <div class="cdc-batch-row"><button type="submit" form="batch-delete-case-form" class="btn btn-outline-danger">Xóa các ca bệnh đã chọn <span data-batch-count hidden></span></button></div>
+  {% endif %}
+
   <div class="table-responsive">
     <table class="table table-sm table-hover" data-records-table>
-      <thead><tr>{% for key, label in columns %}<th scope="col" data-column-key="{{ key }}" class="{% if entity_type == 'case' and key not in default_visible_columns %}cdc-column-hidden{% endif %}"{% if entity_type == "case" and sort == key %} aria-sort="{{ 'ascending' if direction == 'asc' else 'descending' }}"{% endif %}>{% if entity_type == "case" %}<a class="cdc-sort-link{% if sort == key %} cdc-sort-link--active{% endif %}" href="{{ sort_urls[key] }}">{{ label }}{{ icon('chevron-down') }}</a>{% else %}{{ label }}{% endif %}</th>{% endfor %}<th scope="col"><span class="visually-hidden">Hành động</span></th></tr></thead>
+      <thead><tr>
+        {% if can_delete_case %}<th scope="col"><input type="checkbox" data-batch-select-all aria-label="Chọn tất cả ca bệnh"></th>{% endif %}
+        {% for key, label in columns %}<th scope="col" data-column-key="{{ key }}" class="{% if entity_type == 'case' and key not in default_visible_columns %}cdc-column-hidden{% endif %}"{% if entity_type == "case" and sort == key %} aria-sort="{{ 'ascending' if direction == 'asc' else 'descending' }}"{% endif %}>{% if entity_type == "case" %}<a class="cdc-sort-link{% if sort == key %} cdc-sort-link--active{% endif %}" href="{{ sort_urls[key] }}">{{ label }}{{ icon('chevron-down') }}</a>{% else %}{{ label }}{% endif %}</th>{% endfor %}
+        <th scope="col"><span class="visually-hidden">Hành động</span></th>
+      </tr></thead>
       <tbody>
         {% for row in rows %}
         <tr>
+          {% if can_delete_case %}<td><input type="checkbox" name="record_ids" value="{{ row.id }}" form="batch-delete-case-form" data-batch-item aria-label="Chọn ca bệnh {{ row.case_code or row.full_name or row.id }}"></td>{% endif %}
           {% for key, label in columns %}<td{% if entity_type == "case" %} data-column-key="{{ key }}" class="{% if key not in default_visible_columns %}cdc-column-hidden{% endif %}"{% endif %}>{% if key in ("current_status", "status", "record_status") and row.get(key) %}<span class="cdc-status-pill">{{ row.get(key) }}</span>{% else %}{{ row.get(key, "") }}{% endif %}</td>{% endfor %}
           <td class="cdc-row-actions">
             <a href="/cdc/{{ entity_path }}/{{ row.id }}" class="cdc-action-link">Xem <span aria-hidden="true">→</span></a>
             {% if entity_type == "outbreak" and can_edit_outbreak %}<a href="/cdc/o-dich/{{ row.id }}/sua" class="cdc-icon-button" aria-label="Sửa ổ dịch" title="Sửa ổ dịch">{{ icon('edit') }}</a>{% endif %}
+            {% if can_delete_case %}
+            <form method="post" action="/cdc/ca-benh/{{ row.id }}/xoa" onsubmit="return confirm('Xóa ca bệnh {{ row.case_code or row.full_name or row.id }}? Một bản sao lưu sẽ được tạo trước khi xóa.');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button type="submit" class="cdc-icon-button cdc-icon-button--danger" aria-label="Xóa ca bệnh {{ row.case_code or row.full_name or row.id }}" title="Xóa">{{ icon('trash') }}</button>
+            </form>
+            {% endif %}
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="{{ columns|length + 1 }}" class="text-center text-secondary py-4">Không có bản ghi nào khớp bộ lọc.</td></tr>
+        <tr><td colspan="{{ columns|length + (2 if can_delete_case else 1) }}" class="text-center text-secondary py-4">Không có bản ghi nào khớp bộ lọc.</td></tr>
         {% endfor %}
       </tbody>
     </table>
