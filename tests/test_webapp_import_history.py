@@ -222,3 +222,97 @@ def test_import_history_filter_links_preserved_in_pagination(client: TestClient,
     resp = client.get("/cdc/lich-su-nhap", params={"commune": "Xã An Hưng"})
     assert "commune=" in resp.text
     assert "page=2" in resp.text
+
+
+# --- Sắp xếp theo tiêu đề cột -------------------------------------------------------------
+
+def test_import_history_sorts_by_commune_asc_and_desc(client: TestClient, tmp_path: Path):
+    _login(client)
+    _seed_via_queue(tmp_path, "Xã Vĩnh Bảo", "2026-W20", "vinh_bao.xlsx")
+    _seed_via_queue(tmp_path, "Xã An Hưng", "2026-W20", "an_hung.xlsx")
+
+    resp_asc = client.get("/cdc/lich-su-nhap", params={"sort": "commune", "dir": "asc"})
+    assert resp_asc.text.index("an_hung.xlsx") < resp_asc.text.index("vinh_bao.xlsx")
+
+    resp_desc = client.get("/cdc/lich-su-nhap", params={"sort": "commune", "dir": "desc"})
+    assert resp_desc.text.index("vinh_bao.xlsx") < resp_desc.text.index("an_hung.xlsx")
+
+
+def test_import_history_ignores_invalid_sort_column(client: TestClient, tmp_path: Path):
+    _login(client)
+    core.import_excel(_seed_case_file(tmp_path, "e.xlsx", [{"full_name": "Nguyen Van F"}]), core.DB_PATH)
+    resp = client.get("/cdc/lich-su-nhap", params={"sort": "file_path; DROP TABLE import_batches"})
+    assert resp.status_code == 200 and "e.xlsx" in resp.text
+
+
+# --- Xóa nhiều lần nhập cùng lúc ----------------------------------------------------------
+
+def test_delete_batches_removes_all_selected(client: TestClient, tmp_path: Path):
+    _login(client)
+    core.import_excel(_seed_case_file(tmp_path, "first.xlsx", [{"full_name": "Nguyen Van A"}]), core.DB_PATH)
+    time.sleep(1.1)
+    core.import_excel(_seed_case_file(tmp_path, "second.xlsx", [{"full_name": "Nguyen Van B"}]), core.DB_PATH)
+    time.sleep(1.1)
+    core.import_excel(_seed_case_file(tmp_path, "third.xlsx", [{"full_name": "Nguyen Van C"}]), core.DB_PATH)
+
+    batches = core.list_import_batches(db_path=core.DB_PATH)
+    first_id = next(b["id"] for b in batches if b["file_name"] == "first.xlsx")
+    second_id = next(b["id"] for b in batches if b["file_name"] == "second.xlsx")
+    third_id = next(b["id"] for b in batches if b["file_name"] == "third.xlsx")
+
+    csrf = _fresh_csrf(client, "/cdc/lich-su-nhap")
+    resp = client.post(
+        "/cdc/lich-su-nhap/xoa-nhieu",
+        data={"batch_ids": [str(first_id), str(second_id)], "csrf_token": csrf},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303 and "msg=" in resp.headers["location"]
+
+    remaining_ids = {b["id"] for b in core.list_import_batches(db_path=core.DB_PATH)}
+    assert first_id not in remaining_ids
+    assert second_id not in remaining_ids
+    assert third_id in remaining_ids
+
+    remaining_cases = core.query_records("case", db_path=core.DB_PATH)[0]
+    assert len(remaining_cases) == 1
+    assert remaining_cases[0]["full_name"] == "Nguyen Van C"
+
+
+def test_delete_batches_requires_selection(client: TestClient):
+    _login(client)
+    csrf = _fresh_csrf(client, "/cdc/lich-su-nhap")
+    resp = client.post("/cdc/lich-su-nhap/xoa-nhieu", data={"csrf_token": csrf}, follow_redirects=False)
+    assert resp.status_code == 303 and "err=" in resp.headers["location"]
+
+
+def test_delete_batches_reports_partial_failure(client: TestClient, tmp_path: Path):
+    _login(client)
+    core.import_excel(_seed_case_file(tmp_path, "only.xlsx", [{"full_name": "Nguyen Van A"}]), core.DB_PATH)
+    batch_id = core.list_import_batches(db_path=core.DB_PATH)[0]["id"]
+
+    csrf = _fresh_csrf(client, "/cdc/lich-su-nhap")
+    resp = client.post(
+        "/cdc/lich-su-nhap/xoa-nhieu",
+        data={"batch_ids": [str(batch_id), "99999"], "csrf_token": csrf},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303 and "err=" in resp.headers["location"]
+    remaining_ids = {b["id"] for b in core.list_import_batches(db_path=core.DB_PATH)}
+    assert batch_id not in remaining_ids
+
+
+def test_delete_batches_requires_csrf(client: TestClient, tmp_path: Path):
+    _login(client)
+    core.import_excel(_seed_case_file(tmp_path, "g.xlsx", [{"full_name": "Nguyen Van G"}]), core.DB_PATH)
+    batch_id = core.list_import_batches(db_path=core.DB_PATH)[0]["id"]
+    resp = client.post("/cdc/lich-su-nhap/xoa-nhieu", data={"batch_ids": [str(batch_id)], "csrf_token": "sai"})
+    assert resp.status_code == 403
+
+
+def test_delete_batches_requires_admin_role(client: TestClient, tmp_path: Path):
+    _login(client, role=core.CDC_ROLE_DATA_OPERATOR)
+    core.import_excel(_seed_case_file(tmp_path, "h.xlsx", [{"full_name": "Nguyen Van H"}]), core.DB_PATH)
+    batch_id = core.list_import_batches(db_path=core.DB_PATH)[0]["id"]
+    csrf = _fresh_csrf(client, "/cdc/lich-su-nhap")
+    resp = client.post("/cdc/lich-su-nhap/xoa-nhieu", data={"batch_ids": [str(batch_id)], "csrf_token": csrf})
+    assert resp.status_code == 403

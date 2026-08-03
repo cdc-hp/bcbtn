@@ -1579,8 +1579,15 @@ def list_quality_issues(
         return [dict(r) for r in rows]
 
 
+BATCH_SORT_COLUMNS = (
+    "imported_at", "commune", "week", "file_name", "entity_type", "rows_read", "inserted",
+    "duplicates", "issue_count",
+)
+
+
 def list_import_batches(
     db_path: Path | str = DB_PATH, limit: int = 50, commune: str = "", week: str = "",
+    sort: str = "", direction: str = "asc",
 ) -> list[dict[str, Any]]:
     """LEFT JOIN với `import_queue` qua `import_queue.import_batch_id` để biết đúng xã/tuần đã
     nộp cho từng lần nhập — mọi lần nhập qua Web hiện tại đều sinh ra từ việc nhập 1 mục hàng đợi
@@ -1595,11 +1602,15 @@ def list_import_batches(
     if week:
         where.append("q.week = ?"); params.append(week)
     where_sql = " WHERE " + " AND ".join(where) if where else ""
+    if sort in BATCH_SORT_COLUMNS:
+        order_sql = f"{sort} {'DESC' if direction == 'desc' else 'ASC'}, b.id DESC"
+    else:
+        order_sql = "b.id DESC"
     with _connect(db_path) as conn:
         rows = conn.execute(
             f"""SELECT b.*, q.commune AS commune, q.week AS week
                 FROM import_batches b LEFT JOIN import_queue q ON q.import_batch_id = b.id
-                {where_sql} ORDER BY b.id DESC LIMIT ?""",
+                {where_sql} ORDER BY {order_sql} LIMIT ?""",
             [*params, limit],
         ).fetchall()
         return [dict(r) for r in rows]
@@ -2478,7 +2489,10 @@ def export_filtered_records(
         params.append(admin_area)
     where_sql = " WHERE " + " AND ".join(where) if where else ""
     order = "onset_date DESC, id DESC" if entity_type == "case" else "first_onset_date DESC, id DESC"
-    hidden = {"row_hash", "raw_json"}
+    # birth_year là cột suy ra từ birth_date_raw (extract_birth_year) để lọc/kiểm tra chất lượng
+    # nội bộ — file xuất chỉ giữ đúng "Ngày sinh" (birth_date_raw) như nguyên bản, không lặp lại
+    # dưới dạng "Năm sinh" riêng.
+    hidden = {"row_hash", "raw_json", "birth_year"}
     with _connect(db_path) as conn:
         total = conn.execute(f"SELECT COUNT(*) FROM {table}{where_sql}", params).fetchone()[0]
         if total == 0:
@@ -2544,7 +2558,9 @@ def export_cases_by_commune(
     # lớn hơn ngưỡng mặc định của find_duplicate_groups vẫn được xuất nhưng chưa được dò trùng.
     groups = _find_case_duplicate_groups("cases", resolved_criteria, max(total_cases, 1), db_path)
 
-    hidden = {"row_hash", "raw_json"}
+    # birth_year là cột suy ra nội bộ — file xuất chỉ giữ "Ngày sinh" (birth_date_raw) như
+    # nguyên bản (xem export_filtered_records ở trên, cùng lý do).
+    hidden = {"row_hash", "raw_json", "birth_year"}
     with _connect(db_path) as conn:
         db_columns = [r[1] for r in conn.execute("PRAGMA table_info(cases)").fetchall() if r[1] not in hidden]
         rows = [dict(zip(db_columns, r)) for r in conn.execute(

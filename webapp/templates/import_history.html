@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_navbar.html" import icon with context %}
 {% block title %}Lịch sử nhập liệu{% endblock %}
 {% block body %}
 {% include "_navbar.html" %}
@@ -12,20 +13,39 @@
   {% if err %}<div class="alert alert-danger" role="alert">{{ err }}</div>{% endif %}
 
   <form method="get" action="/cdc/lich-su-nhap" class="cdc-toolbar cdc-queue-toolbar">
-    <div><label for="history-commune" class="form-label">Xã</label><input id="history-commune" type="text" name="commune" value="{{ filters.commune }}" class="form-control" placeholder="Tất cả"></div>
-    <div><label for="history-week" class="form-label">Tuần</label><input id="history-week" type="text" name="week" value="{{ filters.week }}" class="form-control" placeholder="2026-W30"></div>
+    <div><label for="history-commune" class="form-label">Xã</label>
+      <select id="history-commune" name="commune" class="form-select">
+        <option value="">Tất cả</option>
+        {% if filters.commune and filters.commune not in official_communes %}<option value="{{ filters.commune }}" selected>{{ filters.commune }}</option>{% endif %}
+        {% for c in official_communes %}<option value="{{ c }}" {% if c == filters.commune %}selected{% endif %}>{{ c }}</option>{% endfor %}
+      </select>
+    </div>
+    <div><label for="history-week" class="form-label">Tuần</label><input id="history-week" type="week" name="week" value="{{ filters.week }}" class="form-control"></div>
     <div class="cdc-toolbar-actions"><button type="submit" class="btn btn-primary">Lọc</button><a href="/cdc/lich-su-nhap" class="btn btn-outline-secondary">Xoá lọc</a></div>
   </form>
+
+  {% if can_delete %}
+  <form method="post" action="/cdc/lich-su-nhap/xoa-nhieu" id="batch-delete-form" onsubmit="return confirm('Xóa toàn bộ ca bệnh/ổ dịch sinh ra từ các lần nhập đã chọn? Không thể hoàn tác qua giao diện.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  </form>
+  <div class="cdc-batch-row"><button type="submit" form="batch-delete-form" class="btn btn-outline-danger">Xóa các lần nhập đã chọn <span data-batch-count hidden></span></button></div>
+  {% endif %}
 
   <div class="table-responsive cdc-table-card">
     <table class="table table-sm table-hover align-middle">
       <thead><tr>
-        <th>Thời điểm nhập</th><th>Xã</th><th>Tuần</th><th>File</th><th>Loại</th><th>Đã đọc</th><th>Đã thêm</th>
-        <th>Trùng</th><th>Cảnh báo</th><th><span class="visually-hidden">Hành động</span></th>
+        {% if can_delete %}<th scope="col"><input type="checkbox" data-batch-select-all aria-label="Chọn tất cả các lần nhập"></th>{% endif %}
+        {% for column, label in {"imported_at": "Thời điểm nhập", "commune": "Xã", "week": "Tuần", "file_name": "File", "entity_type": "Loại", "rows_read": "Đã đọc", "inserted": "Đã thêm", "duplicates": "Trùng", "issue_count": "Cảnh báo"}.items() %}
+        <th scope="col"{% if sort_links[column].active %} aria-sort="{{ 'ascending' if sort_links[column].dir == 'asc' else 'descending' }}"{% endif %}>
+          <a class="cdc-sort-link{% if sort_links[column].active %} cdc-sort-link--active{% endif %}" href="{{ sort_links[column].url }}">{{ label }}{{ icon('chevron-down') }}</a>
+        </th>
+        {% endfor %}
+        <th scope="col"><span class="visually-hidden">Hành động</span></th>
       </tr></thead>
       <tbody>
         {% for row in rows %}
         <tr>
+          {% if can_delete %}<td><input type="checkbox" name="batch_ids" value="{{ row.id }}" form="batch-delete-form" data-batch-item aria-label="Chọn lần nhập file {{ row.file_name }}"></td>{% endif %}
           <td class="text-nowrap">{{ row.imported_at }}</td>
           <td>{{ row.commune or "—" }}</td>
           <td>{{ row.week or "—" }}</td>
@@ -45,7 +65,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="10" class="cdc-empty-state">Không có lần nhập nào khớp bộ lọc.</td></tr>
+        <tr><td colspan="{% if can_delete %}11{% else %}10{% endif %}" class="cdc-empty-state">Không có lần nhập nào khớp bộ lọc.</td></tr>
         {% endfor %}
       </tbody>
     </table>
