@@ -1579,9 +1579,29 @@ def list_quality_issues(
         return [dict(r) for r in rows]
 
 
-def list_import_batches(db_path: Path | str = DB_PATH, limit: int = 50) -> list[dict[str, Any]]:
+def list_import_batches(
+    db_path: Path | str = DB_PATH, limit: int = 50, commune: str = "", week: str = "",
+) -> list[dict[str, Any]]:
+    """LEFT JOIN với `import_queue` qua `import_queue.import_batch_id` để biết đúng xã/tuần đã
+    nộp cho từng lần nhập — mọi lần nhập qua Web hiện tại đều sinh ra từ việc nhập 1 mục hàng đợi
+    (xem `import_queue_item` tự ghi `import_batch_id` ngược lại vào dòng hàng đợi vừa nhập), nên
+    hầu hết batch sẽ có đủ xã/tuần; batch không khớp được (hiếm — dữ liệu cũ hoặc nhập bằng đường
+    khác trong tương lai) trả `commune`/`week` rỗng, giao diện tự hiển thị "—". Lọc theo
+    commune/week qua LEFT JOIN nên chỉ khớp batch THẬT SỰ có xã/tuần đó — không đoán bừa."""
+    where: list[str] = []
+    params: list[Any] = []
+    if commune:
+        where.append("q.commune = ?"); params.append(commune)
+    if week:
+        where.append("q.week = ?"); params.append(week)
+    where_sql = " WHERE " + " AND ".join(where) if where else ""
     with _connect(db_path) as conn:
-        rows = conn.execute("SELECT * FROM import_batches ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        rows = conn.execute(
+            f"""SELECT b.*, q.commune AS commune, q.week AS week
+                FROM import_batches b LEFT JOIN import_queue q ON q.import_batch_id = b.id
+                {where_sql} ORDER BY b.id DESC LIMIT ?""",
+            [*params, limit],
+        ).fetchall()
         return [dict(r) for r in rows]
 
 

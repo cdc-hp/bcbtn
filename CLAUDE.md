@@ -244,6 +244,12 @@ lần. Tự gọi `create_backup` trước khi xóa (xóa hàng loạt không c�
 được từ bản sao lưu). Xem trang: mọi vai trò trừ `viewer` (giống quyền nhập ở `/cdc/hang-doi`);
 xóa: chỉ `super_admin`/`admin`.
 
+Cột "Xã"/"Tuần" + bộ lọc theo 2 trường đó (`core.list_import_batches`) lấy qua LEFT JOIN với
+`import_queue` (`q.import_batch_id = b.id`) — KHÔNG lưu trực tiếp trên `import_batches` (tránh
+denormalize, luôn phản ánh đúng dữ liệu gốc ở hàng đợi). Mọi lần nhập qua Web hiện tại đều sinh ra
+từ nhập 1 mục hàng đợi nên hầu hết batch có đủ xã/tuần; batch nhập bằng đường khác (test/tương
+lai) hiện "—" thay vì đoán bừa.
+
 ### Đồng bộ máy chủ phụ chạy nền (Giai đoạn 7)
 
 `webapp/scheduler.py` dùng `APScheduler` (`BackgroundScheduler`), khởi động/tắt qua `lifespan`

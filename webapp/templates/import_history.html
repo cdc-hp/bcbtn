@@ -11,16 +11,24 @@
   {% if msg %}<div class="alert alert-success" role="status">{{ msg }}</div>{% endif %}
   {% if err %}<div class="alert alert-danger" role="alert">{{ err }}</div>{% endif %}
 
+  <form method="get" action="/cdc/lich-su-nhap" class="cdc-toolbar cdc-queue-toolbar">
+    <div><label for="history-commune" class="form-label">Xã</label><input id="history-commune" type="text" name="commune" value="{{ filters.commune }}" class="form-control" placeholder="Tất cả"></div>
+    <div><label for="history-week" class="form-label">Tuần</label><input id="history-week" type="text" name="week" value="{{ filters.week }}" class="form-control" placeholder="2026-W30"></div>
+    <div class="cdc-toolbar-actions"><button type="submit" class="btn btn-primary">Lọc</button><a href="/cdc/lich-su-nhap" class="btn btn-outline-secondary">Xoá lọc</a></div>
+  </form>
+
   <div class="table-responsive cdc-table-card">
     <table class="table table-sm table-hover align-middle">
       <thead><tr>
-        <th>Thời điểm nhập</th><th>File</th><th>Loại</th><th>Đã đọc</th><th>Đã thêm</th>
+        <th>Thời điểm nhập</th><th>Xã</th><th>Tuần</th><th>File</th><th>Loại</th><th>Đã đọc</th><th>Đã thêm</th>
         <th>Trùng</th><th>Cảnh báo</th><th><span class="visually-hidden">Hành động</span></th>
       </tr></thead>
       <tbody>
         {% for row in rows %}
         <tr>
           <td class="text-nowrap">{{ row.imported_at }}</td>
+          <td>{{ row.commune or "—" }}</td>
+          <td>{{ row.week or "—" }}</td>
           <td>{{ row.file_name }}</td>
           <td>{{ row.entity_label }}</td>
           <td>{{ row.rows_read }}</td>
@@ -37,7 +45,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="8" class="cdc-empty-state">Chưa có lần nhập nào.</td></tr>
+        <tr><td colspan="10" class="cdc-empty-state">Không có lần nhập nào khớp bộ lọc.</td></tr>
         {% endfor %}
       </tbody>
     </table>

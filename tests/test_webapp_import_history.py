@@ -159,3 +159,66 @@ def test_import_history_paginates_at_50(client: TestClient, tmp_path: Path):
 
     page2 = client.get("/cdc/lich-su-nhap", params={"page": 2})
     assert page2.status_code == 200
+
+
+# --- Xã/Tuần (join với import_queue qua import_batch_id) + lọc ------------------------------
+
+def _seed_via_queue(tmp_path: Path, commune: str, week: str, file_name: str) -> None:
+    """Nộp qua hàng đợi rồi nhập — đây là đường THẬT gắn commune/week vào import_batches qua
+    import_queue.import_batch_id (xem core.import_queue_item). Nội dung file phải khác nhau mỗi
+    lần gọi (tên trong dòng dữ liệu lấy từ file_name) — queue_submit chống nộp trùng theo
+    (xã+tuần+NỘI DUNG file giống hệt), nội dung giống nhau sẽ bị coi là gửi lặp và trả về đúng
+    mục cũ thay vì tạo mục mới."""
+    path = _seed_case_file(tmp_path, file_name, [{"full_name": f"Nguyen Van {file_name}"}])
+    result = core.queue_submit(commune, week, file_name, path.read_bytes(), db_path=core.DB_PATH)
+    core.import_queue_item(result["queue_id"], db_path=core.DB_PATH)
+
+
+def test_import_history_shows_commune_and_week_from_queue(client: TestClient, tmp_path: Path):
+    _login(client)
+    _seed_via_queue(tmp_path, "Xã An Hưng", "2026-W20", "qua_hang_doi.xlsx")
+
+    resp = client.get("/cdc/lich-su-nhap")
+    assert resp.status_code == 200
+    assert "Xã An Hưng" in resp.text
+    assert "2026-W20" in resp.text
+
+
+def test_import_history_direct_import_shows_dash_for_commune_week(client: TestClient, tmp_path: Path):
+    """Nhập trực tiếp qua core.import_excel (không qua hàng đợi) không có commune/week — phải
+    hiện "—" thay vì lỗi hay để trống khó hiểu."""
+    _login(client)
+    core.import_excel(_seed_case_file(tmp_path, "truc_tiep.xlsx", [{"full_name": "Nguyen Van A"}]), core.DB_PATH)
+    resp = client.get("/cdc/lich-su-nhap")
+    assert resp.status_code == 200
+    assert "—" in resp.text
+
+
+def test_import_history_filters_by_commune(client: TestClient, tmp_path: Path):
+    _login(client)
+    _seed_via_queue(tmp_path, "Xã An Hưng", "2026-W20", "a.xlsx")
+    _seed_via_queue(tmp_path, "Xã Kiến Thụy", "2026-W20", "b.xlsx")
+
+    resp = client.get("/cdc/lich-su-nhap", params={"commune": "Xã An Hưng"})
+    assert "a.xlsx" in resp.text
+    assert "b.xlsx" not in resp.text
+
+
+def test_import_history_filters_by_week(client: TestClient, tmp_path: Path):
+    _login(client)
+    _seed_via_queue(tmp_path, "Xã An Hưng", "2026-W20", "a.xlsx")
+    _seed_via_queue(tmp_path, "Xã An Hưng", "2026-W21", "b.xlsx")
+
+    resp = client.get("/cdc/lich-su-nhap", params={"week": "2026-W21"})
+    assert "b.xlsx" in resp.text
+    assert "a.xlsx" not in resp.text
+
+
+def test_import_history_filter_links_preserved_in_pagination(client: TestClient, tmp_path: Path):
+    _login(client)
+    for i in range(55):
+        _seed_via_queue(tmp_path, "Xã An Hưng", "2026-W20", f"f{i:03d}.xlsx")
+
+    resp = client.get("/cdc/lich-su-nhap", params={"commune": "Xã An Hưng"})
+    assert "commune=" in resp.text
+    assert "page=2" in resp.text
