@@ -235,6 +235,8 @@ form.row.g-2.mb-3,form.row.g-2.mb-2 { margin-bottom: 20px!important; padding: 18
 .cdc-status-pill--warning,.cdc-status-pill--loi { color: var(--cdc-warning); background: var(--cdc-warning-soft); }
 .cdc-status-pill--cho_nhap { color: #875e20; background: #fff5da; }
 .cdc-status-pill--da_nhap { color: var(--cdc-success); background: var(--cdc-success-soft); }
+.cdc-row-warning>td { background: var(--cdc-warning-soft)!important; }
+.cdc-row-warning-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 700; color: var(--cdc-warning); background: #ffe9b3; white-space: nowrap; }
 
 /* Case and outbreak sheets */
 .cdc-records-header { margin-bottom: 23px; align-items: center; }

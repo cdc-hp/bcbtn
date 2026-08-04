@@ -17,7 +17,11 @@
     <div><label for="queue-week" class="form-label">Tuần</label><input id="queue-week" type="text" name="week" value="{{ filters.week }}" class="form-control" placeholder="2026-W30"></div>
     <div><label for="queue-status" class="form-label">Trạng thái</label><select id="queue-status" name="status" class="form-select"><option value="">Tất cả</option>{% for value, label in status_options.items() %}<option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
     <div><label for="queue-source" class="form-label">Nguồn</label><select id="queue-source" name="source" class="form-select"><option value="">Tất cả</option>{% for value, label in source_options.items() %}<option value="{{ value }}" {% if filters.source == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
-    <div class="cdc-toolbar-actions"><button type="submit" class="btn btn-primary">Lọc</button><a href="/cdc/hang-doi" class="btn btn-outline-secondary">Xoá lọc</a></div>
+    <div class="cdc-toolbar-actions">
+      <button type="submit" class="btn btn-primary">Lọc</button>
+      <a href="/cdc/hang-doi" class="btn btn-outline-secondary">Xoá lọc</a>
+      <a href="/cdc/hang-doi/xuat?{{ export_query }}" class="btn btn-outline-secondary">{{ icon('download') }} Xuất Excel</a>
+    </div>
   </form>
 
   <form method="post" action="/cdc/hang-doi/import-batch" id="batch-import-form">
@@ -40,9 +44,9 @@
       </tr></thead>
       <tbody>
         {% for row in rows %}
-        <tr>
+        <tr{% if row.week_submission_count >= 2 %} class="cdc-row-warning"{% endif %}>
           {% if can_import %}<td>{% if row.status in ("cho_nhap", "loi") %}<input type="checkbox" name="queue_ids" value="{{ row.id }}" form="batch-import-form" data-batch-item aria-label="Chọn {{ row.file_name }} để nhập">{% endif %}</td>{% endif %}
-          <td><strong>{{ row.commune }}</strong></td>
+          <td><strong>{{ row.commune }}</strong>{% if row.week_submission_count >= 2 %}<span class="cdc-row-warning-badge" title="Xã này đã nộp {{ row.week_submission_count }} lần cho tuần {{ row.week }}">⚠ Nộp {{ row.week_submission_count }} lần/tuần</span>{% endif %}</td>
           <td>{{ row.week }}</td>
           <td><a href="/cdc/hang-doi/{{ row.id }}/download">{{ row.file_name }}</a></td>
           <td>{{ row.source_label }}</td>

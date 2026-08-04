@@ -163,6 +163,102 @@ def test_queue_page_shows_received_at_as_dd_mm_yyyy_hh_mm(client: TestClient):
     assert core.format_timestamp_for_display(raw_received_at) in page.text
 
 
+# ---------- Xuất Excel ----------
+
+def test_queue_page_has_export_button(client: TestClient):
+    _login_as(client, core.CDC_ROLE_ADMIN)
+    resp = client.get("/cdc/hang-doi")
+    assert "/cdc/hang-doi/xuat" in resp.text
+    assert "Xuất Excel" in resp.text
+
+
+def test_export_queue_returns_xlsx_with_expected_rows(client: TestClient):
+    _login_as(client, core.CDC_ROLE_ADMIN)
+    core.queue_submit("Xã A", "2026-W20", "a.xlsx", base64.b64decode(make_excel_b64("A1")), db_path=core.DB_PATH)
+    resp = client.get("/cdc/hang-doi/xuat")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("application/")
+
+    from openpyxl import load_workbook
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "out.xlsx"
+        out.write_bytes(resp.content)
+        wb = load_workbook(out)
+        ws = wb.active
+        headers = [c.value for c in ws[1]]
+        assert headers == ["Xã", "Tuần", "File", "Nguồn", "Trạng thái", "Người nộp", "Nhận lúc", "Cảnh báo"]
+        data_row = [c.value for c in ws[2]]
+        assert data_row[0] == "Xã A"
+        assert data_row[1] == "2026-W20"
+        assert data_row[2] == "a.xlsx"
+        assert data_row[3] == "Trực tiếp"
+        assert data_row[7] in (None, "")
+        assert data_row[4] == "Chờ nhập"
+        assert "-" not in data_row[6].split(" ")[0]  # dd/MM/yyyy, không phải ISO
+
+
+def test_export_queue_respects_commune_filter(client: TestClient):
+    _login_as(client, core.CDC_ROLE_ADMIN)
+    core.queue_submit("Xã A", "2026-W20", "a.xlsx", base64.b64decode(make_excel_b64("A1")), db_path=core.DB_PATH)
+    core.queue_submit("Xã B", "2026-W20", "b.xlsx", base64.b64decode(make_excel_b64("B1")), db_path=core.DB_PATH)
+
+    resp = client.get("/cdc/hang-doi/xuat", params={"commune": "Xã A"})
+    from openpyxl import load_workbook
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "out.xlsx"
+        out.write_bytes(resp.content)
+        wb = load_workbook(out)
+        ws = wb.active
+        file_names = [row[2].value for row in ws.iter_rows(min_row=2)]
+        assert file_names == ["a.xlsx"]
+
+
+def test_export_queue_requires_login(client: TestClient):
+    resp = client.get("/cdc/hang-doi/xuat", follow_redirects=False)
+    assert resp.status_code == 303
+
+
+def test_queue_page_highlights_duplicate_week_submissions(client: TestClient):
+    _login_as(client, core.CDC_ROLE_ADMIN)
+    # Nội dung file phải KHÁC nhau (queue_submit chống nộp trùng theo xã+tuần+nội dung giống hệt).
+    core.queue_submit("Xã A", "2026-W20", "a1.xlsx", base64.b64decode(make_excel_b64("A1")), db_path=core.DB_PATH)
+    core.queue_submit("Xã A", "2026-W20", "a2.xlsx", base64.b64decode(make_excel_b64("A2")), db_path=core.DB_PATH)
+    core.queue_submit("Xã B", "2026-W20", "b1.xlsx", base64.b64decode(make_excel_b64("B1")), db_path=core.DB_PATH)
+
+    page = client.get("/cdc/hang-doi")
+    assert "cdc-row-warning" in page.text
+    assert "Nộp 2 lần/tuần" in page.text
+
+
+def test_queue_page_does_not_highlight_single_submission(client: TestClient):
+    _login_as(client, core.CDC_ROLE_ADMIN)
+    core.queue_submit("Xã A", "2026-W20", "a.xlsx", base64.b64decode(make_excel_b64("A1")), db_path=core.DB_PATH)
+
+    page = client.get("/cdc/hang-doi")
+    assert "cdc-row-warning" not in page.text
+
+
+def test_export_queue_includes_duplicate_week_warning_column(client: TestClient):
+    _login_as(client, core.CDC_ROLE_ADMIN)
+    core.queue_submit("Xã A", "2026-W20", "a1.xlsx", base64.b64decode(make_excel_b64("A1")), db_path=core.DB_PATH)
+    core.queue_submit("Xã A", "2026-W20", "a2.xlsx", base64.b64decode(make_excel_b64("A2")), db_path=core.DB_PATH)
+
+    resp = client.get("/cdc/hang-doi/xuat")
+    from openpyxl import load_workbook
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "out.xlsx"
+        out.write_bytes(resp.content)
+        wb = load_workbook(out)
+        ws = wb.active
+        headers = [c.value for c in ws[1]]
+        assert headers[-1] == "Cảnh báo"
+        warnings = [row[-1].value for row in ws.iter_rows(min_row=2)]
+        assert warnings.count("Nộp từ 2 lần trở lên trong tuần") == 2
+
+
 def test_queue_page_has_select_all_checkbox_for_importer(client: TestClient):
     _login_as(client, core.CDC_ROLE_ADMIN)
     page = client.get("/cdc/hang-doi")
