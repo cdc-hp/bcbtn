@@ -136,6 +136,32 @@
     updateBatchCount();
   }
 
+  const dedupTable = document.querySelector('[data-dedup-table]');
+  if (dedupTable) {
+    const rowChecks = [...dedupTable.querySelectorAll('[data-dedup-row-check]')];
+    const selectAll = dedupTable.querySelector('[data-dedup-select-all]');
+    const keepSelect = document.querySelector('[data-dedup-keep]');
+    const countEl = document.querySelector('[data-dedup-selected-count]');
+    const sync = () => {
+      const checkedIds = new Set(rowChecks.filter(input => input.checked).map(input => input.value));
+      if (countEl) countEl.textContent = `Đã chọn ${checkedIds.size}/${rowChecks.length} bản ghi`;
+      if (selectAll) selectAll.checked = checkedIds.size === rowChecks.length;
+      if (keepSelect) {
+        [...keepSelect.options].forEach(option => { option.disabled = !checkedIds.has(option.value); });
+        if (keepSelect.selectedOptions[0]?.disabled) {
+          const firstEnabled = [...keepSelect.options].find(option => !option.disabled);
+          if (firstEnabled) keepSelect.value = firstEnabled.value;
+        }
+      }
+    };
+    rowChecks.forEach(input => input.addEventListener('change', sync));
+    selectAll?.addEventListener('change', () => {
+      rowChecks.forEach(input => { input.checked = selectAll.checked; });
+      sync();
+    });
+    sync();
+  }
+
   const updatePanel = document.querySelector('[data-web-update]');
   if (updatePanel?.dataset.updateActive === 'true') {
     const statusUrl = updatePanel.dataset.updateStatusUrl;

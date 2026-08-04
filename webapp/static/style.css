@@ -238,6 +238,12 @@ form.row.g-2.mb-3,form.row.g-2.mb-2 { margin-bottom: 20px!important; padding: 18
 .cdc-row-warning>td { background: var(--cdc-warning-soft)!important; }
 .cdc-row-warning-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 700; color: var(--cdc-warning); background: #ffe9b3; white-space: nowrap; }
 
+/* Duyệt nhóm trùng (/cdc/loc-trung/xem) — tiêu đề + thanh nút hành động dính lại khi cuộn xuống
+   bảng so sánh dài, khỏi phải cuộn lại lên đầu trang mới bấm được "Hợp nhất"/"Xác nhận KHÔNG trùng". */
+.cdc-dedup-sticky { position: sticky; top: 0; z-index: 15; padding-top: 4px; margin: -4px 0 14px; background: var(--cdc-bg); }
+.cdc-dedup-actionbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--cdc-border); border-radius: 14px; background: #fff; box-shadow: 0 8px 20px rgba(20,60,45,.10); }
+.cdc-dedup-actionbar .ms-auto { margin-left: auto; }
+
 /* Case and outbreak sheets */
 .cdc-records-header { margin-bottom: 23px; align-items: center; }
 .cdc-records-header h1 { margin: 0; font-size: 28px; font-weight: 800; }

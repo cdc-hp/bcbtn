@@ -397,6 +397,36 @@ tiêu đề đã lưu thì cần xây thêm 1 trang cấu hình trong `webapp/` 
    lưu bộ tiêu chí thành preset (`dedup_criteria_sets`). `merge_duplicate_records()` sao lưu
    CSDL trước khi hợp nhất; `restore_duplicate_action()` khôi phục được.
 
+### Gộp tự động (trùng 100%) và "Gộp trùng cập nhật" trên `/cdc/loc-trung/xem`
+
+- **`core.auto_merge_exact_case_duplicates()`**: khác lớp 2 ở trên (chỉ so theo tiêu chí CDC
+  chọn, luôn cần duyệt thủ công) — hàm này so khớp TOÀN BỘ 48 trường `CASE_FIELDS` (không phải
+  tập tiêu chí đang bật); nhóm nào khớp tuyệt đối cả 48 trường thì không còn thông tin gì khác
+  biệt để CDC phải chọn, nên tự loại bỏ ngay, giữ lại bản ghi ID NHỎ NHẤT (ca cũ). Gọi từ
+  `webapp/routers/dedup.py::scan()` mỗi khi vai trò `data_operator` trở lên mở
+  `/cdc/loc-trung?entity=case` — cố ý **không chạy cho `viewer`** (chỉ xem, không được sửa dữ
+  liệu). Chỉ áp dụng cho ca bệnh (48 trường là con số riêng của `CASE_FIELDS`; ổ dịch chỉ 15
+  trường, vẫn dùng cơ chế chấm điểm mờ như cũ, không có khái niệm "khớp tuyệt đối" tương tự).
+  Vẫn ghi `duplicate_actions`/`duplicate_trash` như hợp nhất thủ công (action_type
+  `auto_merge_exact`) nên khôi phục được bình thường qua `/cdc/loc-trung/lich-su`.
+- **`core.merge_duplicates_take_latest()`** (nút "Gộp trùng cập nhật", route riêng
+  `POST /cdc/loc-trung/hop-nhat-cap-nhat`, khác nút "Hợp nhất" gọi `merge_duplicate_records()`):
+  tự động giữ ID nhỏ nhất trong các bản ghi ĐÃ CHỌN (qua checkbox trên bảng so sánh, không bắt
+  buộc phải là cả nhóm), áp TOÀN BỘ giá trị của bản ghi có `imported_at` mới nhất (nhập gần đây
+  nhất) lên bản ghi giữ lại — khác "Hợp nhất" (CDC tự chọn giá trị từng trường trong
+  `CASE_MERGE_FIELDS`/`OUTBREAK_MERGE_FIELDS`, chỉ 14/12 trường), ở đây áp dụng cho MỌI trường
+  hợp nhất được (`_mergeable_fields`, toàn bộ trừ `source_stt`) — coi bản ghi nhập mới nhất là
+  bản cập nhật đầy đủ nhất, chỉ giữ nguyên ID cũ để không phá vỡ tham chiếu đã có.
+- **Cột chọn nhiều trên `/cdc/loc-trung/xem`**: bảng so sánh có thêm cột checkbox (`name="ids"`,
+  mặc định chọn hết) cho phép CDC bỏ chọn bớt bản ghi muốn giữ riêng, không xử lý cùng lượt —
+  CẢ 3 nút ("Hợp nhất", "Gộp trùng cập nhật", "Xác nhận KHÔNG trùng") dùng chung MỘT `<form>`,
+  phân biệt bằng `formaction` trên từng `<button>` (khỏi phải nhân bản bảng/checkbox cho từng
+  hành động). `webapp/static/app.js` (`[data-dedup-table]`) đồng bộ: đếm số đã chọn, tự vô hiệu
+  hoá lựa chọn "Bản ghi chính" (dropdown `keep`, dùng cho nút "Hợp nhất") nếu bản ghi đó vừa bị
+  bỏ chọn. Tiêu đề trang + thanh 3 nút được ghim lại (`position: sticky`, class
+  `.cdc-dedup-sticky`/`.cdc-dedup-actionbar`) để cuộn qua bảng so sánh/bảng chọn giá trị dài vẫn
+  bấm được ngay, không phải cuộn lại lên đầu.
+
 ### Sao lưu và phục hồi
 
 Chính sách nằm trong `backup_policy.json` (không nằm trong CSDL). Mỗi bản sao SQLite kiểm tra

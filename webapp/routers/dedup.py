@@ -67,6 +67,16 @@ def scan(
     settings: WebAppSettings = Depends(get_settings_dep),
 ):
     entity_type = entity if entity in ("case", "outbreak") else "case"
+    # Tự động gộp NGAY các ca bệnh trùng khớp toàn bộ 48 trường (không còn gì khác biệt để CDC
+    # phải chọn) mỗi khi vai trò có quyền hợp nhất mở trang này — cố ý bỏ qua nếu chỉ đang xem
+    # (viewer) để không âm thầm sửa dữ liệu ngoài quyền hạn của vai trò đó.
+    if entity_type == "case" and not msg and not err and user.has_role(*CAN_MERGE_ROLES):
+        auto_result = core.auto_merge_exact_case_duplicates(db_path=settings.db_path, actor=user.username)
+        if auto_result["removed_count"]:
+            msg = (
+                f"Đã tự động gộp {auto_result['removed_count']} bản ghi trùng khớp toàn bộ 48 trường "
+                f"vào {auto_result['merged_groups']} ca cũ hơn."
+            )
     groups, effective_min_score = _scan_groups(entity_type, min_score, settings.db_path)
     rows = []
     for group in groups:
@@ -203,6 +213,38 @@ async def merge_group(
     )
 
 
+@router.post("/cdc/loc-trung/hop-nhat-cap-nhat", response_class=HTMLResponse)
+async def merge_group_update(
+    request: Request,
+    user: auth.CurrentUser = Depends(require_role(*CAN_MERGE_ROLES)),
+    settings: WebAppSettings = Depends(get_settings_dep),
+):
+    """"Gộp trùng cập nhật" — khác /hop-nhat (CDC tự chọn giá trị từng trường): tự động giữ ID
+    nhỏ nhất trong các bản ghi đã chọn (checkbox trên bảng so sánh) và áp toàn bộ thông tin của
+    bản ghi nhập gần đây nhất lên bản ghi đó, xem `core.merge_duplicates_take_latest`."""
+    form = await request.form()
+    if not auth.verify_csrf(request, str(form.get("csrf_token", ""))):
+        raise ForbiddenError("Phiên làm việc đã hết hạn hoặc yêu cầu không hợp lệ (CSRF). Tải lại trang và thử lại.")
+    entity_type = str(form.get("entity", ""))
+    if entity_type not in ("case", "outbreak"):
+        raise ForbiddenError("Loại bản ghi không hợp lệ.")
+    try:
+        ids = [int(v) for v in form.getlist("ids")]
+    except ValueError:
+        return _redirect_to_scan(entity_type, err="Dữ liệu gửi lên không hợp lệ.")
+    try:
+        result = core.merge_duplicates_take_latest(entity_type, ids, db_path=settings.db_path, actor=user.username)
+    except ValueError as exc:
+        return _redirect_to_scan(entity_type, err=str(exc))
+    return _redirect_to_scan(
+        entity_type,
+        msg=(
+            f"Đã gộp trùng cập nhật: giữ ID {result['kept_id']} (bản ghi cũ), cập nhật theo bản ghi "
+            f"nhập mới nhất ID {result['source_id']}, đưa {result['removed_count']} bản ghi vào Thùng rác."
+        ),
+    )
+
+
 @router.post("/cdc/loc-trung/khong-trung", response_class=HTMLResponse)
 async def dismiss_group(
     request: Request,
@@ -234,9 +276,10 @@ def history(
     settings: WebAppSettings = Depends(get_settings_dep),
 ):
     rows = core.list_duplicate_actions(db_path=settings.db_path)
+    action_labels = {"merge": "Hợp nhất", "auto_merge_exact": "Tự động gộp (trùng 100%)"}
     for item in rows:
         item["entity_label"] = "Ca bệnh" if item.get("entity_type") == "case" else "Ổ dịch"
-        item["action_label"] = "Hợp nhất" if item.get("action_type") == "merge" else "Loại trùng"
+        item["action_label"] = action_labels.get(item.get("action_type"), "Loại trùng")
 
     token = auth.get_csrf_token(request)
     response = templates.TemplateResponse(request, "dedup_history.html", {

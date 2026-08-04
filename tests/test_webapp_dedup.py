@@ -3,6 +3,7 @@ xem TASKS.md."""
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -72,6 +73,34 @@ def _dup_case_ids() -> list[int]:
     return sorted(r["id"] for r in rows if r["case_code"] == "CA-DUP")
 
 
+def _seed_exact_dup_case(tmp_path: Path) -> None:
+    """Nhập MỘT ca bệnh rồi sao y thành bản ghi thứ 2 giống hệt 48 trường (chỉ khác `row_hash`
+    để vượt qua ràng buộc UNIQUE) — mô phỏng xã nộp lại y hệt file cũ mà không phụ thuộc thời
+    điểm thực (2 lần import_excel trong cùng 1 giây sẽ bị row_hash chặn ngay từ khi nhập vì
+    imported_at cũng nằm trong dữ liệu tính hash)."""
+    wb = Workbook(); ws = wb.active; ws.title = "Disease Cases"
+    ws.append([label for label, _ in core.CASE_FIELDS])
+    full = {key: "" for _, key in core.CASE_FIELDS}
+    full.update({"case_code": "CA-EXACT", "full_name": "Nguyễn Văn A", "commune": "Xã A", "main_diagnosis": "Cúm"})
+    ws.append([full.get(key, "") for _, key in core.CASE_FIELDS])
+    path = tmp_path / "seed_exact.xlsx"
+    wb.save(path)
+    core.import_excel(path, core.DB_PATH)
+    rows, _ = core.query_records("case", db_path=core.DB_PATH)
+    original_id = next(r["id"] for r in rows if r["case_code"] == "CA-EXACT")
+    conn = sqlite3.connect(core.DB_PATH)
+    try:
+        conn.row_factory = sqlite3.Row
+        row = dict(conn.execute("SELECT * FROM cases WHERE id=?", (original_id,)).fetchone())
+        row.pop("id")
+        row["row_hash"] = str(row["row_hash"]) + ":clone"
+        cols = list(row)
+        conn.execute(f"INSERT INTO cases ({','.join(cols)}) VALUES ({','.join('?' for _ in cols)})", [row[c] for c in cols])
+        conn.commit()
+    finally:
+        conn.close()
+
+
 # ---------- Quét ----------
 
 def test_scan_requires_login(client: TestClient):
@@ -103,6 +132,29 @@ def test_viewer_can_scan_but_no_merge_button(client: TestClient, tmp_path: Path)
     resp = client.get("/cdc/loc-trung", params={"entity": "case"})
     assert resp.status_code == 200
     assert "Duyệt &amp; hợp nhất" not in resp.text
+
+
+def test_scan_auto_merges_exact_duplicate_cases_for_operator(client: TestClient, tmp_path: Path):
+    _login(client, role=core.CDC_ROLE_DATA_OPERATOR)
+    _seed_exact_dup_case(tmp_path)
+    rows, _ = core.query_records("case", db_path=core.DB_PATH)
+    assert len([r for r in rows if r["case_code"] == "CA-EXACT"]) == 2
+
+    resp = client.get("/cdc/loc-trung", params={"entity": "case"})
+    assert resp.status_code == 200
+    assert "Đã tự động gộp" in resp.text
+
+    remaining, _ = core.query_records("case", db_path=core.DB_PATH)
+    assert len([r for r in remaining if r["case_code"] == "CA-EXACT"]) == 1
+
+
+def test_scan_does_not_auto_merge_for_viewer(client: TestClient, tmp_path: Path):
+    _login(client, role=core.CDC_ROLE_VIEWER)
+    _seed_exact_dup_case(tmp_path)
+    resp = client.get("/cdc/loc-trung", params={"entity": "case"})
+    assert resp.status_code == 200
+    remaining, _ = core.query_records("case", db_path=core.DB_PATH)
+    assert len([r for r in remaining if r["case_code"] == "CA-EXACT"]) == 2
 
 
 # ---------- Duyệt & hợp nhất ----------
@@ -192,6 +244,109 @@ def test_merge_group_rejects_bad_csrf(client: TestClient, tmp_path: Path):
         "csrf_token": "sai", "entity": "case", "ids": [str(i) for i in ids], "keep": str(ids[0]),
     })
     assert resp.status_code == 403
+
+
+def test_review_page_has_checkbox_column_and_sticky_actionbar(client: TestClient, tmp_path: Path):
+    _login(client)
+    _seed_dup_cases(tmp_path)
+    ids = _dup_case_ids()
+    resp = client.get("/cdc/loc-trung/xem", params={"entity": "case", "ids": ",".join(map(str, ids))})
+    assert resp.status_code == 200
+    assert "cdc-dedup-sticky" in resp.text and "cdc-dedup-actionbar" in resp.text
+    assert "Gộp trùng cập nhật" in resp.text
+    assert resp.text.count('data-dedup-row-check') == len(ids)
+    assert 'data-dedup-select-all' in resp.text
+
+
+def test_review_page_no_checkboxes_or_actionbar_for_viewer(client: TestClient, tmp_path: Path):
+    _login(client, role=core.CDC_ROLE_VIEWER)
+    _seed_dup_cases(tmp_path)
+    ids = _dup_case_ids()
+    resp = client.get("/cdc/loc-trung/xem", params={"entity": "case", "ids": ",".join(map(str, ids))})
+    assert "cdc-dedup-actionbar" not in resp.text
+    assert 'name="ids"' not in resp.text
+
+
+# ---------- Gộp trùng cập nhật ----------
+
+def test_merge_group_update_keeps_old_id_and_applies_newest_values(client: TestClient, tmp_path: Path):
+    _login(client)
+    _seed_dup_cases(tmp_path)
+    ids = _dup_case_ids()
+    older_id, newer_id = ids[0], ids[1]
+    conn = sqlite3.connect(core.DB_PATH)
+    try:
+        conn.execute("UPDATE cases SET imported_at=? WHERE id=?", ("2020-01-01 00:00:00", older_id))
+        conn.execute("UPDATE cases SET imported_at=? WHERE id=?", ("2030-01-01 00:00:00", newer_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+    csrf = _fresh_csrf(client, "/cdc/loc-trung/xem?entity=case&ids=" + ",".join(map(str, ids)))
+    resp = client.post("/cdc/loc-trung/hop-nhat-cap-nhat", data={
+        "csrf_token": csrf, "entity": "case", "ids": [str(i) for i in ids],
+    }, follow_redirects=False)
+    assert resp.status_code == 303
+    assert "msg=" in resp.headers["location"]
+
+    kept = core.get_record("case", older_id, db_path=core.DB_PATH)
+    assert kept["full_name"] == "Nguyễn Văn Á"
+    assert kept["phone"] == "0900000002"
+    remaining, _ = core.query_records("case", db_path=core.DB_PATH)
+    assert sorted(r["id"] for r in remaining if r["case_code"] == "CA-DUP") == [older_id]
+
+
+def test_merge_group_update_requires_role(client: TestClient, tmp_path: Path):
+    _login(client, role=core.CDC_ROLE_VIEWER)
+    _seed_dup_cases(tmp_path)
+    ids = _dup_case_ids()
+    csrf = _fresh_csrf(client, "/cdc/loc-trung/xem?entity=case&ids=" + ",".join(map(str, ids)))
+    resp = client.post("/cdc/loc-trung/hop-nhat-cap-nhat", data={
+        "csrf_token": csrf, "entity": "case", "ids": [str(i) for i in ids],
+    })
+    assert resp.status_code == 403
+
+
+def test_merge_group_update_rejects_bad_csrf(client: TestClient, tmp_path: Path):
+    _login(client)
+    _seed_dup_cases(tmp_path)
+    ids = _dup_case_ids()
+    resp = client.post("/cdc/loc-trung/hop-nhat-cap-nhat", data={
+        "csrf_token": "sai", "entity": "case", "ids": [str(i) for i in ids],
+    })
+    assert resp.status_code == 403
+
+
+def test_merge_group_update_requires_two_ids(client: TestClient, tmp_path: Path):
+    _login(client)
+    _seed_dup_cases(tmp_path)
+    ids = _dup_case_ids()
+    csrf = _fresh_csrf(client, "/cdc/loc-trung/xem?entity=case&ids=" + ",".join(map(str, ids)))
+    resp = client.post("/cdc/loc-trung/hop-nhat-cap-nhat", data={
+        "csrf_token": csrf, "entity": "case", "ids": [str(ids[0])],
+    }, follow_redirects=False)
+    assert resp.status_code == 303
+    assert "err=" in resp.headers["location"]
+
+
+def test_merge_group_update_works_for_outbreak(client: TestClient):
+    _login(client)
+    id1 = core.save_outbreak({"disease": "Sởi", "location": "Thôn 1", "case_count": 1}, db_path=core.DB_PATH)
+    id2 = core.save_outbreak({"disease": "Sởi", "location": "Thôn 1", "case_count": 5}, db_path=core.DB_PATH)
+    conn = sqlite3.connect(core.DB_PATH)
+    try:
+        conn.execute("UPDATE outbreaks SET imported_at=? WHERE id=?", ("2020-01-01 00:00:00", id1))
+        conn.execute("UPDATE outbreaks SET imported_at=? WHERE id=?", ("2030-01-01 00:00:00", id2))
+        conn.commit()
+    finally:
+        conn.close()
+    csrf = _fresh_csrf(client, f"/cdc/loc-trung/xem?entity=outbreak&ids={id1},{id2}")
+    resp = client.post("/cdc/loc-trung/hop-nhat-cap-nhat", data={
+        "csrf_token": csrf, "entity": "outbreak", "ids": [str(id1), str(id2)],
+    }, follow_redirects=False)
+    assert resp.status_code == 303
+    kept = core.get_record("outbreak", id1, db_path=core.DB_PATH)
+    assert kept["case_count"] == 5
 
 
 # ---------- Xác nhận không trùng ----------

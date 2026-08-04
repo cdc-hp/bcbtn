@@ -1730,6 +1730,99 @@ def remove_duplicate_records(
     return merge_duplicate_records(entity_type, keep_id, remove_ids, {}, db_path, actor=actor)
 
 
+def merge_duplicates_take_latest(
+    entity_type: str, ids: Sequence[int], db_path: Path | str = DB_PATH, actor: str = "",
+) -> dict[str, Any]:
+    """"Gộp trùng cập nhật" (nút riêng trên `/cdc/loc-trung/xem`, khác hợp nhất thủ công): giữ
+    bản ghi có ID NHỎ NHẤT trong `ids` (ca cũ), áp TOÀN BỘ giá trị của bản ghi có `imported_at`
+    MỚI NHẤT (nhập gần đây nhất trong số các bản ghi được chọn) lên bản ghi giữ lại — coi bản ghi
+    nhập mới nhất là bản cập nhật đầy đủ nhất, chỉ giữ nguyên ID cũ để không phá vỡ tham chiếu đã
+    có (vd trong Thùng rác/nhật ký của các lần xử lý trước). Khác hợp nhất thủ công
+    (`merge_duplicate_records` qua `/cdc/loc-trung/hop-nhat`) chỉ đổi đúng các trường CDC tự chọn
+    giá trị (`CASE_MERGE_FIELDS`/`OUTBREAK_MERGE_FIELDS`, 14/12 trường) — ở đây áp dụng cho MỌI
+    trường có thể hợp nhất (`_mergeable_fields`, gần như toàn bộ 48/15 trường trừ `source_stt`)."""
+    id_list = sorted({int(v) for v in ids})
+    if len(id_list) < 2:
+        raise ValueError("Hãy chọn ít nhất 2 bản ghi để gộp trùng cập nhật.")
+    records = get_records_by_ids(entity_type, id_list, db_path=db_path)
+    if len(records) < 2:
+        raise ValueError("Nhóm này không còn đủ bản ghi để gộp (có thể đã được xử lý).")
+    keep_id = min(int(r["id"]) for r in records)
+    remove_ids = [int(r["id"]) for r in records if int(r["id"]) != keep_id]
+    newest = max(records, key=lambda r: str(r.get("imported_at") or ""))
+    fields = _mergeable_fields(entity_type)
+    merged_values = {field: newest.get(field) for field in fields}
+    result = merge_duplicate_records(entity_type, keep_id, remove_ids, merged_values, db_path=db_path, actor=actor)
+    result["source_id"] = int(newest["id"])
+    return result
+
+
+def auto_merge_exact_case_duplicates(db_path: Path | str = DB_PATH, actor: str = "") -> dict[str, Any]:
+    """Tự động gộp các ca bệnh trùng khớp TOÀN BỘ 48 trường dữ liệu đầu vào (`CASE_FIELDS`, xem
+    ghi chú "cases" trong CLAUDE.md) — khác `find_duplicate_groups` (chỉ so theo tiêu chí CDC
+    chọn, luôn cần duyệt thủ công), ở đây không còn thông tin nào khác biệt giữa các bản ghi nên
+    không cần CDC xác nhận, tự loại bỏ ngay. Giữ lại bản ghi có ID NHỎ NHẤT (ca cũ, nhập trước)
+    trong mỗi nhóm; các bản ghi còn lại đưa vào Thùng rác như hợp nhất thủ công bình thường (vẫn
+    khôi phục được qua `/cdc/loc-trung/lich-su`). Gọi từ `webapp/routers/dedup.py::scan()` mỗi
+    khi vai trò có quyền hợp nhất (`data_operator` trở lên) mở trang `/cdc/loc-trung?entity=case`
+    — cố ý KHÔNG chạy cho vai trò `viewer` (chỉ xem, không được phép làm thay đổi dữ liệu)."""
+    init_db(db_path)
+    fields = [db for _, db in CASE_FIELDS]
+    with _connect(db_path) as conn:
+        rows = [dict(r) for r in conn.execute(
+            f"SELECT id,{','.join(fields)} FROM cases ORDER BY id"
+        ).fetchall()]
+    buckets: dict[tuple, list[int]] = {}
+    for row in rows:
+        key = tuple(row.get(f) for f in fields)
+        if not any(v not in (None, "") for v in key):
+            continue  # phòng trường hợp lý thuyết cả 48 trường đều trống, tránh gộp nhầm rác
+        buckets.setdefault(key, []).append(int(row["id"]))
+    groups = sorted((sorted(ids) for ids in buckets.values() if len(ids) >= 2), key=lambda g: g[0])
+    if not groups:
+        return {"merged_groups": 0, "removed_count": 0}
+    backup = create_backup(db_path)
+    now = datetime.now().isoformat(sep=" ", timespec="seconds")
+    removed_count = 0
+    with _connect(db_path) as conn:
+        current_ids = {int(r["id"]) for r in conn.execute("SELECT id FROM cases").fetchall()}
+        for ids in groups:
+            ids = [i for i in ids if i in current_ids]
+            if len(ids) < 2:
+                continue  # dữ liệu vừa đổi giữa 2 lần đọc (hiếm) — bỏ qua an toàn, lần sau xử lý
+            keep_id, remove_ids = ids[0], ids[1:]
+            full_removed = {
+                int(r["id"]): dict(r) for r in conn.execute(
+                    f"SELECT * FROM cases WHERE id IN ({','.join('?' for _ in remove_ids)})", remove_ids
+                ).fetchall()
+            }
+            cur = conn.execute(
+                """INSERT INTO duplicate_actions
+                   (entity_type, keep_id, removed_ids_json, backup_file, created_at, action_type, merged_values_json)
+                   VALUES ('case', ?, ?, ?, ?, 'auto_merge_exact', '{}')""",
+                (keep_id, json.dumps(remove_ids), str(backup), now),
+            )
+            action_id = int(cur.lastrowid)
+            for record_id in remove_ids:
+                conn.execute(
+                    """INSERT INTO duplicate_trash
+                       (action_id, entity_type, original_id, record_json, deleted_at) VALUES (?, 'case', ?, ?, ?)""",
+                    (action_id, record_id, json.dumps(full_removed[record_id], ensure_ascii=False, default=str), now),
+                )
+            placeholders = ",".join("?" for _ in remove_ids)
+            conn.execute(f"DELETE FROM cases WHERE id IN ({placeholders})", remove_ids)
+            conn.execute(
+                f"DELETE FROM data_quality_issues WHERE entity_type='case' AND entity_id IN ({placeholders})",
+                remove_ids,
+            )
+            removed_count += len(remove_ids)
+    log_audit(
+        "auto_merge_exact_case_duplicates", actor=actor,
+        detail=f"groups={len(groups)}; removed={removed_count}; backup={backup}", db_path=db_path,
+    )
+    return {"merged_groups": len(groups), "removed_count": removed_count, "backup_file": str(backup)}
+
+
 def list_duplicate_actions(limit: int = 200, db_path: Path | str = DB_PATH) -> list[dict[str, Any]]:
     init_db(db_path)
     with _connect(db_path) as conn:
