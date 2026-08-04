@@ -21,7 +21,11 @@
       </select>
     </div>
     <div><label for="history-week" class="form-label">Tuần</label><input id="history-week" type="week" name="week" value="{{ filters.week }}" class="form-control"></div>
-    <div class="cdc-toolbar-actions"><button type="submit" class="btn btn-primary">Lọc</button><a href="/cdc/lich-su-nhap" class="btn btn-outline-secondary">Xoá lọc</a></div>
+    <div class="cdc-toolbar-actions">
+      <button type="submit" class="btn btn-primary">Lọc</button>
+      <a href="/cdc/lich-su-nhap" class="btn btn-outline-secondary">Xoá lọc</a>
+      <a href="/cdc/lich-su-nhap/xuat?{{ export_query }}" class="btn btn-outline-secondary">{{ icon('download') }} Xuất Excel</a>
+    </div>
   </form>
 
   {% if can_delete %}

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 import core
 import deployment_config
@@ -326,4 +326,59 @@ def test_delete_batches_requires_admin_role(client: TestClient, tmp_path: Path):
     batch_id = core.list_import_batches(db_path=core.DB_PATH)[0]["id"]
     csrf = _fresh_csrf(client, "/cdc/lich-su-nhap")
     resp = client.post("/cdc/lich-su-nhap/xoa-nhieu", data={"batch_ids": [str(batch_id)], "csrf_token": csrf})
+    assert resp.status_code == 403
+
+
+# --- Xuất Excel -----------------------------------------------------------------------------
+
+def test_page_has_export_button(client: TestClient):
+    _login(client)
+    resp = client.get("/cdc/lich-su-nhap")
+    assert "/cdc/lich-su-nhap/xuat" in resp.text
+    assert "Xuất Excel" in resp.text
+
+
+def test_export_returns_xlsx_with_expected_rows(client: TestClient, tmp_path: Path):
+    _login(client)
+    core.import_excel(_seed_case_file(tmp_path, "a.xlsx", [{"full_name": "Nguyen Van A"}]), core.DB_PATH)
+    resp = client.get("/cdc/lich-su-nhap/xuat")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("application/")
+
+    out = tmp_path / "out.xlsx"
+    out.write_bytes(resp.content)
+    wb = load_workbook(out)
+    ws = wb.active
+    headers = [c.value for c in ws[1]]
+    assert headers == ["Thời điểm nhập", "Xã", "Tuần", "File", "Loại", "Đã đọc", "Đã thêm", "Trùng", "Cảnh báo"]
+    data_row = [c.value for c in ws[2]]
+    assert data_row[3] == "a.xlsx"
+    assert data_row[4] == "Ca bệnh"
+    # Thời điểm nhập phải theo dd/MM/yyyy HH:MM, không phải ISO thô.
+    assert "-" not in data_row[0].split(" ")[0]
+
+
+def test_export_respects_commune_filter(client: TestClient, tmp_path: Path):
+    _login(client)
+    _seed_via_queue(tmp_path, "Xã An Hưng", "2026-W20", "a.xlsx")
+    _seed_via_queue(tmp_path, "Xã Kiến Thụy", "2026-W20", "b.xlsx")
+
+    resp = client.get("/cdc/lich-su-nhap/xuat", params={"commune": "Xã An Hưng"})
+    out = tmp_path / "out.xlsx"
+    out.write_bytes(resp.content)
+    wb = load_workbook(out)
+    ws = wb.active
+    file_names = [row[3].value for row in ws.iter_rows(min_row=2)]
+    assert len(file_names) == 1
+    assert file_names[0].endswith("a.xlsx")
+
+
+def test_export_requires_login(client: TestClient):
+    resp = client.get("/cdc/lich-su-nhap/xuat", follow_redirects=False)
+    assert resp.status_code == 303
+
+
+def test_export_viewer_forbidden(client: TestClient):
+    _login(client, role=core.CDC_ROLE_VIEWER)
+    resp = client.get("/cdc/lich-su-nhap/xuat")
     assert resp.status_code == 403

@@ -4,6 +4,7 @@ nhầm file — xem `core.delete_import_batch`."""
 
 from __future__ import annotations
 
+from datetime import datetime
 from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -14,6 +15,7 @@ import core
 from webapp import TEMPLATES_DIR, auth
 from webapp.config import WebAppSettings
 from webapp.dependencies import ForbiddenError, get_settings_dep, require_role
+from webapp.services.export_files import file_download_response, make_temp_export_path
 from webapp.services.pagination import paginate
 
 router = APIRouter()
@@ -29,6 +31,10 @@ SORTABLE_COLUMNS = {
     "entity_type": "Loại", "rows_read": "Đã đọc", "inserted": "Đã thêm", "duplicates": "Trùng",
     "issue_count": "Cảnh báo",
 }
+
+
+def _timestamp() -> str:
+    return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
 def _sort_links(base_params: dict, current_sort: str, current_dir: str) -> dict[str, dict[str, str]]:
@@ -69,6 +75,7 @@ def list_batches(
     # mất cách sắp xếp hiện tại; ngược lại _sort_links KHÔNG mang `page` — bấm đổi sort tự về trang 1.
     pagination_params = {k: v for k, v in {**base_params, "sort": sort, "dir": dir}.items() if v}
     pagination_base = "/cdc/lich-su-nhap?" + (urlencode(pagination_params) + "&" if pagination_params else "") + "page="
+    export_query = urlencode(pagination_params)
     token = auth.get_csrf_token(request)
     response = templates.TemplateResponse(request, "import_history.html", {
         "user": user, "csrf_token": token, "active": "lich-su-nhap",
@@ -76,12 +83,35 @@ def list_batches(
         "filters": {"commune": commune, "week": week, "sort": sort, "dir": dir},
         "official_communes": sorted(core.OFFICIAL_COMMUNES),
         "sort_links": _sort_links(base_params, sort, dir),
+        "export_query": export_query,
         "page": page_info["page"], "total_pages": page_info["total_pages"],
         "pagination_base": pagination_base,
         "can_delete": user.has_role(*CAN_DELETE_ROLES), "msg": msg, "err": err,
     })
     auth.set_csrf_cookie(response, request, token)
     return response
+
+
+@router.get("/cdc/lich-su-nhap/xuat")
+def export_batches(
+    commune: str = "", week: str = "", sort: str = "", dir: str = "asc",
+    user: auth.CurrentUser = Depends(require_role(*CAN_VIEW_ROLES)),
+    settings: WebAppSettings = Depends(get_settings_dep),
+):
+    sort = sort if sort in SORTABLE_COLUMNS else ""
+    dir = "desc" if dir == "desc" else "asc"
+    rows = core.list_import_batches(
+        db_path=settings.db_path, limit=2000, commune=commune, week=week, sort=sort, direction=dir,
+    )
+    columns = ["Thời điểm nhập", "Xã", "Tuần", "File", "Loại", "Đã đọc", "Đã thêm", "Trùng", "Cảnh báo"]
+    export_data = [[
+        core.format_timestamp_for_display(row["imported_at"]), row.get("commune") or "—", row.get("week") or "—",
+        row["file_name"], ENTITY_LABELS.get(row["entity_type"], row["entity_type"]),
+        row["rows_read"], row["inserted"], row["duplicates"], row["issue_count"],
+    ] for row in rows]
+    tmp_path = make_temp_export_path(".xlsx")
+    core.export_rows(tmp_path, columns, export_data)
+    return file_download_response(tmp_path, f"lich_su_nhap_{_timestamp()}.xlsx")
 
 
 @router.post("/cdc/lich-su-nhap/{batch_id}/xoa", response_class=HTMLResponse)
