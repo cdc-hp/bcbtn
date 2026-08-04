@@ -13,8 +13,11 @@
   {% if err %}<div class="alert alert-danger" role="alert">{{ err }}</div>{% endif %}
 
   <form method="get" action="/cdc/hang-doi" class="cdc-toolbar cdc-queue-toolbar">
-    <div><label for="queue-commune" class="form-label">Xã</label><input id="queue-commune" type="text" name="commune" value="{{ filters.commune }}" class="form-control" placeholder="Tất cả"></div>
-    <div><label for="queue-week" class="form-label">Tuần</label><input id="queue-week" type="text" name="week" value="{{ filters.week }}" class="form-control" placeholder="2026-W30"></div>
+    <div><label for="queue-commune" class="form-label">Xã</label>
+      <input id="queue-commune" type="text" name="commune" value="{{ filters.commune }}" list="queue-official-communes" class="form-control" placeholder="Tất cả (gõ để tìm)" autocomplete="off">
+      <datalist id="queue-official-communes">{% for c in official_communes %}<option value="{{ c }}">{% endfor %}</datalist>
+    </div>
+    <div><label for="queue-week" class="form-label">Tuần</label><input id="queue-week" type="week" name="week" value="{{ filters.week }}" class="form-control"></div>
     <div><label for="queue-status" class="form-label">Trạng thái</label><select id="queue-status" name="status" class="form-select"><option value="">Tất cả</option>{% for value, label in status_options.items() %}<option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
     <div><label for="queue-source" class="form-label">Nguồn</label><select id="queue-source" name="source" class="form-select"><option value="">Tất cả</option>{% for value, label in source_options.items() %}<option value="{{ value }}" {% if filters.source == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
     <div class="cdc-toolbar-actions">

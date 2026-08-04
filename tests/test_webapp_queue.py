@@ -139,6 +139,22 @@ def test_queue_page_requires_login(client: TestClient):
     assert resp.status_code == 303
 
 
+def test_queue_page_commune_filter_has_searchable_datalist(client: TestClient):
+    _login_as(client, core.CDC_ROLE_ADMIN)
+    page = client.get("/cdc/hang-doi")
+    assert 'list="queue-official-communes"' in page.text
+    assert '<datalist id="queue-official-communes">' in page.text
+    assert page.text.count("<option value=") >= len(core.OFFICIAL_COMMUNES)
+    for commune in list(core.OFFICIAL_COMMUNES)[:3]:
+        assert f'<option value="{commune}">' in page.text
+
+
+def test_queue_page_week_filter_uses_native_week_input(client: TestClient):
+    _login_as(client, core.CDC_ROLE_ADMIN)
+    page = client.get("/cdc/hang-doi")
+    assert 'id="queue-week" type="week"' in page.text
+
+
 def test_queue_page_lists_and_filters(client: TestClient):
     _login_as(client, core.CDC_ROLE_ADMIN)
     core.queue_submit("Xã A", "2026-W20", "a.xlsx", base64.b64decode(make_excel_b64("A1")), db_path=core.DB_PATH)

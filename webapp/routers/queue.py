@@ -109,6 +109,7 @@ def queue_list(
         "user": user, "csrf_token": token, "rows": page_rows, "active": "hang-doi",
         "filters": {"commune": commune, "week": week, "status": status, "source": source, "sort": sort, "dir": dir},
         "status_options": STATUS_LABELS, "source_options": SOURCE_LABELS,
+        "official_communes": sorted(core.OFFICIAL_COMMUNES),
         "sort_links": _sort_links(base_params, sort, dir),
         "page": page_info["page"], "total_pages": page_info["total_pages"], "total": page_info["total"],
         "pagination_base": pagination_base, "export_query": export_query,
