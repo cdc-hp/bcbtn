@@ -208,3 +208,21 @@ def reset_update_status(
         raise ForbiddenError("Phiên làm việc đã hết hạn hoặc yêu cầu không hợp lệ (CSRF).")
     web_update.reset_stuck_status(actor=user.username, db_path=settings.db_path)
     return _redirect(msg="Đã đặt lại trạng thái cập nhật.")
+
+
+@router.post("/cdc/cau-hinh/chuan-hoa-ngay-thang", response_class=HTMLResponse)
+def normalize_dates(
+    request: Request, csrf_token: str = Form(""),
+    user: auth.CurrentUser = Depends(require_role(*CAN_CONFIGURE_ROLES)),
+    settings: WebAppSettings = Depends(get_settings_dep),
+):
+    """Quét lại toàn bộ ca bệnh/ổ dịch đang có, chuẩn hóa các trường ngày/giờ lưu sai định dạng
+    từ trước (xem core.normalize_stored_dates) — dùng một lần khi nâng cấp lên bản có kiểm tra
+    định dạng ngày, hoặc bất cứ khi nào nghi ngờ dữ liệu cũ lẫn lộn định dạng."""
+    if not auth.verify_csrf(request, csrf_token):
+        raise ForbiddenError("Phiên làm việc đã hết hạn hoặc yêu cầu không hợp lệ (CSRF).")
+    result = core.normalize_stored_dates(db_path=settings.db_path, actor=user.username)
+    if result["updated_records"] == 0:
+        return _redirect(msg="Không có bản ghi nào cần chuẩn hóa lại định dạng ngày.")
+    msg = f"Đã chuẩn hóa {result['updated_fields']} trường ngày/giờ trên {result['updated_records']} bản ghi."
+    return _redirect(msg=msg)

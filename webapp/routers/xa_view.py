@@ -52,6 +52,7 @@ def _list_view(entity_type: str):
                 "outbreak", search=search, admin_area=user.commune, page=page, page_size=page_size,
                 db_path=settings.db_path,
             )
+        rows = [core.format_record_dates(row) for row in rows]
         total_pages = max(1, (total + page_size - 1) // page_size)
         token = auth.get_csrf_token(request)
         response = templates.TemplateResponse(request, "xa_records_list.html", {
@@ -82,7 +83,11 @@ def _detail_view(entity_type: str):
         # webapp/routers/records.py::_detail_view).
         if not record or record.get(meta["area_field"]) != user.commune:
             raise ForbiddenError("Không tìm thấy bản ghi.")
-        fields = [(meta["labels"].get(key, key), key, value) for key, value in record.items() if key not in ("raw_json",)]
+        display_record = core.format_record_dates(record)
+        fields = [
+            (meta["labels"].get(key, key), key, value)
+            for key, value in display_record.items() if key not in ("raw_json",)
+        ]
         token = auth.get_csrf_token(request)
         response = templates.TemplateResponse(request, "xa_record_detail.html", {
             "user": user, "csrf_token": token,

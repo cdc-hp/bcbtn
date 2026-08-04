@@ -3,6 +3,8 @@ TASKS.md."""
 
 from __future__ import annotations
 
+import sqlite3
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -251,3 +253,59 @@ def test_reset_update_status_requires_super_admin_and_csrf(client: TestClient):
 
     _login(client, role=core.CDC_ROLE_SUPER_ADMIN)
     assert client.post("/cdc/cau-hinh/cap-nhat/dat-lai", data={"csrf_token": "sai"}).status_code == 403
+
+
+# ---------- Chuẩn hóa định dạng ngày tháng ----------
+
+def _insert_legacy_case(db: Path, onset_date_raw: str) -> int:
+    core.init_db(db)
+    now = datetime.now().isoformat(sep=" ", timespec="seconds")
+    conn = sqlite3.connect(db)
+    try:
+        cur = conn.execute(
+            """INSERT INTO cases (full_name, case_code, main_diagnosis, onset_date, report_datetime,
+               source_file, imported_at, row_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("Nguyễn Văn A", "CA-LEGACY", "Sốt xuất huyết", onset_date_raw, "2026-07-10 08:00",
+             "legacy.xlsx", now, f"legacy-hash-{onset_date_raw}"),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+    finally:
+        conn.close()
+
+
+def test_normalize_dates_page_has_button(client: TestClient):
+    _login(client, role=core.CDC_ROLE_SUPER_ADMIN)
+    resp = client.get("/cdc/cau-hinh")
+    assert "Chuẩn hóa định dạng ngày tháng" in resp.text
+    assert "/cdc/cau-hinh/chuan-hoa-ngay-thang" in resp.text
+
+
+def test_normalize_dates_fixes_legacy_records(client: TestClient):
+    _login(client, role=core.CDC_ROLE_SUPER_ADMIN)
+    record_id = _insert_legacy_case(core.DB_PATH, "10-07-2026")
+    csrf = _fresh_csrf(client, "/cdc/cau-hinh")
+    resp = client.post("/cdc/cau-hinh/chuan-hoa-ngay-thang", data={"csrf_token": csrf}, follow_redirects=False)
+    assert resp.status_code == 303
+    assert "msg=" in resp.headers["location"]
+    record = core.get_record("case", record_id, db_path=core.DB_PATH)
+    assert record["onset_date"] == "2026-07-10"
+    actions = {a["action"] for a in core.list_audit_log(db_path=core.DB_PATH)}
+    assert "normalize_stored_dates" in actions
+
+
+def test_normalize_dates_reports_when_nothing_to_fix(client: TestClient):
+    _login(client, role=core.CDC_ROLE_SUPER_ADMIN)
+    csrf = _fresh_csrf(client, "/cdc/cau-hinh")
+    resp = client.post("/cdc/cau-hinh/chuan-hoa-ngay-thang", data={"csrf_token": csrf}, follow_redirects=False)
+    assert resp.status_code == 303
+    assert "msg=" in resp.headers["location"]
+
+
+def test_normalize_dates_requires_super_admin_and_csrf(client: TestClient):
+    _login(client, role=core.CDC_ROLE_ADMIN)
+    csrf = _fresh_csrf(client, "/cdc/dashboard")
+    assert client.post("/cdc/cau-hinh/chuan-hoa-ngay-thang", data={"csrf_token": csrf}).status_code == 403
+
+    _login(client, role=core.CDC_ROLE_SUPER_ADMIN)
+    assert client.post("/cdc/cau-hinh/chuan-hoa-ngay-thang", data={"csrf_token": "sai"}).status_code == 403

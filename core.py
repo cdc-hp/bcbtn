@@ -212,6 +212,10 @@ DATE_FIELDS = {
 DATETIME_FIELDS = {"report_datetime", "modified_datetime"}
 INTEGER_FIELDS = {"source_stt", "case_count", "death_count", "sample_count", "positive_count"}
 FLOAT_FIELDS = {"longitude", "latitude"}
+# "Ngày sinh" cố ý KHÔNG nằm trong DATE_FIELDS (được phép chỉ có năm sinh, xem extract_birth_year)
+# nhưng vẫn cần chuẩn hóa về ISO khi nhận diện được ngày đầy đủ, để đồng nhất định dạng lưu trữ
+# và hiển thị dd/MM/yyyy nhất quán lúc xuất Excel (xem _normalize_payload, normalize_stored_dates).
+_BIRTH_DATE_FIELD = "birth_date_raw"
 
 
 @dataclass
@@ -566,6 +570,17 @@ def parse_date_value(value: Any, with_time: bool = False) -> str:
         "%Y-%m-%d %H:%M:%S",
         "%Y-%m-%d %H:%M",
         "%Y-%m-%d",
+        # Các dấu phân cách khác đôi khi gặp do sao chép dữ liệu từ nguồn khác/định dạng máy khác
+        # — chỉ thêm biến thể dấu phân cách, không đổi thứ tự ngày/tháng để tránh đoán nhầm.
+        "%d-%m-%Y %H:%M:%S",
+        "%d-%m-%Y %H:%M",
+        "%d-%m-%Y",
+        "%d.%m.%Y %H:%M:%S",
+        "%d.%m.%Y %H:%M",
+        "%d.%m.%Y",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d %H:%M",
+        "%Y/%m/%d",
     )
     for fmt in fmts:
         try:
@@ -744,6 +759,11 @@ def _normalize_payload(entity_type: str, payload: dict[str, Any]) -> dict[str, A
             clean[key] = parse_date_value(value, with_time=False)
         elif key in DATETIME_FIELDS:
             clean[key] = parse_date_value(value, with_time=True)
+        elif key == _BIRTH_DATE_FIELD:
+            # Chuẩn hóa về ISO khi nhận diện được ngày đầy đủ (khớp cách xử lý các trường ngày
+            # khác); parse_date_value tự trả nguyên văn nếu không nhận diện được (vd chỉ có năm
+            # sinh) — không phải lỗi, xem _invalid_date_fields không kiểm tra trường này.
+            clean[key] = parse_date_value(value, with_time=False)
         elif key in INTEGER_FIELDS:
             clean[key] = parse_int(value)
         elif key in FLOAT_FIELDS:
@@ -774,8 +794,31 @@ def _date_obj(value: str) -> datetime | None:
         return None
 
 
+_STRICT_DATE_FIELDS = DATE_FIELDS | DATETIME_FIELDS  # luôn phải là ngày/giờ đầy đủ hợp lệ
+
+
+def _invalid_date_fields(payload: dict[str, Any]) -> list[str]:
+    """Trường ngày/giờ có giá trị nhưng KHÔNG khớp bất kỳ định dạng nào `parse_date_value` nhận
+    diện được — khi đó `parse_date_value` âm thầm trả nguyên văn giá trị gốc thay vì báo lỗi, nên
+    phải kiểm tra riêng ở đây (dùng `_date_obj` xác nhận giá trị ĐANG LƯU có đúng dạng ISO chuẩn
+    hay không) để CDC biết mà sửa tại nguồn thay vì để lẫn lộn định dạng trong CSDL. Không áp
+    dụng cho `birth_date_raw` — trường đó cố ý cho phép chỉ có năm sinh (xem `extract_birth_year`),
+    không phải lỗi định dạng."""
+    return sorted(
+        field for field in _STRICT_DATE_FIELDS
+        if payload.get(field) and _date_obj(payload[field]) is None
+    )
+
+
 def _quality_checks(entity_type: str, payload: dict[str, Any]) -> list[tuple[str, str, str]]:
     issues: list[tuple[str, str, str]] = []
+    labels = CASE_LABELS if entity_type == "case" else OUTBREAK_LABELS
+    for field in _invalid_date_fields(payload):
+        label = labels.get(field, field)
+        issues.append((
+            "warning", "Định dạng ngày không nhận diện được",
+            f'Trường "{label}" có giá trị "{payload[field]}" không đúng định dạng ngày (nên dùng dd/mm/yyyy).',
+        ))
     if entity_type == "case":
         if not payload.get("full_name"):
             issues.append(("error", "Thiếu họ tên", "Ca bệnh chưa có họ tên."))
@@ -833,6 +876,77 @@ def _quality_checks(entity_type: str, payload: dict[str, Any]) -> list[tuple[str
         if not payload.get("last_onset_date"):
             issues.append(("info", "Thiếu ngày khởi phát ca cuối", "Chưa có ngày khởi phát trường hợp bệnh cuối cùng."))
     return issues
+
+
+def normalize_stored_dates(db_path: Path | str = DB_PATH, actor: str = "") -> dict[str, Any]:
+    """Quét lại TOÀN BỘ ca bệnh/ổ dịch đang có, thử phân tích lại các trường ngày/giờ (kể cả
+    "Ngày sinh") bằng `parse_date_value` HIỆN TẠI — chuẩn hóa những giá trị trước đây bị lưu
+    nguyên văn vì không khớp định dạng nào lúc nhập (ví dụ dd-mm-yyyy, dd.mm.yyyy...) hoặc do dữ
+    liệu có từ trước khi tính năng kiểm tra này ra đời. Chỉ cập nhật khi kết quả phân tích lại
+    THỰC SỰ khác giá trị đang lưu — không đụng tới bản ghi đã đúng chuẩn. `birth_date_raw` chỉ
+    được nâng cấp lên ngày đầy đủ khi nhận diện được, giữ nguyên nếu chỉ có năm sinh (không phải
+    lỗi — xem `_invalid_date_fields`). Tự sao lưu trước khi sửa vì đây là ghi hàng loạt."""
+    init_db(db_path)
+    backup = create_backup(db_path)
+    updated_records = 0
+    updated_fields = 0
+    now = datetime.now().isoformat(sep=" ", timespec="seconds")
+    with _connect(db_path) as conn:
+        for entity_type, table in (("case", "cases"), ("outbreak", "outbreaks")):
+            candidate_fields = sorted(DATE_FIELDS | DATETIME_FIELDS)
+            if entity_type == "case":
+                candidate_fields = [*candidate_fields, _BIRTH_DATE_FIELD]
+            table_columns = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+            fields = [f for f in candidate_fields if f in table_columns]
+            if not fields:
+                continue
+            rows = conn.execute(f"SELECT * FROM {table}").fetchall()
+            for row in rows:
+                record = dict(row)
+                changes: dict[str, str] = {}
+                for field in fields:
+                    current = record.get(field)
+                    if not current:
+                        continue
+                    with_time = field in DATETIME_FIELDS
+                    normalized = parse_date_value(current, with_time=with_time)
+                    if normalized and normalized != current:
+                        changes[field] = normalized
+                if not changes:
+                    continue
+                record.update(changes)
+                hash_payload = {k: v for k, v in record.items() if k not in ("id", "row_hash")}
+                new_hash = _row_hash(entity_type, hash_payload)
+                conflict = conn.execute(
+                    f"SELECT id FROM {table} WHERE row_hash=? AND id<>?", (new_hash, record["id"]),
+                ).fetchone()
+                if conflict:
+                    new_hash = hashlib.sha256(f"{new_hash}:datefix:{record['id']}".encode()).hexdigest()
+                changes["row_hash"] = new_hash
+                conn.execute(
+                    f"UPDATE {table} SET {','.join(f'{k}=?' for k in changes)} WHERE id=?",
+                    [*changes.values(), record["id"]],
+                )
+                conn.execute(
+                    "DELETE FROM data_quality_issues WHERE entity_type=? AND entity_id=?",
+                    (entity_type, record["id"]),
+                )
+                for severity, issue_type, description in _quality_checks(entity_type, record):
+                    conn.execute(
+                        """INSERT INTO data_quality_issues
+                           (entity_type, entity_id, source_file, source_row, severity, issue_type, description, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (entity_type, record["id"], record.get("source_file", ""), record.get("source_row", 0),
+                         severity, issue_type, description, now),
+                    )
+                updated_records += 1
+                updated_fields += len(changes) - 1  # trừ row_hash
+    log_audit(
+        "normalize_stored_dates", actor=actor,
+        detail=f"updated_records={updated_records}; updated_fields={updated_fields}; backup={backup}",
+        db_path=db_path,
+    )
+    return {"updated_records": updated_records, "updated_fields": updated_fields, "backup_file": str(backup)}
 
 
 def import_excel(path: Path | str, db_path: Path | str = DB_PATH) -> ImportSummary:
@@ -2556,6 +2670,62 @@ def execute_select(sql: str, db_path: Path | str = DB_PATH, max_rows: int = 5000
         return columns, rows
 
 
+def to_excel_date_value(column: str, value: Any) -> Any:
+    """Chuyển giá trị ngày/giờ (lưu dạng chuỗi ISO hoặc văn bản gốc trong CSDL) thành đối tượng
+    `date`/`datetime` THẬT trước khi xuất — `export_rows`/`export_cases_by_commune` tự hiển thị
+    đúng dd/MM/yyyy cho cả Excel (định dạng cell — lọc/sắp xếp được như cột ngày bình thường) lẫn
+    CSV (chuỗi văn bản). Giữ nguyên giá trị gốc nếu không phải trường ngày hoặc không phân tích
+    được (ví dụ `birth_date_raw` chỉ có năm sinh, hoặc dữ liệu cũ lỗi định dạng — vẫn xuất ra chứ
+    không làm hỏng cả file)."""
+    if not value:
+        return value
+    if column in DATE_FIELDS:
+        parsed = _date_obj(strip_text(value))
+        return parsed.date() if parsed else value
+    if column in DATETIME_FIELDS:
+        parsed = _date_obj(strip_text(value))
+        return parsed if parsed else value
+    if column == _BIRTH_DATE_FIELD:
+        parsed = _date_obj(strip_text(value))
+        return parsed.date() if parsed else value
+    return value
+
+
+def _csv_cell_text(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.strftime("%d/%m/%Y %H:%M")
+    if isinstance(value, date):
+        return value.strftime("%d/%m/%Y")
+    return value
+
+
+def format_date_for_display(column: str, value: Any) -> Any:
+    """Định dạng giá trị ngày/giờ để HIỂN THỊ trên giao diện Web (dd/mm/yyyy, dd/mm/yyyy HH:MM) —
+    khác `to_excel_date_value` (trả về đối tượng date/datetime thật cho Excel), hàm này luôn trả
+    CHUỖI text vì dùng để chèn thẳng vào HTML. Giữ nguyên giá trị gốc nếu không phải trường ngày
+    hoặc không phân tích được (ví dụ chỉ có năm sinh, hoặc dữ liệu cũ lỗi định dạng)."""
+    return _csv_cell_text(to_excel_date_value(column, value))
+
+
+def format_record_dates(record: dict[str, Any]) -> dict[str, Any]:
+    """Trả về BẢN SAO của `record` với mọi trường ngày/giờ đã định dạng dd/mm/yyyy để hiển thị —
+    dùng ở mọi nơi hiển thị ca bệnh/ổ dịch ra giao diện Web (danh sách, chi tiết, so sánh lọc
+    trùng, cổng xã...). Không đổi giá trị đang lưu trong CSDL, chỉ đổi bản dùng để render HTML."""
+    return {key: format_date_for_display(key, value) for key, value in record.items()}
+
+
+def format_timestamp_for_display(value: Any) -> Any:
+    """Định dạng MỐC THỜI GIAN HỆ THỐNG (thời điểm nhập, thời điểm nộp file...) sang
+    dd/MM/yyyy HH:MM để hiển thị — khác các trường ngày nghiệp vụ (DATE_FIELDS/DATETIME_FIELDS),
+    các mốc này luôn được ghi sẵn dạng ISO (`datetime.now().isoformat(sep=" ", timespec="seconds")`)
+    nên chỉ cần đổi thứ tự hiển thị, không cần thử nhiều định dạng như parse_date_value. Giữ
+    nguyên nếu rỗng/không phân tích được."""
+    if not value:
+        return value
+    parsed = _date_obj(strip_text(value))
+    return parsed.strftime("%d/%m/%Y %H:%M") if parsed else value
+
+
 def export_rows(path: Path | str, columns: Sequence[str], rows: Iterable[Sequence[Any]]) -> None:
     path = Path(path)
     rows = list(rows)
@@ -2563,7 +2733,8 @@ def export_rows(path: Path | str, columns: Sequence[str], rows: Iterable[Sequenc
         with path.open("w", newline="", encoding="utf-8-sig") as f:
             writer = csv.writer(f)
             writer.writerow(columns)
-            writer.writerows(rows)
+            for row in rows:
+                writer.writerow([_csv_cell_text(v) for v in row])
         return
     wb = Workbook()
     ws = wb.active
@@ -2571,6 +2742,11 @@ def export_rows(path: Path | str, columns: Sequence[str], rows: Iterable[Sequenc
     ws.append(list(columns))
     for row in rows:
         ws.append(list(row))
+        for cell in ws[ws.max_row]:
+            if isinstance(cell.value, datetime):
+                cell.number_format = "dd/mm/yyyy hh:mm"
+            elif isinstance(cell.value, date):
+                cell.number_format = "dd/mm/yyyy"
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = ws.dimensions
     for cell in ws[1]:
@@ -2645,7 +2821,7 @@ def export_filtered_records(
         "imported_at": "Thời điểm nhập",
     }
     out_headers = [labels.get(c, extra_labels.get(c, c)) for c in db_columns]
-    export_rows(path, out_headers, [[row[c] for c in db_columns] for row in values])
+    export_rows(path, out_headers, [[to_excel_date_value(c, row[c]) for c in db_columns] for row in values])
     return total
 
 
@@ -2769,10 +2945,15 @@ def export_cases_by_commune(
             cell.font = cell.font.copy(bold=True)
         for row in sorted(by_commune[commune], key=lambda r: r["id"]):
             info = case_group_info.get(int(row["id"]))
-            values = [row.get(c) for c in db_columns]
+            values = [to_excel_date_value(c, row.get(c)) for c in db_columns]
             values.append(info["group_id"] if info else "")
             values.append(info["reasons"] if info else "")
             ws.append(values)
+            for cell in ws[ws.max_row]:
+                if isinstance(cell.value, datetime):
+                    cell.number_format = "dd/mm/yyyy hh:mm"
+                elif isinstance(cell.value, date):
+                    cell.number_format = "dd/mm/yyyy"
         ws.freeze_panes = "A2"
         ws.auto_filter.ref = ws.dimensions
         for col in ws.columns:

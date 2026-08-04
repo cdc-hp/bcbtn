@@ -152,6 +152,17 @@ def test_queue_page_lists_and_filters(client: TestClient):
     assert "a.xlsx" in filtered.text and "b.xlsx" not in filtered.text
 
 
+def test_queue_page_shows_received_at_as_dd_mm_yyyy_hh_mm(client: TestClient):
+    _login_as(client, core.CDC_ROLE_ADMIN)
+    core.queue_submit("Xã A", "2026-W20", "a.xlsx", base64.b64decode(make_excel_b64("A1")), db_path=core.DB_PATH)
+    item = core.list_import_queue(db_path=core.DB_PATH)[0]
+    raw_received_at = item["received_at"]
+
+    page = client.get("/cdc/hang-doi")
+    assert raw_received_at not in page.text
+    assert core.format_timestamp_for_display(raw_received_at) in page.text
+
+
 def test_queue_page_has_select_all_checkbox_for_importer(client: TestClient):
     _login_as(client, core.CDC_ROLE_ADMIN)
     page = client.get("/cdc/hang-doi")

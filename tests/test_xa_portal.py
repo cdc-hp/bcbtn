@@ -125,6 +125,23 @@ def test_case_list_only_shows_own_commune(client: TestClient, tmp_path: Path):
     assert "Trần Thị B" not in resp.text
 
 
+def test_case_list_and_detail_show_dates_as_dd_mm_yyyy(client: TestClient, tmp_path: Path):
+    _seed_cases(tmp_path, [
+        {"case_code": "CA-A", "full_name": "Nguyễn Văn A", "commune": COMMUNE_A, "onset_date": "10/07/2026"},
+    ])
+    _create_account(COMMUNE_A, "xa_a")
+    _login_xa(client, "xa_a")
+
+    list_resp = client.get("/xa/ca-benh")
+    assert "10/07/2026" in list_resp.text
+    assert "2026-07-10" not in list_resp.text
+
+    record = core.query_records("case", db_path=core.DB_PATH)[0][0]
+    detail_resp = client.get(f"/xa/ca-benh/{record['id']}")
+    assert "10/07/2026" in detail_resp.text
+    assert "2026-07-10" not in detail_resp.text
+
+
 def test_case_list_ignores_admin_area_query_param_override(client: TestClient, tmp_path: Path):
     """Cố truyền ?admin_area=<xã khác> qua query string phải KHÔNG có tác dụng gì — router
     xa_view.py không nhận admin_area từ query string, luôn tự gán từ phiên đăng nhập."""

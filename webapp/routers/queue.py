@@ -80,6 +80,7 @@ def queue_list(
         row = dict(item)
         row["status_label"] = STATUS_LABELS.get(item["status"], item["status"])
         row["source_label"] = SOURCE_LABELS.get(item["source"], item["source"])
+        row["received_at"] = core.format_timestamp_for_display(row.get("received_at"))
         rows.append(row)
     page_rows, page_info = paginate(rows, page)
     token = auth.get_csrf_token(request)

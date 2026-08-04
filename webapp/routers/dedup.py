@@ -139,6 +139,9 @@ def review(
     records = core.get_records_by_ids(entity_type, id_list[:50], db_path=settings.db_path)
     if len(records) < 2:
         return _redirect_to_scan(entity_type, err="Nhóm này không còn đủ bản ghi để hợp nhất (có thể đã được xử lý).")
+    # Hiển thị dd/MM/yyyy cho cả bảng so sánh lẫn các lựa chọn hợp nhất — an toàn để submit lại
+    # nguyên trạng vì merge_group()/_normalize_payload tự phân tích lại dd/MM/yyyy về ISO khi lưu.
+    records = [core.format_record_dates(r) for r in records]
 
     fields = core.CASE_MERGE_FIELDS if entity_type == "case" else core.OUTBREAK_MERGE_FIELDS
     labels = core.CASE_LABELS if entity_type == "case" else core.OUTBREAK_LABELS

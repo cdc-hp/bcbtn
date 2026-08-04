@@ -165,6 +165,38 @@ def test_case_detail_shows_fields_and_issues(client: TestClient, tmp_path: Path)
     assert "Nguyễn Văn A" in detail.text
 
 
+def test_case_list_and_detail_show_dates_as_dd_mm_yyyy(client: TestClient, tmp_path: Path):
+    _login(client)
+    _seed_cases(tmp_path, [{
+        "case_code": "CA-1", "full_name": "Nguyễn Văn A", "commune": "Xã A",
+        "onset_date": "10/07/2026", "birth_date_raw": "15/05/1990",
+    }])
+    list_page = client.get("/cdc/ca-benh")
+    assert "10/07/2026" in list_page.text
+    assert "2026-07-10" not in list_page.text
+
+    record = core.query_records("case", db_path=core.DB_PATH)[0][0]
+    detail = client.get(f"/cdc/ca-benh/{record['id']}")
+    assert "10/07/2026" in detail.text
+    assert "15/05/1990" in detail.text
+    assert "2026-07-10" not in detail.text
+    assert "1990-05-15" not in detail.text
+
+
+def test_case_detail_shows_imported_at_as_dd_mm_yyyy_hh_mm(client: TestClient, tmp_path: Path):
+    """"Nhập lúc" là mốc thời gian hệ thống (có giờ:phút), cũng phải theo dd/MM/yyyy như các
+    trường ngày khác — không còn hiện dạng ISO thô."""
+    _login(client)
+    _seed_cases(tmp_path, [{"case_code": "CA-1", "full_name": "Nguyễn Văn A", "commune": "Xã A"}])
+    record_id = core.query_records("case", db_path=core.DB_PATH)[0][0]["id"]
+    record = core.get_record("case", record_id, db_path=core.DB_PATH)
+    raw_imported_at = record["imported_at"]
+    detail = client.get(f"/cdc/ca-benh/{record['id']}")
+    assert raw_imported_at not in detail.text
+    expected = core.format_timestamp_for_display(raw_imported_at)
+    assert expected in detail.text
+
+
 def test_case_detail_missing_returns_403_page(client: TestClient):
     _login(client)
     resp = client.get("/cdc/ca-benh/999999")
@@ -296,6 +328,28 @@ def test_outbreak_list_and_detail(client: TestClient):
     detail = client.get(f"/cdc/o-dich/{outbreak_id}")
     assert detail.status_code == 200
     assert "Sởi" in detail.text
+
+
+def test_outbreak_list_and_detail_show_dates_as_dd_mm_yyyy(client: TestClient):
+    _login(client)
+    outbreak_id = _seed_outbreak(disease="Sởi", first_onset_date="2026-07-10")
+    page = client.get("/cdc/o-dich")
+    assert "10/07/2026" in page.text
+    assert "2026-07-10" not in page.text
+
+    detail = client.get(f"/cdc/o-dich/{outbreak_id}")
+    assert "10/07/2026" in detail.text
+    assert "2026-07-10" not in detail.text
+
+
+def test_outbreak_edit_form_still_uses_iso_date_for_html5_input(client: TestClient):
+    """Form sửa ổ dịch dùng <input type="date"> gốc trình duyệt — BẮT BUỘC value phải là ISO
+    (yyyy-mm-dd), không được đổi sang dd/MM/yyyy như các trang chỉ xem, nếu không input sẽ hỏng."""
+    _login(client)
+    outbreak_id = _seed_outbreak(disease="Sởi", first_onset_date="2026-07-10")
+    resp = client.get(f"/cdc/o-dich/{outbreak_id}/sua")
+    assert 'value="2026-07-10"' in resp.text
+    assert 'value="10/07/2026"' not in resp.text
 
 
 def test_outbreak_filter_by_disease(client: TestClient):

@@ -66,6 +66,17 @@ def test_list_shows_batches(client: TestClient, tmp_path: Path):
     assert resp.status_code == 200 and "a.xlsx" in resp.text
 
 
+def test_list_shows_imported_at_as_dd_mm_yyyy_hh_mm(client: TestClient, tmp_path: Path):
+    _login(client)
+    core.import_excel(_seed_case_file(tmp_path, "a.xlsx", [{"full_name": "Nguyen Van A"}]), core.DB_PATH)
+    batch = core.list_import_batches(db_path=core.DB_PATH)[0]
+    raw_imported_at = batch["imported_at"]
+
+    resp = client.get("/cdc/lich-su-nhap")
+    assert raw_imported_at not in resp.text
+    assert core.format_timestamp_for_display(raw_imported_at) in resp.text
+
+
 def test_viewer_forbidden(client: TestClient):
     _login(client, role=core.CDC_ROLE_VIEWER)
     resp = client.get("/cdc/lich-su-nhap")

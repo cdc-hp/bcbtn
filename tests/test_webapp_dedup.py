@@ -116,6 +116,39 @@ def test_review_page_shows_group_records(client: TestClient, tmp_path: Path):
     assert "Nguyễn Văn A" in resp.text and "Nguyễn Văn Á" in resp.text
 
 
+def test_review_page_shows_dates_as_dd_mm_yyyy(client: TestClient, tmp_path: Path):
+    wb = Workbook(); ws = wb.active; ws.title = "Disease Cases"
+    ws.append([label for label, _ in core.CASE_FIELDS])
+    rows = [
+        {"case_code": "CA-DUP", "full_name": "Nguyễn Văn A", "commune": "Xã A", "phone": "0900000001", "onset_date": "10/07/2026"},
+        {"case_code": "CA-DUP", "full_name": "Nguyễn Văn Á", "commune": "Xã A", "phone": "0900000002", "onset_date": "10/07/2026"},
+    ]
+    for row in rows:
+        full = {key: "" for _, key in core.CASE_FIELDS}
+        full.update(row)
+        ws.append([full.get(key, "") for _, key in core.CASE_FIELDS])
+    path = tmp_path / "seed.xlsx"
+    wb.save(path)
+    _login(client)
+    core.import_excel(path, core.DB_PATH)
+    ids = _dup_case_ids()
+
+    resp = client.get("/cdc/loc-trung/xem", params={"entity": "case", "ids": ",".join(map(str, ids))})
+    assert "10/07/2026" in resp.text
+    assert "2026-07-10" not in resp.text
+
+    # Submit lại option đã hiển thị dd/MM/yyyy vẫn phải lưu đúng thành ISO trong CSDL sau hợp nhất.
+    keep_id = ids[0]
+    csrf = _fresh_csrf(client, "/cdc/loc-trung/xem?entity=case&ids=" + ",".join(map(str, ids)))
+    resp = client.post("/cdc/loc-trung/hop-nhat", data={
+        "csrf_token": csrf, "entity": "case", "ids": [str(i) for i in ids], "keep": str(keep_id),
+        "field__onset_date": "10/07/2026", "field__full_name": "Nguyễn Văn A", "field__case_code": "CA-DUP",
+    }, follow_redirects=False)
+    assert resp.status_code == 303
+    kept = core.get_record("case", keep_id, db_path=core.DB_PATH)
+    assert kept["onset_date"] == "2026-07-10"
+
+
 def test_review_page_redirects_when_group_gone(client: TestClient):
     _login(client)
     resp = client.get("/cdc/loc-trung/xem", params={"entity": "case", "ids": "999997,999998"}, follow_redirects=False)

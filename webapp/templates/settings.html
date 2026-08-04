@@ -22,6 +22,20 @@
     </form>
   </section>
 
+  <section class="cdc-card cdc-admin-card">
+    <div class="fw-semibold mb-1">Chuẩn hóa định dạng ngày tháng</div>
+    <div class="small text-secondary">
+      Quét lại toàn bộ ca bệnh/ổ dịch đang có, chuẩn hóa các trường ngày/giờ (kể cả Ngày sinh) bị
+      lưu sai định dạng từ trước — dùng khi nghi ngờ dữ liệu cũ lẫn lộn định dạng (dd/mm/yyyy,
+      dd-mm-yyyy, dd.mm.yyyy...). Bản ghi đã đúng chuẩn không bị ảnh hưởng. Máy chủ tự sao lưu
+      CSDL trước khi sửa.
+    </div>
+    <form method="post" action="/cdc/cau-hinh/chuan-hoa-ngay-thang" class="mt-2" onsubmit="return confirm('Quét và chuẩn hóa lại định dạng ngày tháng cho toàn bộ dữ liệu? Máy chủ sẽ tự sao lưu trước khi sửa.');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="btn btn-sm btn-outline-secondary">Quét &amp; chuẩn hóa ngay</button>
+    </form>
+  </section>
+
   <section class="cdc-card cdc-admin-card cdc-update-card"
            data-web-update
            data-update-active="{{ 'true' if update_status.active else 'false' }}"

@@ -62,6 +62,7 @@ def list_batches(
     )
     for row in rows:
         row["entity_label"] = ENTITY_LABELS.get(row["entity_type"], row["entity_type"])
+        row["imported_at"] = core.format_timestamp_for_display(row.get("imported_at"))
     page_rows, page_info = paginate(rows, page)
     base_params = {"commune": commune, "week": week}
     # pagination_base GIỮ NGUYÊN sort/dir đang chọn (khớp mẫu queue.py) — đổi trang không làm

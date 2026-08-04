@@ -162,7 +162,10 @@ def export_cases(
     where_sql, params = _where_clause(
         search=search, disease=disease, status=status, admin_area=admin_area, advanced=advanced,
     )
-    hidden = {"row_hash", "raw_json"}
+    # birth_year là cột suy ra từ birth_date_raw (extract_birth_year) để lọc/kiểm tra chất lượng
+    # nội bộ — file xuất chỉ giữ đúng "Ngày sinh" (birth_date_raw) như nguyên bản, không lặp lại
+    # dưới dạng "Năm sinh" riêng (khớp core.export_filtered_records/export_cases_by_commune).
+    hidden = {"row_hash", "raw_json", "birth_year"}
     with _connect(db_path) as conn:
         total = int(conn.execute(f"SELECT COUNT(*) FROM cases{where_sql}", params).fetchone()[0])
         if total == 0:
@@ -177,9 +180,11 @@ def export_cases(
             params,
         ).fetchall()
     extra_labels = {
-        "id": "ID", "birth_year": "Năm sinh", "source_file": "File nguồn",
+        "id": "ID", "source_file": "File nguồn",
         "source_sheet": "Sheet nguồn", "source_row": "Dòng nguồn", "imported_at": "Thời điểm nhập",
     }
     headers = [core.CASE_LABELS.get(column, extra_labels.get(column, column)) for column in db_columns]
-    core.export_rows(path, headers, [[row[column] for column in db_columns] for row in rows])
+    core.export_rows(
+        path, headers, [[core.to_excel_date_value(column, row[column]) for column in db_columns] for row in rows],
+    )
     return total

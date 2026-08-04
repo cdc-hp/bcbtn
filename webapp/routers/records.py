@@ -73,6 +73,9 @@ def _list_view(entity_type: str):
                 page=page, page_size=50, db_path=settings.db_path,
             )
             advanced_options = {}
+        # Sắp xếp/lọc đã chạy trên giá trị ISO gốc trong SQL (đúng thứ tự thời gian) — chỉ đổi
+        # sang dd/MM/yyyy ở bước cuối cùng này, ngay trước khi đưa ra giao diện hiển thị.
+        rows = [core.format_record_dates(row) for row in rows]
         page_size = 50
         total_pages = max(1, (total + page_size - 1) // page_size)
         disease_field = "main_diagnosis" if entity_type == "case" else "disease"
@@ -138,13 +141,21 @@ def _detail_view(entity_type: str):
         if not record:
             raise ForbiddenError("Không tìm thấy bản ghi.")
         issues = core.list_quality_issues(entity_type=entity_type, entity_id=record_id, db_path=settings.db_path)
-        fields = [(meta["labels"].get(key, key), key, value) for key, value in record.items() if key not in ("raw_json",)]
+        display_record = core.format_record_dates(record)
+        # imported_at là mốc thời gian hệ thống (không phải trường ngày nghiệp vụ), định dạng
+        # riêng bằng format_timestamp_for_display (dd/MM/yyyy HH:MM) — record_detail.html hiển
+        # thị nó riêng ("Nhập lúc"), tách khỏi vòng lặp fields.
+        display_record["imported_at"] = core.format_timestamp_for_display(record.get("imported_at"))
+        fields = [
+            (meta["labels"].get(key, key), key, value)
+            for key, value in display_record.items() if key not in ("raw_json",)
+        ]
 
         token = auth.get_csrf_token(request)
         response = templates.TemplateResponse(request, "record_detail.html", {
             "user": user, "csrf_token": token, "active": meta["active"],
             "entity_type": entity_type, "entity_path": meta["path"], "title": meta["title"],
-            "record": record, "fields": fields, "issues": issues,
+            "record": display_record, "fields": fields, "issues": issues,
             "can_edit_outbreak": entity_type == "outbreak" and user.has_role(*CAN_EDIT_OUTBREAK_ROLES),
             "can_delete_outbreak": entity_type == "outbreak" and user.has_role(*CAN_DELETE_OUTBREAK_ROLES),
         })
